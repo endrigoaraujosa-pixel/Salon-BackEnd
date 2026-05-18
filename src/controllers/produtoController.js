@@ -1,0 +1,43 @@
+import Produto from '../models/Produto.js';
+
+const listProd = async (req, res) => {
+  try {
+    const prods = await Produto.findAll({ order: [['nome', 'ASC']] });
+    res.json(prods);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const createProd = async (req, res) => {
+  try {
+    const prod = await Produto.create(req.body);
+    res.status(201).json(prod);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const updateProd = async (req, res) => {
+  try {
+    const prod = await Produto.findByPk(req.params.pid);
+    if (!prod) return res.status(404).json({ detail: 'Produto não encontrado' });
+    
+    await prod.update(req.body);
+    res.json(prod);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const deleteProd = async (req, res) => {
+  try {
+    const prod = await Produto.findByPk(req.params.pid);
+    if (prod) await prod.destroy();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export { listProd, createProd, updateProd, deleteProd };
