@@ -19,7 +19,10 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:4000', // Origem do seu frontend
+  origin: [
+    'http://localhost:4000',
+    'https://studiosalon-ashen.vercel.app'
+  ], // Origem do seu frontend
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
