@@ -192,6 +192,11 @@ const setStatus = async (req, res) => {
     if (!ag) return res.status(404).json({ detail: 'Não encontrado' });
 
     if (status === 'concluido') {
+      for (const item of ag.itens || []) {
+        if (!item.colaborador_id || item.colaborador_id === "none") {
+          return res.status(400).json({ detail: 'Não é possível concluir o atendimento sem definir o profissional que realizou cada serviço.' });
+        }
+      }
       const pagamentos = await Pagamento.findAll({ where: { agendamento_id: req.params.aid } });
       const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
       if (totalPago < ag.valor_total - 0.01) {
@@ -217,13 +222,22 @@ const addPagamentos = async (req, res) => {
     const existingPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid } });
     const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
     const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-    const novoTotal = pagoAtual + novoValor;
+    let adjustedPagamentos = [...pagamentos];
+    let novoTotal = pagoAtual + novoValor;
 
     if (novoTotal > ag.valor_total + 0.01) {
-      return res.status(400).json({ detail: 'Valor excede o total devido' });
+      let excesso = novoTotal - ag.valor_total;
+      let idxDinheiro = adjustedPagamentos.findIndex(p => p.forma_pagamento === 'dinheiro');
+      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor >= excesso) {
+        adjustedPagamentos[idxDinheiro].valor -= excesso;
+        adjustedPagamentos[idxDinheiro].observacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (adjustedPagamentos[idxDinheiro].observacao ? ` - ${adjustedPagamentos[idxDinheiro].observacao}` : '');
+        novoTotal = ag.valor_total;
+      } else {
+        return res.status(400).json({ detail: 'Valor excede o total devido' });
+      }
     }
 
-    for (const p of pagamentos) {
+    for (const p of adjustedPagamentos) {
       await Pagamento.create({
         id: uuidv4(),
         agendamento_id: req.params.aid,
@@ -236,6 +250,11 @@ const addPagamentos = async (req, res) => {
 
     ag.valor_pago = novoTotal;
     if (finalizar && novoTotal >= ag.valor_total - 0.01) {
+      for (const item of ag.itens || []) {
+        if (!item.colaborador_id || item.colaborador_id === "none") {
+          return res.status(400).json({ detail: 'Não é possível concluir o atendimento sem definir o profissional que realizou cada serviço.' });
+        }
+      }
       ag.status = 'concluido';
     }
     await ag.save();

@@ -3,6 +3,8 @@ import Pagamento from '../models/Pagamento.js';
 import Cliente from '../models/Cliente.js';
 import Colaborador from '../models/Colaborador.js';
 import Produto from '../models/Produto.js';
+import Despesa from '../models/Despesa.js';
+import TaxaCartao from '../models/TaxaCartao.js';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/db.js';
 
@@ -74,20 +76,69 @@ const relatorioDre = async (req, res) => {
     });
     const receitaServicos = ags.reduce((acc, a) => acc + a.valor_total, 0);
     
-    // In this simplified version, I'm skipping VendasDiretas for brevity unless I implement them next.
-    // Assuming 0 for now as it's a migration and I can add it later if needed.
     const receitaVendas = 0;
     const custoProdutos = 0;
-    const receitaBruta = receitaServicos + receitaVendas;
+    const outrasReceitas = 0;
+    const receitaBruta = receitaServicos + receitaVendas + outrasReceitas;
+
+    // Despesas do período
+    const despesas = await Despesa.findAll({
+      where: {
+        data_vencimento: { [Op.between]: [data_inicio, data_fim] }
+      }
+    });
+    const despesasFixas = despesas.filter(d => d.tipo === 'fixo').reduce((acc, d) => acc + d.valor, 0);
+    const despesasVariaveis = despesas.filter(d => d.tipo === 'variavel').reduce((acc, d) => acc + d.valor, 0);
+
+    // Taxas de Cartão
+    let rates = await TaxaCartao.findAll();
+    if (rates.length === 0) {
+      await TaxaCartao.bulkCreate([
+        { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true },
+        { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true }
+      ]);
+      rates = await TaxaCartao.findAll();
+    }
+    const creditoRate = rates.find(r => r.forma_pagamento === 'cartao_credito' && r.ativo)?.percentual || 0;
+    const debitoRate = rates.find(r => r.forma_pagamento === 'cartao_debito' && r.ativo)?.percentual || 0;
+
+    const payments = await Pagamento.findAll({
+      where: {
+        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] }
+      }
+    });
+    const creditoTotalVal = payments.filter(p => p.forma_pagamento === 'cartao_credito').reduce((acc, p) => acc + p.valor, 0);
+    const debitoTotalVal = payments.filter(p => p.forma_pagamento === 'cartao_debito').reduce((acc, p) => acc + p.valor, 0);
+
+    const taxasCredito = creditoTotalVal * (creditoRate / 100);
+    const taxasDebito = debitoTotalVal * (debitoRate / 100);
+    const taxasTotal = taxasCredito + taxasDebito;
+
+    const despesasOperacionais = despesasFixas + despesasVariaveis + taxasTotal;
+    const lucroBruto = receitaBruta - custoProdutos;
+    const lucroLiquido = lucroBruto - despesasOperacionais;
 
     res.json({
       data_inicio,
       data_fim,
       receita_servicos: receitaServicos,
       receita_vendas_diretas: receitaVendas,
+      outras_receitas: outrasReceitas,
       receita_bruta: receitaBruta,
       custo_produtos: custoProdutos,
-      lucro_bruto: receitaBruta - custoProdutos,
+      lucro_bruto: lucroBruto,
+      despesas: {
+        bold: false,
+        fixas: despesasFixas,
+        variaveis: despesasVariaveis
+      },
+      taxas_cartao: {
+        credito: taxasCredito,
+        debito: taxasDebito,
+        total: taxasTotal
+      },
+      despesas_operacionais: despesasOperacionais,
+      lucro_liquido: lucroLiquido,
       total_atendimentos: ags.length,
       total_vendas_diretas: 0
     });
@@ -124,4 +175,12 @@ const relatorioCaixa = async (req, res) => {
   }
 };
 
-export { dashboard, relatorioDre, relatorioCaixa };
+const relatorioProdutos = async (req, res) => {
+  try {
+    res.json({ produtos: [] });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos };

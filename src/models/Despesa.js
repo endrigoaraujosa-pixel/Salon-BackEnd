@@ -1,0 +1,50 @@
+import { DataTypes } from 'sequelize';
+import { sequelize } from '../config/db.js';
+import { v4 as uuidv4 } from 'uuid';
+
+const Despesa = sequelize.define('Despesa', {
+  id: {
+    type: DataTypes.STRING(36),
+    primaryKey: true,
+    defaultValue: () => uuidv4()
+  },
+  descricao: {
+    type: DataTypes.STRING(255),
+    allowNull: false
+  },
+  valor: {
+    type: DataTypes.FLOAT,
+    allowNull: false,
+    defaultValue: 0
+  },
+  tipo: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    defaultValue: 'fixo' // 'fixo' or 'variavel'
+  },
+  categoria: {
+    type: DataTypes.STRING(255),
+    defaultValue: ''
+  },
+  data_vencimento: {
+    type: DataTypes.STRING(50),
+    defaultValue: ''
+  },
+  data_pagamento: {
+    type: DataTypes.STRING(50),
+    defaultValue: ''
+  },
+  pago: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  observacoes: {
+    type: DataTypes.TEXT,
+    defaultValue: ''
+  }
+}, {
+  tableName: 'despesas',
+  timestamps: false
+});
+
+export default Despesa;

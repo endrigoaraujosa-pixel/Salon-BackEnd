@@ -13,7 +13,10 @@ import { listColab, createColab, updateColab, deleteColab } from './controllers/
 import { listServ, createServ, updateServ, deleteServ } from './controllers/servicoController.js';
 import { listProd, createProd, updateProd, deleteProd } from './controllers/produtoController.js';
 import { listAgend, getAgend, createAgend, updateAgend, deleteAgend, setStatus, addPagamentos } from './controllers/agendamentoController.js';
-import { dashboard, relatorioDre, relatorioCaixa } from './controllers/reportController.js';
+import { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos } from './controllers/reportController.js';
+import { listDespesas, createDespesa, updateDespesa, deleteDespesa } from './controllers/despesaController.js';
+import { getTaxas, saveTaxa } from './controllers/configuracaoController.js';
+import { listUsers, createUser, updateUser, deleteUser } from './controllers/userController.js';
 
 const app = express();
 
@@ -21,6 +24,8 @@ const app = express();
 app.use(cors({
   origin: [
     'http://localhost:4000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
     'https://studiosalon-ashen.vercel.app'
   ], // Origem do seu frontend
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -84,6 +89,29 @@ app.use('/api/agendamentos', agendRoutes);
 app.get('/api/dashboard', protect, dashboard);
 app.get('/api/relatorios/dre', protect, relatorioDre);
 app.get('/api/relatorios/caixa', protect, relatorioCaixa);
+app.get('/api/relatorios/produtos', protect, relatorioProdutos);
+
+// Users Routes
+const userRoutes = express.Router();
+userRoutes.get('/', protect, listUsers);
+userRoutes.post('/', protect, createUser);
+userRoutes.put('/:id', protect, updateUser);
+userRoutes.delete('/:id', protect, deleteUser);
+app.use('/api/users', userRoutes);
+
+// Despesas Routes
+const despesaRoutes = express.Router();
+despesaRoutes.get('/', protect, listDespesas);
+despesaRoutes.post('/', protect, createDespesa);
+despesaRoutes.put('/:id', protect, updateDespesa);
+despesaRoutes.delete('/:id', protect, deleteDespesa);
+app.use('/api/despesas', despesaRoutes);
+
+// Configuracoes Routes
+const configRoutes = express.Router();
+configRoutes.get('/taxas-cartao', protect, getTaxas);
+configRoutes.post('/taxas-cartao', protect, saveTaxa);
+app.use('/api/configuracoes', configRoutes);
 
 // Seed Admin User
 const seedAdmin = async () => {
