@@ -2,7 +2,7 @@ import { Sequelize } from 'sequelize';
 import 'dotenv/config';
 
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
-  dialect: 'postgres',
+  dialect: 'postgres',  
   logging: false,
   define: {
     timestamps: false
