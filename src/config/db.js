@@ -1,8 +1,10 @@
 import { Sequelize } from 'sequelize';
 import 'dotenv/config';
+import pg from 'pg';
 
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
-  dialect: 'postgres',  
+  dialect: 'postgres',
+  dialectModule: pg,
   logging: false,
   define: {
     timestamps: false
