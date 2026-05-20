@@ -1,9 +1,10 @@
 import { Sequelize } from 'sequelize';
 import 'dotenv/config';
+import pg from 'pg';
 
-const sequelize = new Sequelize({
-  dialect: 'sqlite',
-  storage: './database.sqlite',
+const sequelize = new Sequelize(process.env.DATABASE_URL, {
+  dialect: 'postgres',
+  dialectModule: pg,
   logging: false,
   define: {
     timestamps: false
@@ -13,7 +14,7 @@ const sequelize = new Sequelize({
 const connectDB = async () => {
   try {
     await sequelize.authenticate();
-    console.log('SQLite connected via Sequelize');
+    console.log('PostgreSQL connected via Sequelize');
   } catch (error) {
     console.error('Unable to connect to the database:', error);
     process.exit(1);
