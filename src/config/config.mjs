@@ -1,26 +1,26 @@
 export default {
-  "development": {
-    "username": "root",
-    "password": null,
-    "database": "database_test",
-    "host": "127.0.0.1",
-    "dialect": "sqlite",
-    "storage": "./teste.sqlite"
+  development: {
+    username: "root",
+    password: null,
+    database: "database_test",
+    host: "127.0.0.1",
+    dialect: "sqlite",
+    storage: "./teste.sqlite"
   },
-  "test": {
-    "username": "root",
-    "password": null,
-    "database": "database_test",
-    "host": "127.0.0.1",
-    "dialect": "mysql"
+  test: {
+    username: "root",
+    password: null,
+    database: "database_test",
+    host: "127.0.0.1",
+    dialect: "mysql"
   },
-  "production": {
-    "username": "postgres.hymvktqrtkqvvuzwcvhe",
-    "password": "clTZpY8FEDM5GNDA",
-    "database": "postgres",
-    "host": "aws-1-us-west-2.pooler.supabase.com",
-    "dialect": "postgres",
-    "port": 5432
+  production: {
+    username: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    host: process.env.DB_HOST,
+    dialect: "postgres",
+    port: process.env.DB_PORT
   }
 }
 
