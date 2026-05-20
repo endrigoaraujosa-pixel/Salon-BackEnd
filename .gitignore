@@ -34,3 +34,4 @@ Thumbs.db
 coverage/
 
 sequelize.sqlite
+teste.sqlite
