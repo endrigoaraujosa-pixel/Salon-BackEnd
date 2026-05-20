@@ -1,15 +1,15 @@
-import Despesa from '../models/Despesa.js';
+import OutrasReceitas from '../models/OutrasReceitas.js';
 
-const listDespesas = async (req, res) => {
+const listReceitas = async (req, res) => {
   try {
-    const despesas = await Despesa.findAll({ order: [['data_vencimento', 'DESC']] });
-    res.json(despesas);
+    const receitas = await OutrasReceitas.findAll({ order: [['data_recebimento', 'DESC']] });
+    res.json(receitas);
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
 };
 
-const createDespesa = async (req, res) => {
+const createReceita = async (req, res) => {
   try {
     if (req.body.valor !== undefined) {
       const valorStr = String(req.body.valor).replace(",", ".");
@@ -18,17 +18,17 @@ const createDespesa = async (req, res) => {
     if (!req.body.descricao || !String(req.body.descricao).trim()) {
       return res.status(400).json({ detail: 'Descrição é obrigatória' });
     }
-    const despesa = await Despesa.create(req.body);
-    res.status(201).json(despesa);
+    const receita = await OutrasReceitas.create(req.body);
+    res.status(201).json(receita);
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
 };
 
-const updateDespesa = async (req, res) => {
+const updateReceita = async (req, res) => {
   try {
-    const despesa = await Despesa.findByPk(req.params.id);
-    if (!despesa) return res.status(404).json({ detail: 'Despesa não encontrada' });
+    const receita = await OutrasReceitas.findByPk(req.params.id);
+    if (!receita) return res.status(404).json({ detail: 'Receita não encontrada' });
     
     if (req.body.valor !== undefined) {
       const valorStr = String(req.body.valor).replace(",", ".");
@@ -38,17 +38,17 @@ const updateDespesa = async (req, res) => {
       return res.status(400).json({ detail: 'Descrição é obrigatória' });
     }
     
-    await despesa.update(req.body);
-    res.json(despesa);
+    await receita.update(req.body);
+    res.json(receita);
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
 };
 
-const deleteDespesa = async (req, res) => {
+const deleteReceita = async (req, res) => {
   try {
-    const despesa = await Despesa.findByPk(req.params.id);
-    if (despesa) await despesa.destroy();
+    const receita = await OutrasReceitas.findByPk(req.params.id);
+    if (receita) await receita.destroy();
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -56,8 +56,8 @@ const deleteDespesa = async (req, res) => {
 };
 
 export {
-  listDespesas,
-  createDespesa,
-  updateDespesa,
-  deleteDespesa
+  listReceitas,
+  createReceita,
+  updateReceita,
+  deleteReceita
 };
