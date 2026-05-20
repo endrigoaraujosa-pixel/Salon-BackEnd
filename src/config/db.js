@@ -1,15 +1,8 @@
 import { Sequelize } from 'sequelize';
 import 'dotenv/config';
-import pg from 'pg';
+import config from './config.mjs'
 
-const sequelize = new Sequelize(process.env.DATABASE_URL, {
-  dialect: 'postgres',
-  dialectModule: pg,
-  logging: false,
-  define: {
-    timestamps: false
-  }
-});
+const sequelize = new Sequelize(config[process.env.NODE_ENV || 'development']);
 
 const connectDB = async () => {
   try {
