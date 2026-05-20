@@ -33,4 +33,4 @@ Thumbs.db
 # Coverage directory used by tools like istanbul
 coverage/
 
-sequelize.sqlite
+database.sqlite
