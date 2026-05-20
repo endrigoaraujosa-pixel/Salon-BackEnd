@@ -17,7 +17,7 @@ import { listColab, createColab, updateColab, deleteColab } from './controllers/
 import { listServ, createServ, updateServ, deleteServ } from './controllers/servicoController.js';
 import { listProd, createProd, updateProd, deleteProd } from './controllers/produtoController.js';
 import { listAgend, getAgend, createAgend, updateAgend, deleteAgend, setStatus, addPagamentos, updatePagamento as updateAgendamentoPagamento, deletePagamento as deleteAgendamentoPagamento } from './controllers/agendamentoController.js';
-import { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos } from './controllers/reportController.js';
+import { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos, relatorioServicos } from './controllers/reportController.js';
 import { listDespesas, createDespesa, updateDespesa, deleteDespesa } from './controllers/despesaController.js';
 import { getTaxas, saveTaxa } from './controllers/configuracaoController.js';
 import { listUsers, createUser, updateUser, deleteUser } from './controllers/userController.js';
@@ -29,12 +29,7 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: [
-    'http://localhost:4000',
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'https://studiosalon-ashen.vercel.app'
-  ], // Origem do seu frontend
+  origin: true, // Permite qualquer origem dinâmica para facilitar testes locais e em celulares
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -99,6 +94,7 @@ app.get('/api/dashboard', protect, dashboard);
 app.get('/api/relatorios/dre', protect, admin, relatorioDre);
 app.get('/api/relatorios/caixa', protect, admin, relatorioCaixa);
 app.get('/api/relatorios/produtos', protect, admin, relatorioProdutos);
+app.get('/api/relatorios/servicos', protect, admin, relatorioServicos);
 
 // Users Routes
 const userRoutes = express.Router();

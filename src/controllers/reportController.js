@@ -229,11 +229,293 @@ const relatorioCaixa = async (req, res) => {
 };
 
 const relatorioProdutos = async (req, res) => {
+  const { data_inicio, data_fim, colaborador_id, produto_id, categoria, forma_pagamento, cliente_id, status } = req.query;
+
   try {
-    res.json({ produtos: [] });
+    const where = {};
+    if (data_inicio && data_fim) {
+      where.data_venda = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
+
+    if (colaborador_id && colaborador_id !== 'todos') {
+      where.colaborador_id = colaborador_id;
+    }
+
+    if (produto_id && produto_id !== 'todos') {
+      where.produto_id = produto_id;
+    }
+
+    if (cliente_id && cliente_id !== 'todos') {
+      where.cliente_id = cliente_id;
+    }
+
+    if (status && status !== 'todos') {
+      where.status = status;
+    }
+
+    // Buscamos todas as vendas diretas no período/filtros básicos
+    const vendas = await VendaDireta.findAll({ where, order: [['data_venda', 'DESC']] });
+
+    // Precisamos buscar os produtos para filtrar por categoria e obter custo unitário
+    const produtosIds = [...new Set(vendas.map(v => v.produto_id))];
+    const produtosList = await Produto.findAll({
+      where: {
+        id: { [Op.in]: produtosIds }
+      }
+    });
+    const produtosMap = new Map(produtosList.map(p => [p.id, p]));
+
+    // Precisamos buscar os pagamentos associados a essas vendas
+    const vendasIds = vendas.map(v => v.id);
+    const pagamentosList = await Pagamento.findAll({
+      where: {
+        venda_direta_id: { [Op.in]: vendasIds }
+      }
+    });
+
+    // Agrupar pagamentos por venda_direta_id
+    const pagamentosMap = new Map();
+    pagamentosList.forEach(p => {
+      if (!pagamentosMap.has(p.venda_direta_id)) {
+        pagamentosMap.set(p.venda_direta_id, []);
+      }
+      pagamentosMap.get(p.venda_direta_id).push(p);
+    });
+
+    // Mapear cada venda direta com as informações adicionadas
+    let mappedVendas = vendas.map(v => {
+      const prod = produtosMap.get(v.produto_id);
+      const categoriaProd = prod?.categoria || 'Nenhuma';
+      const custoUnitario = prod?.custo_unitario || 0;
+      
+      const pags = pagamentosMap.get(v.id) || [];
+      const formas = [...new Set(pags.map(p => p.forma_pagamento))];
+
+      return {
+        id: v.id,
+        data_venda: v.data_venda,
+        produto_id: v.produto_id,
+        produto_nome: v.produto_nome,
+        quantidade: v.quantidade,
+        valor_unitario: v.quantidade > 0 ? (v.valor_total / v.quantidade) : 0,
+        valor_total: v.valor_total,
+        valor_pago: v.valor_pago,
+        status: v.status,
+        colaborador_id: v.colaborador_id,
+        colaborador_nome: v.colaborador_nome || 'Nenhum',
+        cliente_id: v.cliente_id,
+        cliente_nome: v.cliente_nome || 'Consumidor',
+        categoria: categoriaProd,
+        custo_total: v.quantidade * custoUnitario,
+        formas_pagamento: formas,
+        pagamentos: pags
+      };
+    });
+
+    // Filtrar por Categoria no JavaScript (caso seja passado e não seja 'todos')
+    if (categoria && categoria !== 'todos') {
+      mappedVendas = mappedVendas.filter(v => v.categoria.toLowerCase() === categoria.toLowerCase());
+    }
+
+    // Filtrar por Forma de Pagamento no JavaScript (caso seja passado e não seja 'todos')
+    if (forma_pagamento && forma_pagamento !== 'todos') {
+      mappedVendas = mappedVendas.filter(v => v.formas_pagamento.includes(forma_pagamento));
+    }
+
+    // Totalizadores gerais
+    let totalFaturamento = 0;
+    let totalQuantidade = 0;
+    let totalCusto = 0;
+    let totalLucro = 0;
+
+    const porColaborador = {};
+    const porProduto = {};
+    const porFormaPagamento = {};
+
+    mappedVendas.forEach(v => {
+      totalFaturamento += v.valor_total;
+      totalQuantidade += v.quantidade;
+      totalCusto += v.custo_total;
+
+      // Por colaborador
+      const colabName = v.colaborador_nome;
+      porColaborador[colabName] = (porColaborador[colabName] || 0) + v.valor_total;
+
+      // Por produto
+      const prodName = v.produto_nome;
+      porProduto[prodName] = (porProduto[prodName] || 0) + v.valor_total;
+
+      // Por forma de pagamento (distribuir o valor de cada pagamento se houver, senão assume a venda total no caso de pendente)
+      if (v.pagamentos && v.pagamentos.length > 0) {
+        v.pagamentos.forEach(p => {
+          porFormaPagamento[p.forma_pagamento] = (porFormaPagamento[p.forma_pagamento] || 0) + p.valor;
+        });
+      } else {
+        // Se estiver pendente e sem pagamentos
+        porFormaPagamento['pendente'] = (porFormaPagamento['pendente'] || 0) + v.valor_total;
+      }
+    });
+
+    totalLucro = totalFaturamento - totalCusto;
+
+    res.json({
+      vendas: mappedVendas,
+      totais: {
+        total_faturamento: totalFaturamento,
+        total_quantidade: totalQuantidade,
+        total_custo: totalCusto,
+        total_lucro: totalLucro,
+        por_colaborador: porColaborador,
+        por_produto: porProduto,
+        por_forma_pagamento: porFormaPagamento
+      }
+    });
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
 };
 
-export { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos };
+const relatorioServicos = async (req, res) => {
+  const { data_inicio, data_fim, colaborador_id, servico_id, forma_pagamento, cliente_id, status } = req.query;
+
+  try {
+    const where = {};
+    if (data_inicio && data_fim) {
+      where.data_hora = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
+
+    if (cliente_id && cliente_id !== 'todos') {
+      where.cliente_id = cliente_id;
+    }
+
+    if (status && status !== 'todos') {
+      where.status = status;
+    }
+
+    // Buscamos os agendamentos no período/filtros básicos
+    const agendamentos = await Agendamento.findAll({ where, order: [['data_hora', 'DESC']] });
+
+    // Colaboradores para mapear nomes
+    const colaboradores = await Colaborador.findAll();
+    const colabMap = new Map(colaboradores.map(c => [c.id, c.nome]));
+
+    // Pagamentos associados a estes agendamentos
+    const agendsIds = agendamentos.map(a => a.id);
+    const pagamentosList = await Pagamento.findAll({
+      where: {
+        agendamento_id: { [Op.in]: agendsIds }
+      }
+    });
+
+    const pagamentosMap = new Map();
+    pagamentosList.forEach(p => {
+      if (!pagamentosMap.has(p.agendamento_id)) {
+        pagamentosMap.set(p.agendamento_id, []);
+      }
+      pagamentosMap.get(p.agendamento_id).push(p);
+    });
+
+    let mappedServicos = [];
+
+    agendamentos.forEach(ag => {
+      let itens = [];
+      try {
+        itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+      } catch (e) {
+        itens = ag.itens || [];
+      }
+
+      const pags = pagamentosMap.get(ag.id) || [];
+      const formas = [...new Set(pags.map(p => p.forma_pagamento))];
+
+      if (Array.isArray(itens)) {
+        itens.forEach(item => {
+          mappedServicos.push({
+            id: `${ag.id}-${item.servico_id}`,
+            agendamento_id: ag.id,
+            agendamento_numero: ag.numero,
+            data_hora: ag.data_hora,
+            cliente_id: ag.cliente_id,
+            cliente_nome: ag.cliente_nome || 'Nenhum',
+            servico_id: item.servico_id,
+            servico_nome: item.nome,
+            valor: item.valor,
+            duracao: item.duracao || 0,
+            colaborador_id: item.colaborador_id,
+            colaborador_nome: colabMap.get(item.colaborador_id) || 'Nenhum',
+            auxiliar_id: item.auxiliar_id,
+            auxiliar_nome: colabMap.get(item.auxiliar_id) || '',
+            status: ag.status,
+            formas_pagamento: formas,
+            pagamentos: pags
+          });
+        });
+      }
+    });
+
+    // Filtros no JS
+    if (colaborador_id && colaborador_id !== 'todos') {
+      mappedServicos = mappedServicos.filter(s => s.colaborador_id === colaborador_id || s.auxiliar_id === colaborador_id);
+    }
+
+    if (servico_id && servico_id !== 'todos') {
+      mappedServicos = mappedServicos.filter(s => s.servico_id === servico_id);
+    }
+
+    if (forma_pagamento && forma_pagamento !== 'todos') {
+      mappedServicos = mappedServicos.filter(s => s.formas_pagamento.includes(forma_pagamento));
+    }
+
+    // Totalizadores gerais
+    let totalFaturamento = 0;
+    let totalQuantidade = 0;
+    let totalDuracao = 0;
+
+    const porColaborador = {};
+    const porServico = {};
+    const porFormaPagamento = {};
+
+    mappedServicos.forEach(s => {
+      totalFaturamento += s.valor;
+      totalQuantidade += 1;
+      totalDuracao += s.duracao || 0;
+
+      // Por colaborador
+      const colabName = s.colaborador_nome;
+      porColaborador[colabName] = (porColaborador[colabName] || 0) + s.valor;
+
+      // Por serviço
+      const servName = s.servico_nome;
+      porServico[servName] = (porServico[servName] || 0) + s.valor;
+
+      // Por forma de pagamento (se existirem pagamentos, distribuímos proporcionalmente ou agrupamos)
+      if (s.formas_pagamento && s.formas_pagamento.length > 0) {
+        s.formas_pagamento.forEach(forma => {
+          porFormaPagamento[forma] = (porFormaPagamento[forma] || 0) + (s.valor / s.formas_pagamento.length);
+        });
+      } else {
+        porFormaPagamento['pendente'] = (porFormaPagamento['pendente'] || 0) + s.valor;
+      }
+    });
+
+    res.json({
+      servicos: mappedServicos,
+      totais: {
+        total_faturamento: totalFaturamento,
+        total_quantidade: totalQuantidade,
+        total_duracao: totalDuracao,
+        por_colaborador: porColaborador,
+        por_servico: porServico,
+        por_forma_pagamento: porFormaPagamento
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos, relatorioServicos };
