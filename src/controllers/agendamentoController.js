@@ -14,7 +14,7 @@ const adjustStock = async (ag, type) => {
     for (const item of ag.itens || []) {
       const s = await Servico.findByPk(item.servico_id);
       if (!s) continue;
-      
+
       const linked = s.produtos_vinculados || [];
       for (const pv of linked) {
         const prod = await Produto.findByPk(pv.produto_id);
@@ -45,10 +45,10 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   for (const item of body.itens_selecionados) {
     const s = await Servico.findByPk(item.servico_id);
     if (s) {
-      itens.push({ 
-        servico_id: item.servico_id, 
-        nome: s.nome, 
-        valor: s.valor, 
+      itens.push({
+        servico_id: item.servico_id,
+        nome: s.nome,
+        valor: s.valor,
         duracao: s.duracao_minutos,
         colaborador_id: item.colaborador_id || null,
         auxiliar_id: item.auxiliar_id || null
@@ -70,7 +70,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   // Validação de data no passado
   const novoInicio = new Date(body.data_hora);
   const agora = new Date();
-  
+
   // Tolerância de 5 minutos para compensar atrasos no preenchimento
   if (novoInicio < new Date(agora.getTime() - 5 * 60000)) {
     throw new Error('Não é possível realizar agendamentos no passado.');
@@ -93,7 +93,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
 
   for (const item of body.itens_selecionados) {
     const idsVerificar = [item.colaborador_id, item.auxiliar_id].filter(id => id);
-    
+
     for (const ag of existentes) {
       const agInicio = new Date(ag.data_hora);
       const agFim = new Date(agInicio.getTime() + ag.duracao_minutos * 60000);
@@ -190,7 +190,7 @@ const updateAgend = async (req, res) => {
     // Remove status and valor_pago from update to prevent manual overrides
     delete doc.status;
     delete doc.valor_pago;
-    
+
     await ag.update(doc);
     res.json(ag);
   } catch (error) {
@@ -259,7 +259,7 @@ const setStatus = async (req, res) => {
 
 const addPagamentos = async (req, res) => {
   const { pagamentos, finalizar } = req.body;
-  
+
   try {
     const ag = await Agendamento.findByPk(req.params.aid);
     if (!ag) return res.status(404).json({ detail: 'Agendamento não encontrado' });
