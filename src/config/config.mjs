@@ -1,3 +1,4 @@
+import pg from 'pg';
 export default {
   development: {
     username: "root",
@@ -20,7 +21,8 @@ export default {
     database: process.env.DB_NAME,
     host: process.env.DB_HOST,
     dialect: "postgres",
-    port: process.env.DB_PORT
+    port: process.env.DB_PORT,
+    dialectModule: pg,
   }
 }
 
