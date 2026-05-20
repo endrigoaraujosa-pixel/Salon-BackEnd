@@ -6,7 +6,8 @@ export default {
     database: "database_test",
     host: "127.0.0.1",
     dialect: "sqlite",
-    storage: "./teste.sqlite"
+    storage: "./teste.sqlite",
+    timestamps: false,
   },
   test: {
     username: "root",
@@ -23,6 +24,8 @@ export default {
     dialect: "postgres",
     port: process.env.DB_PORT,
     dialectModule: pg,
+    timestamps: false,
+
   }
 }
 
