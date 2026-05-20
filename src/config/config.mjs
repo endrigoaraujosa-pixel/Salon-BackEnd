@@ -16,9 +16,9 @@ export default {
     dialect: "mysql"
   },
   production: {
-    username: process.env.DB_USERNAME,
+    username: process.env.DB_USENAME,
     password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
+    database: process.env.DB,
     host: process.env.DB_HOST,
     dialect: "postgres",
     port: process.env.DB_PORT,
