@@ -1,7 +1,6 @@
 import { Sequelize } from 'sequelize';
 import 'dotenv/config';
-import pg from 'pg';
-import { config } from './config.mjs'
+import config from './config.mjs'
 
 const sequelize = new Sequelize(config[process.env.NODE_ENV || 'development']);
 
