@@ -8,9 +8,10 @@ import VendaDireta from './models/VendaDireta.js';
 import PagamentoComissao from './models/PagamentoComissao.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import OutrasReceitas from './models/OutrasReceitas.js';
 
 import { login, logout, me } from './controllers/authController.js';
-import { protect } from './middleware/auth.js';
+import { protect, admin } from './middleware/auth.js';
 import { listClientes, createCliente, updateCliente, deleteCliente, historicoCliente } from './controllers/clienteController.js';
 import { listColab, createColab, updateColab, deleteColab } from './controllers/colaboradorController.js';
 import { listServ, createServ, updateServ, deleteServ } from './controllers/servicoController.js';
@@ -22,6 +23,7 @@ import { getTaxas, saveTaxa } from './controllers/configuracaoController.js';
 import { listUsers, createUser, updateUser, deleteUser } from './controllers/userController.js';
 import { listVendas, getVenda, createVenda, deleteVenda, addPagamentos as addVendaPagamentos, updatePagamento as updateVendaPagamento, deletePagamento as deleteVendaPagamento } from './controllers/vendaDiretaController.js';
 import { listComissoes, pagarComissao, desfazerPagamento } from './controllers/comissaoController.js';
+import { listReceitas, createReceita, updateReceita, deleteReceita } from './controllers/outrasReceitasController.js';
 
 const app = express();
 
@@ -94,25 +96,33 @@ app.use('/api/agendamentos', agendRoutes);
 
 // Dashboard and Relatorios Routes
 app.get('/api/dashboard', protect, dashboard);
-app.get('/api/relatorios/dre', protect, relatorioDre);
-app.get('/api/relatorios/caixa', protect, relatorioCaixa);
-app.get('/api/relatorios/produtos', protect, relatorioProdutos);
+app.get('/api/relatorios/dre', protect, admin, relatorioDre);
+app.get('/api/relatorios/caixa', protect, admin, relatorioCaixa);
+app.get('/api/relatorios/produtos', protect, admin, relatorioProdutos);
 
 // Users Routes
 const userRoutes = express.Router();
-userRoutes.get('/', protect, listUsers);
-userRoutes.post('/', protect, createUser);
-userRoutes.put('/:id', protect, updateUser);
-userRoutes.delete('/:id', protect, deleteUser);
+userRoutes.get('/', protect, admin, listUsers);
+userRoutes.post('/', protect, admin, createUser);
+userRoutes.put('/:id', protect, admin, updateUser);
+userRoutes.delete('/:id', protect, admin, deleteUser);
 app.use('/api/users', userRoutes);
 
 // Despesas Routes
 const despesaRoutes = express.Router();
-despesaRoutes.get('/', protect, listDespesas);
-despesaRoutes.post('/', protect, createDespesa);
-despesaRoutes.put('/:id', protect, updateDespesa);
-despesaRoutes.delete('/:id', protect, deleteDespesa);
+despesaRoutes.get('/', protect, admin, listDespesas);
+despesaRoutes.post('/', protect, admin, createDespesa);
+despesaRoutes.put('/:id', protect, admin, updateDespesa);
+despesaRoutes.delete('/:id', protect, admin, deleteDespesa);
 app.use('/api/despesas', despesaRoutes);
+
+// Outras Receitas Routes
+const outrasReceitasRoutes = express.Router();
+outrasReceitasRoutes.get('/', protect, admin, listReceitas);
+outrasReceitasRoutes.post('/', protect, admin, createReceita);
+outrasReceitasRoutes.put('/:id', protect, admin, updateReceita);
+outrasReceitasRoutes.delete('/:id', protect, admin, deleteReceita);
+app.use('/api/outras-receitas', outrasReceitasRoutes);
 
 // Vendas Diretas Routes
 const vendaDiretaRoutes = express.Router();
@@ -127,9 +137,9 @@ app.use('/api/vendas-diretas', vendaDiretaRoutes);
 
 // Comissões Routes
 const comissaoRoutes = express.Router();
-comissaoRoutes.get('/', protect, listComissoes);
-comissaoRoutes.post('/pagar', protect, pagarComissao);
-comissaoRoutes.delete('/pagar', protect, desfazerPagamento);
+comissaoRoutes.get('/', protect, admin, listComissoes);
+comissaoRoutes.post('/pagar', protect, admin, pagarComissao);
+comissaoRoutes.delete('/pagar', protect, admin, desfazerPagamento);
 app.use('/api/comissoes', comissaoRoutes);
 
 // Configuracoes Routes

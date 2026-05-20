@@ -6,6 +6,7 @@ import Produto from '../models/Produto.js';
 import Despesa from '../models/Despesa.js';
 import TaxaCartao from '../models/TaxaCartao.js';
 import VendaDireta from '../models/VendaDireta.js';
+import OutrasReceitas from '../models/OutrasReceitas.js';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/db.js';
 
@@ -51,12 +52,14 @@ const dashboard = async (req, res) => {
       }
     });
 
+    const isAdmin = req.user && req.user.role === 'admin';
+
     res.json({
       total_clientes: totalClientes,
       total_colaboradores: totalColaboradores,
       agendamentos_hoje: agHoje,
-      faturamento_mes: faturamentoMes,
-      ticket_medio: ticketMedio,
+      faturamento_mes: isAdmin ? faturamentoMes : 0,
+      ticket_medio: isAdmin ? ticketMedio : 0,
       atendimentos_mes: concluidos,
       estoque_baixo: estoqueBaixo,
       top_servicos: []
@@ -93,7 +96,12 @@ const relatorioDre = async (req, res) => {
       }
     }
 
-    const outrasReceitas = 0;
+    const oReceitas = await OutrasReceitas.findAll({
+      where: {
+        data_recebimento: { [Op.between]: [data_inicio, data_fim] }
+      }
+    });
+    const outrasReceitas = oReceitas.reduce((acc, r) => acc + r.valor, 0);
     const receitaBruta = receitaServicos + receitaVendas + outrasReceitas;
 
     // Despesas do período
