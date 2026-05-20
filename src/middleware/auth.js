@@ -27,7 +27,9 @@ const protect = async (req, res, next) => {
       email: user.email,
       name: user.name,
       role: user.role,
-      ativo: user.ativo
+      ativo: user.ativo,
+      pode_alterar_concluido: user.pode_alterar_concluido,
+      pode_excluir_agendamento: user.pode_excluir_agendamento
     };
 
     next();

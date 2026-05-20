@@ -28,6 +28,17 @@ const Servico = sequelize.define('Servico', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  produtos_vinculados: {
+    type: DataTypes.TEXT,
+    defaultValue: '[]',
+    get() {
+      const rawValue = this.getDataValue('produtos_vinculados');
+      return rawValue ? JSON.parse(rawValue) : [];
+    },
+    set(value) {
+      this.setDataValue('produtos_vinculados', JSON.stringify(value || []));
+    }
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

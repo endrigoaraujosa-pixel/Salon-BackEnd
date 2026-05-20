@@ -5,6 +5,7 @@ import Colaborador from '../models/Colaborador.js';
 import Produto from '../models/Produto.js';
 import Despesa from '../models/Despesa.js';
 import TaxaCartao from '../models/TaxaCartao.js';
+import VendaDireta from '../models/VendaDireta.js';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/db.js';
 
@@ -76,8 +77,22 @@ const relatorioDre = async (req, res) => {
     });
     const receitaServicos = ags.reduce((acc, a) => acc + a.valor_total, 0);
     
-    const receitaVendas = 0;
-    const custoProdutos = 0;
+    const vendas = await VendaDireta.findAll({
+      where: {
+        status: 'pago',
+        data_venda: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] }
+      }
+    });
+    const receitaVendas = vendas.reduce((acc, v) => acc + v.valor_total, 0);
+
+    let custoProdutos = 0;
+    for (const v of vendas) {
+      const prod = await Produto.findByPk(v.produto_id);
+      if (prod) {
+        custoProdutos += v.quantidade * (prod.custo_unitario || 0);
+      }
+    }
+
     const outrasReceitas = 0;
     const receitaBruta = receitaServicos + receitaVendas + outrasReceitas;
 
@@ -140,7 +155,7 @@ const relatorioDre = async (req, res) => {
       despesas_operacionais: despesasOperacionais,
       lucro_liquido: lucroLiquido,
       total_atendimentos: ags.length,
-      total_vendas_diretas: 0
+      total_vendas_diretas: vendas.length
     });
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -148,7 +163,7 @@ const relatorioDre = async (req, res) => {
 };
 
 const relatorioCaixa = async (req, res) => {
-  const { data_inicio, data_fim } = req.query;
+  const { data_inicio, data_fim, colaborador_id } = req.query;
   try {
     const pagsAg = await Pagamento.findAll({
       where: {
@@ -156,8 +171,38 @@ const relatorioCaixa = async (req, res) => {
       }
     });
     
+    let filteredPags = pagsAg;
+
+    if (colaborador_id && colaborador_id !== 'todos') {
+      const agendamentos = await Agendamento.findAll();
+      const vendas = await VendaDireta.findAll();
+
+      filteredPags = pagsAg.filter(p => {
+        if (p.agendamento_id) {
+          const ag = agendamentos.find(a => a.id === p.agendamento_id);
+          if (ag) {
+            let itens = [];
+            try {
+              itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+            } catch (e) {
+              itens = ag.itens || [];
+            }
+            if (Array.isArray(itens)) {
+              return itens.some(item => item.colaborador_id === colaborador_id || item.auxiliar_id === colaborador_id);
+            }
+          }
+        } else if (p.venda_direta_id) {
+          const v = vendas.find(x => x.id === p.venda_direta_id);
+          if (v) {
+            return v.colaborador_id === colaborador_id;
+          }
+        }
+        return false;
+      });
+    }
+
     const totais = { dinheiro: 0, pix: 0, cartao_credito: 0, cartao_debito: 0, vale: 0, geral: 0 };
-    pagsAg.forEach(p => {
+    filteredPags.forEach(p => {
       totais.geral += p.valor;
       if (totais.hasOwnProperty(p.forma_pagamento)) {
         totais[p.forma_pagamento] += p.valor;
@@ -168,7 +213,7 @@ const relatorioCaixa = async (req, res) => {
       data_inicio,
       data_fim,
       totais,
-      total_pagamentos: pagsAg.length
+      total_pagamentos: filteredPags.length
     });
   } catch (error) {
     res.status(500).json({ detail: error.message });

@@ -37,7 +37,10 @@ const login = async (req, res) => {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role
+        role: user.role,
+        ativo: user.ativo,
+        pode_alterar_concluido: user.pode_alterar_concluido,
+        pode_excluir_agendamento: user.pode_excluir_agendamento
       }
     });
   } catch (error) {

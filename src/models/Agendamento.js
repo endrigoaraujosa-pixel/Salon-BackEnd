@@ -8,6 +8,10 @@ const Agendamento = sequelize.define('Agendamento', {
     primaryKey: true,
     defaultValue: () => uuidv4()
   },
+  numero: {
+    type: DataTypes.INTEGER,
+    defaultValue: null
+  },
   cliente_id: {
     type: DataTypes.STRING(36),
     allowNull: false

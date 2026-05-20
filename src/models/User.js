@@ -32,6 +32,14 @@ const User = sequelize.define('User', {
     type: DataTypes.BOOLEAN,
     defaultValue: false
   },
+  pode_excluir_agendamento: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  pode_excluir_pagamento: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

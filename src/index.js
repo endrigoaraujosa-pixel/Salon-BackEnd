@@ -3,6 +3,9 @@ import cors from 'cors';
 import 'dotenv/config';
 import { connectDB, sequelize } from './config/db.js';
 import User from './models/User.js';
+import Agendamento from './models/Agendamento.js';
+import VendaDireta from './models/VendaDireta.js';
+import PagamentoComissao from './models/PagamentoComissao.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -12,11 +15,13 @@ import { listClientes, createCliente, updateCliente, deleteCliente, historicoCli
 import { listColab, createColab, updateColab, deleteColab } from './controllers/colaboradorController.js';
 import { listServ, createServ, updateServ, deleteServ } from './controllers/servicoController.js';
 import { listProd, createProd, updateProd, deleteProd } from './controllers/produtoController.js';
-import { listAgend, getAgend, createAgend, updateAgend, deleteAgend, setStatus, addPagamentos } from './controllers/agendamentoController.js';
+import { listAgend, getAgend, createAgend, updateAgend, deleteAgend, setStatus, addPagamentos, updatePagamento as updateAgendamentoPagamento, deletePagamento as deleteAgendamentoPagamento } from './controllers/agendamentoController.js';
 import { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos } from './controllers/reportController.js';
 import { listDespesas, createDespesa, updateDespesa, deleteDespesa } from './controllers/despesaController.js';
 import { getTaxas, saveTaxa } from './controllers/configuracaoController.js';
 import { listUsers, createUser, updateUser, deleteUser } from './controllers/userController.js';
+import { listVendas, getVenda, createVenda, deleteVenda, addPagamentos as addVendaPagamentos, updatePagamento as updateVendaPagamento, deletePagamento as deleteVendaPagamento } from './controllers/vendaDiretaController.js';
+import { listComissoes, pagarComissao, desfazerPagamento } from './controllers/comissaoController.js';
 
 const app = express();
 
@@ -83,6 +88,8 @@ agendRoutes.put('/:aid', protect, updateAgend);
 agendRoutes.delete('/:aid', protect, deleteAgend);
 agendRoutes.post('/:aid/status', protect, setStatus);
 agendRoutes.post('/:aid/pagamentos', protect, addPagamentos);
+agendRoutes.put('/:aid/pagamentos/:pid', protect, updateAgendamentoPagamento);
+agendRoutes.delete('/:aid/pagamentos/:pid', protect, deleteAgendamentoPagamento);
 app.use('/api/agendamentos', agendRoutes);
 
 // Dashboard and Relatorios Routes
@@ -107,6 +114,24 @@ despesaRoutes.put('/:id', protect, updateDespesa);
 despesaRoutes.delete('/:id', protect, deleteDespesa);
 app.use('/api/despesas', despesaRoutes);
 
+// Vendas Diretas Routes
+const vendaDiretaRoutes = express.Router();
+vendaDiretaRoutes.get('/', protect, listVendas);
+vendaDiretaRoutes.get('/:id', protect, getVenda);
+vendaDiretaRoutes.post('/', protect, createVenda);
+vendaDiretaRoutes.delete('/:id', protect, deleteVenda);
+vendaDiretaRoutes.post('/:id/pagamentos', protect, addVendaPagamentos);
+vendaDiretaRoutes.put('/:id/pagamentos/:pid', protect, updateVendaPagamento);
+vendaDiretaRoutes.delete('/:id/pagamentos/:pid', protect, deleteVendaPagamento);
+app.use('/api/vendas-diretas', vendaDiretaRoutes);
+
+// Comissões Routes
+const comissaoRoutes = express.Router();
+comissaoRoutes.get('/', protect, listComissoes);
+comissaoRoutes.post('/pagar', protect, pagarComissao);
+comissaoRoutes.delete('/pagar', protect, desfazerPagamento);
+app.use('/api/comissoes', comissaoRoutes);
+
 // Configuracoes Routes
 const configRoutes = express.Router();
 configRoutes.get('/taxas-cartao', protect, getTaxas);
@@ -129,10 +154,21 @@ const seedAdmin = async () => {
       password_hash: hashedPassword,
       name: 'Administrador',
       role: 'admin',
-      ativo: true
+      ativo: true,
+      pode_alterar_concluido: true,
+      pode_excluir_agendamento: true,
+      pode_excluir_pagamento: true
     });
     console.log('Admin user seeded');
   } else {
+    // Garante que o administrador tenha as permissões ativas
+    if (!existing.pode_alterar_concluido || !existing.pode_excluir_agendamento || !existing.pode_excluir_pagamento) {
+      existing.pode_alterar_concluido = true;
+      existing.pode_excluir_agendamento = true;
+      existing.pode_excluir_pagamento = true;
+      await existing.save();
+      console.log('Admin permissions updated');
+    }
     // Sync password if changed in env
     const isMatch = await bcrypt.compare(adminPassword, existing.password_hash);
     if (!isMatch) {
@@ -144,11 +180,116 @@ const seedAdmin = async () => {
   }
 };
 
+const migrateNumero = async () => {
+  try {
+    const ags = await Agendamento.findAll({ order: [['criado_em', 'ASC'], ['data_hora', 'ASC']] });
+    let nextNum = 1;
+    for (const ag of ags) {
+      if (!ag.numero) {
+        ag.numero = nextNum;
+        await ag.save();
+        console.log(`Assigned number #${nextNum} to appointment ${ag.id}`);
+      }
+      if (ag.numero >= nextNum) {
+        nextNum = ag.numero + 1;
+      }
+    }
+  } catch (error) {
+    console.error('Error migrating appointment numbers:', error);
+  }
+};
+
 const startServer = async () => {
   await connectDB();
 
   // Sync models
   await sequelize.sync();
+
+  try {
+    await sequelize.query("ALTER TABLE agendamentos ADD COLUMN numero INTEGER DEFAULT NULL;");
+    console.log("Column 'numero' added to agendamentos table");
+  } catch (err) {
+    // Column already exists
+  }
+
+  try {
+    await sequelize.query("ALTER TABLE users ADD COLUMN pode_excluir_pagamento BOOLEAN DEFAULT 0;");
+    console.log("Column 'pode_excluir_pagamento' added to users table");
+  } catch (err) {
+    // Column already exists
+  }
+
+  try {
+    await sequelize.query("ALTER TABLE users ADD COLUMN pode_excluir_agendamento BOOLEAN DEFAULT 0;");
+    console.log("Column 'pode_excluir_agendamento' added to users table");
+  } catch (err) {
+    // Column already exists
+  }
+
+  try {
+    const [info] = await sequelize.query("PRAGMA table_info(pagamentos);");
+    const hasCol = info.some(col => col.name === 'venda_direta_id');
+    if (!hasCol) {
+      console.log("Migrating 'pagamentos' table to support direct sales...");
+      await sequelize.query(`
+        CREATE TABLE pagamentos_new (
+          id VARCHAR(36) PRIMARY KEY,
+          agendamento_id VARCHAR(36) NULL,
+          venda_direta_id VARCHAR(36) NULL,
+          valor FLOAT NOT NULL,
+          forma_pagamento VARCHAR(50) NOT NULL,
+          observacao TEXT DEFAULT '',
+          data_hora DATETIME
+        );
+      `);
+      await sequelize.query(`
+        INSERT INTO pagamentos_new (id, agendamento_id, valor, forma_pagamento, observacao, data_hora)
+        SELECT id, agendamento_id, valor, forma_pagamento, observacao, data_hora FROM pagamentos;
+      `);
+      await sequelize.query("DROP TABLE pagamentos;");
+      await sequelize.query("ALTER TABLE pagamentos_new RENAME TO pagamentos;");
+      console.log("Migration successful!");
+    }
+  } catch (error) {
+    console.error("Migration failed:", error);
+  }
+
+  try {
+    const [info] = await sequelize.query("PRAGMA table_info(pagamentos_comissao);");
+    const hasPeriodo = info.some(col => col.name === 'periodo');
+    if (!hasPeriodo) {
+      console.log("Migrating 'pagamentos_comissao' table...");
+      await sequelize.query("DROP TABLE IF EXISTS pagamentos_comissao;");
+      await sequelize.query(`
+        CREATE TABLE pagamentos_comissao (
+          id VARCHAR(36) PRIMARY KEY,
+          colaborador_id VARCHAR(36) NOT NULL,
+          periodo VARCHAR(50) NOT NULL,
+          valor FLOAT NOT NULL,
+          data_pagamento DATETIME
+        );
+      `);
+      console.log("Migration for 'pagamentos_comissao' successful!");
+    }
+  } catch (error) {
+    console.error("Migration of comissao failed:", error);
+  }
+
+  try {
+    await sequelize.query("ALTER TABLE vendas_diretas ADD COLUMN comissao_paga BOOLEAN DEFAULT 0;");
+    console.log("Column 'comissao_paga' added to vendas_diretas table");
+  } catch (err) {
+    // Column already exists
+  }
+
+  try {
+    await sequelize.query("ALTER TABLE servicos ADD COLUMN produtos_vinculados TEXT DEFAULT '[]';");
+    console.log("Column 'produtos_vinculados' added to servicos table");
+  } catch (err) {
+    // Column already exists
+  }
+
+  await migrateNumero();
 
   await seedAdmin();
 

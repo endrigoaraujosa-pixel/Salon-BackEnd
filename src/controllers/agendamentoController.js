@@ -3,8 +3,35 @@ import Cliente from '../models/Cliente.js';
 import Servico from '../models/Servico.js';
 import Colaborador from '../models/Colaborador.js';
 import Pagamento from '../models/Pagamento.js';
+import User from '../models/User.js';
+import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
+import Produto from '../models/Produto.js';
+
+const adjustStock = async (ag, type) => {
+  try {
+    for (const item of ag.itens || []) {
+      const s = await Servico.findByPk(item.servico_id);
+      if (!s) continue;
+      
+      const linked = s.produtos_vinculados || [];
+      for (const pv of linked) {
+        const prod = await Produto.findByPk(pv.produto_id);
+        if (prod) {
+          if (type === 'deduct') {
+            prod.quantidade_estoque -= pv.quantidade;
+          } else if (type === 'restore') {
+            prod.quantidade_estoque += pv.quantidade;
+          }
+          await prod.save();
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`Failed to adjust stock (${type}) for appointment ${ag?.id}:`, error);
+  }
+};
 
 const buildAgendamentoDoc = async (body, excludeId = null) => {
   const cliente = await Cliente.findByPk(body.cliente_id);
@@ -142,9 +169,11 @@ const getAgend = async (req, res) => {
 const createAgend = async (req, res) => {
   try {
     const doc = await buildAgendamentoDoc(req.body);
+    const maxNum = await Agendamento.max('numero') || 0;
     const ag = await Agendamento.create({
       ...doc,
-      id: uuidv4()
+      id: uuidv4(),
+      numero: maxNum + 1
     });
     res.status(201).json(ag);
   } catch (error) {
@@ -171,8 +200,15 @@ const updateAgend = async (req, res) => {
 
 const deleteAgend = async (req, res) => {
   try {
+    if (!req.user || !req.user.pode_excluir_agendamento) {
+      return res.status(403).json({ detail: 'Você não tem permissão para excluir agendamentos.' });
+    }
+
     const ag = await Agendamento.findByPk(req.params.aid);
     if (ag) {
+      if (ag.status === 'concluido') {
+        await adjustStock(ag, 'restore');
+      }
       await ag.destroy();
       await Pagamento.destroy({ where: { agendamento_id: req.params.aid } });
     }
@@ -201,6 +237,15 @@ const setStatus = async (req, res) => {
       const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
       if (totalPago < ag.valor_total - 0.01) {
         return res.status(400).json({ detail: 'Registre o pagamento total antes de finalizar' });
+      }
+    }
+
+    const oldStatus = ag.status;
+    if (oldStatus !== status) {
+      if (status === 'concluido') {
+        await adjustStock(ag, 'deduct');
+      } else if (oldStatus === 'concluido') {
+        await adjustStock(ag, 'restore');
       }
     }
 
@@ -248,6 +293,7 @@ const addPagamentos = async (req, res) => {
       });
     }
 
+    const oldStatus = ag.status;
     ag.valor_pago = novoTotal;
     if (finalizar && novoTotal >= ag.valor_total - 0.01) {
       for (const item of ag.itens || []) {
@@ -257,9 +303,114 @@ const addPagamentos = async (req, res) => {
       }
       ag.status = 'concluido';
     }
+
+    if (oldStatus !== ag.status) {
+      if (ag.status === 'concluido') {
+        await adjustStock(ag, 'deduct');
+      } else if (oldStatus === 'concluido') {
+        await adjustStock(ag, 'restore');
+      }
+    }
     await ag.save();
 
     res.json({ ok: true, total_pago: novoTotal, saldo: ag.valor_total - novoTotal });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const updatePagamento = async (req, res) => {
+  const { valor, forma_pagamento, observacao } = req.body;
+  const { password } = req.query;
+
+  try {
+    if (!password) {
+      return res.status(400).json({ detail: 'Senha é obrigatória' });
+    }
+    const user = await User.findByPk(req.user.id);
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      return res.status(401).json({ detail: 'Senha incorreta' });
+    }
+
+    const pagamento = await Pagamento.findByPk(req.params.pid);
+    if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
+
+    pagamento.valor = Number(valor || 0);
+    pagamento.forma_pagamento = forma_pagamento;
+    pagamento.observacao = observacao || '';
+    await pagamento.save();
+
+    const ag = await Agendamento.findByPk(req.params.aid);
+    if (ag) {
+      const oldStatus = ag.status;
+      const allPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid } });
+      const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
+      ag.valor_pago = totalPago;
+      if (totalPago >= ag.valor_total - 0.01) {
+        ag.status = 'concluido';
+      } else {
+        ag.status = 'agendado';
+      }
+
+      if (oldStatus !== ag.status) {
+        if (ag.status === 'concluido') {
+          await adjustStock(ag, 'deduct');
+        } else if (oldStatus === 'concluido') {
+          await adjustStock(ag, 'restore');
+        }
+      }
+      await ag.save();
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const deletePagamento = async (req, res) => {
+  const { email, password } = req.query;
+
+  try {
+    if (!email || !password) {
+      return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+    }
+    const authUser = await User.findOne({ where: { email: email.toLowerCase().trim() } });
+    if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+      return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
+    }
+    if (!authUser.pode_excluir_pagamento) {
+      return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
+    }
+
+    const pagamento = await Pagamento.findByPk(req.params.pid);
+    if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
+
+    await pagamento.destroy();
+
+    const ag = await Agendamento.findByPk(req.params.aid);
+    if (ag) {
+      const oldStatus = ag.status;
+      const allPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid } });
+      const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
+      ag.valor_pago = totalPago;
+      if (totalPago >= ag.valor_total - 0.01) {
+        ag.status = 'concluido';
+      } else {
+        ag.status = 'agendado';
+      }
+
+      if (oldStatus !== ag.status) {
+        if (ag.status === 'concluido') {
+          await adjustStock(ag, 'deduct');
+        } else if (oldStatus === 'concluido') {
+          await adjustStock(ag, 'restore');
+        }
+      }
+      await ag.save();
+    }
+
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
@@ -272,5 +423,7 @@ export {
   updateAgend,
   deleteAgend,
   setStatus,
-  addPagamentos
+  addPagamentos,
+  updatePagamento,
+  deletePagamento
 };

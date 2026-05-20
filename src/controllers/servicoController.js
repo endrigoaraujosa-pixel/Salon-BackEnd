@@ -11,21 +11,27 @@ const listServ = async (req, res) => {
 
 const createServ = async (req, res) => {
   try {
+    console.log("createServ payload received:", JSON.stringify(req.body, null, 2));
     const serv = await Servico.create(req.body);
+    console.log("createServ success, saved record:", JSON.stringify(serv.toJSON(), null, 2));
     res.status(201).json(serv);
   } catch (error) {
+    console.error("createServ error:", error);
     res.status(500).json({ detail: error.message });
   }
 };
 
 const updateServ = async (req, res) => {
   try {
+    console.log("updateServ sid:", req.params.sid, "payload received:", JSON.stringify(req.body, null, 2));
     const serv = await Servico.findByPk(req.params.sid);
     if (!serv) return res.status(404).json({ detail: 'Serviço não encontrado' });
     
     await serv.update(req.body);
+    console.log("updateServ success, updated record:", JSON.stringify(serv.toJSON(), null, 2));
     res.json(serv);
   } catch (error) {
+    console.error("updateServ error:", error);
     res.status(500).json({ detail: error.message });
   }
 };
