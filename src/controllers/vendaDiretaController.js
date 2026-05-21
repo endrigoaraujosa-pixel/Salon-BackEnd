@@ -39,6 +39,10 @@ const getVenda = async (req, res) => {
 const createVenda = async (req, res) => {
   const { produto_id, quantidade, colaborador_id, cliente_id } = req.body;
 
+  if (!colaborador_id) {
+    return res.status(400).json({ detail: 'Informe o profissional responsável pela venda.' });
+  }
+
   try {
     const produto = await Produto.findByPk(produto_id);
     if (!produto) {
