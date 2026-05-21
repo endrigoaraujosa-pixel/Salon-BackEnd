@@ -6,10 +6,19 @@ import Pagamento from '../models/Pagamento.js';
 import User from '../models/User.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import { Op } from 'sequelize';
 
 const listVendas = async (req, res) => {
+  const { data_inicio, data_fim } = req.query;
   try {
+    const where = {};
+    if (data_inicio && data_fim) {
+      where.data_venda = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
     const vendas = await VendaDireta.findAll({
+      where,
       order: [['data_venda', 'DESC']]
     });
     res.json(vendas);
