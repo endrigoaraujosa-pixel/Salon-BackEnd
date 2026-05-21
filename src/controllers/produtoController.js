@@ -11,6 +11,10 @@ const listProd = async (req, res) => {
 
 const createProd = async (req, res) => {
   try {
+    const { categoria_id } = req.body;
+    if (!categoria_id) {
+      return res.status(400).json({ detail: 'A categoria é obrigatória' });
+    }
     const prod = await Produto.create(req.body);
     res.status(201).json(prod);
   } catch (error) {
@@ -20,6 +24,10 @@ const createProd = async (req, res) => {
 
 const updateProd = async (req, res) => {
   try {
+    const { categoria_id } = req.body;
+    if (categoria_id !== undefined && !categoria_id) {
+      return res.status(400).json({ detail: 'A categoria é obrigatória' });
+    }
     const prod = await Produto.findByPk(req.params.pid);
     if (!prod) return res.status(404).json({ detail: 'Produto não encontrado' });
     

@@ -12,6 +12,10 @@ const Servico = sequelize.define('Servico', {
     type: DataTypes.STRING(255),
     allowNull: false
   },
+  categoria_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true
+  },
   duracao_minutos: {
     type: DataTypes.INTEGER,
     defaultValue: 60

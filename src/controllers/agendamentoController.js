@@ -45,6 +45,11 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   for (const item of body.itens_selecionados) {
     const s = await Servico.findByPk(item.servico_id);
     if (s) {
+      // Validação: colaborador principal e auxiliar não podem ser a mesma pessoa
+      if (item.colaborador_id && item.auxiliar_id && item.colaborador_id === item.auxiliar_id) {
+        throw new Error(`O colaborador principal e o auxiliar não podem ser a mesma pessoa. (Serviço: ${s.nome})`);
+      }
+
       itens.push({
         servico_id: item.servico_id,
         nome: s.nome,
@@ -67,15 +72,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
     }
   }
 
-  // Validação de data no passado
   const novoInicio = new Date(body.data_hora);
-  const agora = new Date();
-
-  // Tolerância de 5 minutos para compensar atrasos no preenchimento
-  if (novoInicio < new Date(agora.getTime() - 5 * 60000)) {
-    throw new Error('Não é possível realizar agendamentos no passado.');
-  }
-
   const novoFim = new Date(novoInicio.getTime() + duracaoTotal * 60000);
   const dataBusca = body.data_hora.split('T')[0];
   const dataInicioDia = `${dataBusca}T00:00:00`;

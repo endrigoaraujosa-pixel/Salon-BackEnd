@@ -16,6 +16,10 @@ const Produto = sequelize.define('Produto', {
     type: DataTypes.STRING(255),
     defaultValue: ''
   },
+  categoria_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true
+  },
   unidade_medida: {
     type: DataTypes.STRING(50),
     defaultValue: 'un'

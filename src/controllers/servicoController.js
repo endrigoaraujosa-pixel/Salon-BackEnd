@@ -11,6 +11,10 @@ const listServ = async (req, res) => {
 
 const createServ = async (req, res) => {
   try {
+    const { categoria_id } = req.body;
+    if (!categoria_id) {
+      return res.status(400).json({ detail: 'A categoria é obrigatória' });
+    }
     console.log("createServ payload received:", JSON.stringify(req.body, null, 2));
     const serv = await Servico.create(req.body);
     console.log("createServ success, saved record:", JSON.stringify(serv.toJSON(), null, 2));
@@ -23,6 +27,10 @@ const createServ = async (req, res) => {
 
 const updateServ = async (req, res) => {
   try {
+    const { categoria_id } = req.body;
+    if (categoria_id !== undefined && !categoria_id) {
+      return res.status(400).json({ detail: 'A categoria é obrigatória' });
+    }
     console.log("updateServ sid:", req.params.sid, "payload received:", JSON.stringify(req.body, null, 2));
     const serv = await Servico.findByPk(req.params.sid);
     if (!serv) return res.status(404).json({ detail: 'Serviço não encontrado' });

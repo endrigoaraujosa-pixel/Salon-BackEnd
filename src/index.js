@@ -24,6 +24,7 @@ import { listUsers, createUser, updateUser, deleteUser } from './controllers/use
 import { listVendas, getVenda, createVenda, deleteVenda, addPagamentos as addVendaPagamentos, updatePagamento as updateVendaPagamento, deletePagamento as deleteVendaPagamento } from './controllers/vendaDiretaController.js';
 import { listComissoes, pagarComissao, desfazerPagamento } from './controllers/comissaoController.js';
 import { listReceitas, createReceita, updateReceita, deleteReceita } from './controllers/outrasReceitasController.js';
+import { listCategorias, createCategoria, updateCategoria, deleteCategoria } from './controllers/categoriaController.js';
 
 const app = express();
 
@@ -143,6 +144,14 @@ const configRoutes = express.Router();
 configRoutes.get('/taxas-cartao', protect, getTaxas);
 configRoutes.post('/taxas-cartao', protect, saveTaxa);
 app.use('/api/configuracoes', configRoutes);
+
+// Categorias Routes
+const categoriaRoutes = express.Router();
+categoriaRoutes.get('/', protect, listCategorias);
+categoriaRoutes.post('/', protect, createCategoria);
+categoriaRoutes.put('/:id', protect, updateCategoria);
+categoriaRoutes.delete('/:id', protect, deleteCategoria);
+app.use('/api/categorias', categoriaRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
