@@ -2,11 +2,16 @@ import Categoria from '../models/Categoria.js';
 
 const listCategorias = async (req, res) => {
   try {
-    const { tipo } = req.query;
+    const { tipo, ativo } = req.query;
     const where = { deletado: 'N' };
     if (tipo) {
       where.tipo = tipo;
     }
+    
+    if(ativo){
+      where.ativo = ativo;
+    }
+
     const categorias = await Categoria.findAll({
       where,
       order: [['nome', 'ASC']]

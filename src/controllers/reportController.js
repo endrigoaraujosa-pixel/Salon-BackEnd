@@ -12,8 +12,8 @@ import { sequelize } from '../config/db.js';
 
 const dashboard = async (req, res) => {
   try {
-    const totalClientes = await Cliente.count();
-    const totalColaboradores = await Colaborador.count({ where: { ativo: true } });
+    const totalClientes = await Cliente.count({ where: {deletado: 'N' } });
+    const totalColaboradores = await Colaborador.count({ where: { ativo: true, deletado: 'N' } });
     
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -22,7 +22,7 @@ const dashboard = async (req, res) => {
     
     const agHoje = await Agendamento.count({ 
       where: { 
-        data_hora: { [Op.between]: [todayStart, todayEnd] },
+        data_hora: { [Op.between]: [todayStart, todayEnd] },  
         deletado: 'N'
       } 
     });
