@@ -24,7 +24,7 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: ['https://www.salonstudio.com.br/',  'http://localhost:4000', 'http://localhost:3000'],
+  origin: ['https://www.salonstudio.com.br',  'http://localhost:4000', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
