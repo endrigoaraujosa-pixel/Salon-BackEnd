@@ -24,6 +24,14 @@ const Colaborador = sequelize.define('Colaborador', {
     type: DataTypes.FLOAT,
     defaultValue: 40
   },
+  comissao_sozinho: {
+    type: DataTypes.FLOAT,
+    defaultValue: 40
+  },
+  comissao_ajuda: {
+    type: DataTypes.FLOAT,
+    defaultValue: 30
+  },
   comissao_auxiliar: {
     type: DataTypes.FLOAT,
     defaultValue: 20

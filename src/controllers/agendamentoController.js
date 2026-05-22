@@ -88,22 +88,25 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
 
   const existentes = await Agendamento.findAll({ where });
 
-  for (const item of body.itens_selecionados) {
-    const idsVerificar = [item.colaborador_id, item.auxiliar_id].filter(id => id);
+  // Apenas validar conflito em NOVOS agendamentos (sem excludeId) e se ignorar_conflito nao for verdadeiro
+  if (!excludeId && !body.ignorar_conflito) {
+    for (const item of body.itens_selecionados) {
+      const idsVerificar = [item.colaborador_id, item.auxiliar_id].filter(id => id);
 
-    for (const ag of existentes) {
-      const agInicio = new Date(ag.data_hora);
-      const agFim = new Date(agInicio.getTime() + ag.duracao_minutos * 60000);
+      for (const ag of existentes) {
+        const agInicio = new Date(ag.data_hora);
+        const agFim = new Date(agInicio.getTime() + ag.duracao_minutos * 60000);
 
-      const sobrepoe = agInicio < novoFim && agFim > novoInicio;
+        const sobrepoe = agInicio < novoFim && agFim > novoInicio;
 
-      if (sobrepoe) {
-        const profsNoExistente = ag.profissionais.map(p => p.id);
-        const conflito = idsVerificar.some(id => profsNoExistente.includes(id));
+        if (sobrepoe) {
+          const profsNoExistente = ag.profissionais.map(p => p.id);
+          const conflito = idsVerificar.some(id => profsNoExistente.includes(id));
 
-        if (conflito) {
-          const profConflito = (await Colaborador.findByPk(idsVerificar.find(id => profsNoExistente.includes(id))))?.nome;
-          throw new Error(`Conflito de horário: O profissional ${profConflito} já possui um agendamento entre ${agInicio.toLocaleTimeString()} e ${agFim.toLocaleTimeString()}`);
+          if (conflito) {
+            const profConflito = (await Colaborador.findByPk(idsVerificar.find(id => profsNoExistente.includes(id))))?.nome;
+            throw new Error(`Conflito de horário: O profissional ${profConflito} já possui um agendamento entre ${agInicio.toLocaleTimeString()} e ${agFim.toLocaleTimeString()}`);
+          }
         }
       }
     }
@@ -150,6 +153,17 @@ const getAgend = async (req, res) => {
     const ag = await Agendamento.findByPk(req.params.aid);
     if (!ag || ag.deletado === 'S') return res.status(404).json({ detail: 'Não encontrado' });
 
+    const { email, password } = req.query;
+    if (email && password) {
+      const authUser = await User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
+      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
+      }
+      if (!authUser.pode_alterar_concluido) {
+        return res.status(403).json({ detail: 'Este usuário não possui permissão para alterar agendamentos concluídos.' });
+      }
+    }
+
     const pagamentos = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
     const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
 
@@ -182,6 +196,21 @@ const updateAgend = async (req, res) => {
   try {
     const ag = await Agendamento.findByPk(req.params.aid);
     if (!ag) return res.status(404).json({ detail: 'Não encontrado' });
+
+    if (ag.status === 'concluido') {
+      const email = req.query.email || req.body.auth_email;
+      const password = req.query.password || req.body.auth_password;
+      if (!email || !password) {
+        return res.status(400).json({ detail: 'Para alterar um agendamento concluído, é necessária a autorização de um administrador (usuário e senha).' });
+      }
+      const authUser = await User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
+      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
+      }
+      if (!authUser.pode_alterar_concluido) {
+        return res.status(403).json({ detail: 'Este usuário não possui permissão para alterar agendamentos concluídos.' });
+      }
+    }
 
     const doc = await buildAgendamentoDoc(req.body, req.params.aid);
     // Remove status and valor_pago from update to prevent manual overrides

@@ -80,12 +80,15 @@ const listComissoes = async (req, res) => {
           for (const item of itens) {
             if (item.colaborador_id === colab.id) {
               const val_serv = Number(item.valor || 0);
-              const pct = Number(colab.comissao_principal || 0);
+              const temAuxiliar = !!(item.auxiliar_id && String(item.auxiliar_id).trim() !== "" && String(item.auxiliar_id).trim() !== "null" && String(item.auxiliar_id).trim() !== "undefined");
+              const pct = temAuxiliar
+                ? Number(colab.comissao_ajuda != null ? colab.comissao_ajuda : 30)
+                : Number(colab.comissao_sozinho != null ? colab.comissao_sozinho : (colab.comissao_principal || 0));
               const val_com = val_serv * (pct / 100);
               
               const det = {
                 tipo: 'servico',
-                papel: 'Principal',
+                papel: temAuxiliar ? 'Principal (Com ajuda)' : 'Principal (Sozinho)',
                 descricao: item.nome,
                 data: ag.data_hora,
                 valor_movimentacao: val_serv,
@@ -190,6 +193,8 @@ const listComissoes = async (req, res) => {
             colaborador_id: colab.id,
             colaborador_nome: colab.nome,
             comissao_principal: colab.comissao_principal,
+            comissao_sozinho: colab.comissao_sozinho,
+            comissao_ajuda: colab.comissao_ajuda,
             comissao_auxiliar: colab.comissao_auxiliar,
             atendimentos: atendimentos_pendente,
             total_principal: total_principal_pendente,
@@ -211,6 +216,8 @@ const listComissoes = async (req, res) => {
             colaborador_id: colab.id,
             colaborador_nome: colab.nome,
             comissao_principal: colab.comissao_principal,
+            comissao_sozinho: colab.comissao_sozinho,
+            comissao_ajuda: colab.comissao_ajuda,
             comissao_auxiliar: colab.comissao_auxiliar,
             atendimentos: atendimentos_pago,
             total_principal: total_principal_pago,
