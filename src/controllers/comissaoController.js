@@ -23,13 +23,14 @@ const listComissoes = async (req, res) => {
   }
 
   try {
-    const colaboradores = await Colaborador.findAll();
-    const produtos = await Produto.findAll();
+    const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
+    const produtos = await Produto.findAll({ where: { deletado: 'N' } });
     
     // Buscar agendamentos concluídos no período
     const agendamentos = await Agendamento.findAll({
       where: {
         status: 'concluido',
+        deletado: 'N',
         data_hora: {
           [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
         }
@@ -40,13 +41,14 @@ const listComissoes = async (req, res) => {
     const vendas = await VendaDireta.findAll({
       where: {
         status: 'pago',
+        deletado: 'N',
         data_venda: {
           [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
         }
       }
     });
 
-    const pagamentosComissao = await PagamentoComissao.findAll({ where: { periodo } });
+    const pagamentosComissao = await PagamentoComissao.findAll({ where: { periodo, deletado: 'N' } });
 
     const comissoesList = [];
     let totalComissoes = 0;
@@ -132,31 +134,43 @@ const listComissoes = async (req, res) => {
         }
       }
 
-      // 2. Processar comissões de vendas de produtos (vendas diretas)
+      // 2. Processar comissões de vendas de produtos (vendas diretas) — suporta multi-itens
       for (const venda of vendas) {
-        if (venda.colaborador_id === colab.id) {
-          const prod = produtos.find(p => p.id === venda.produto_id);
-          const pct = prod ? Number(prod.comissao || 0) : 0;
-          const val_venda = Number(venda.valor_total || 0);
-          const val_com = val_venda * (pct / 100);
+        if (venda.colaborador_id !== colab.id) continue;
+
+        // Carrinho novo: processar cada item individualmente
+        const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
+          ? venda.itens
+          : [{ produto_id: venda.produto_id, produto_nome: venda.produto_nome, quantidade: venda.quantidade, subtotal: venda.valor_total, comissao_pct: null }];
+
+        for (const item of itensVenda) {
+          // Se comissao_pct está no item, usa direto; caso contrário busca no produto
+          let pct = item.comissao_pct != null ? Number(item.comissao_pct) : 0;
+          if (item.comissao_pct == null) {
+            const prod = produtos.find(p => p.id === item.produto_id);
+            pct = prod ? Number(prod.comissao || 0) : 0;
+          }
+
+          const val_item = Number(item.subtotal || item.preco_unitario * item.quantidade || 0);
+          const val_com = val_item * (pct / 100);
 
           const det = {
             tipo: 'produto',
             papel: 'Vendedor',
-            descricao: venda.produto_nome,
+            descricao: item.produto_nome,
             data: venda.data_venda,
-            valor_movimentacao: val_venda,
+            valor_movimentacao: val_item,
             percentual_aplicado: pct,
             valor_comissao: Number(val_com.toFixed(2)),
             pago: !!venda.comissao_paga
           };
 
           if (venda.comissao_paga) {
-            total_produtos_pago += val_venda;
+            total_produtos_pago += val_item;
             atendimentos_pago++;
             detalhes_pago.push(det);
           } else {
-            total_produtos_pendente += val_venda;
+            total_produtos_pendente += val_item;
             atendimentos_pendente++;
             detalhes_pendente.push(det);
           }
@@ -241,6 +255,7 @@ const pagarComissao = async (req, res) => {
     const agendamentos = await Agendamento.findAll({
       where: {
         status: 'concluido',
+        deletado: 'N',
         data_hora: {
           [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
         }
@@ -282,6 +297,7 @@ const pagarComissao = async (req, res) => {
         where: {
           colaborador_id,
           status: 'pago',
+          deletado: 'N',
           data_venda: {
             [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
           }
@@ -321,6 +337,7 @@ const desfazerPagamento = async (req, res) => {
     const agendamentos = await Agendamento.findAll({
       where: {
         status: 'concluido',
+        deletado: 'N',
         data_hora: {
           [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
         }
@@ -362,6 +379,7 @@ const desfazerPagamento = async (req, res) => {
         where: {
           colaborador_id,
           status: 'pago',
+          deletado: 'N',
           data_venda: {
             [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
           }
@@ -370,9 +388,16 @@ const desfazerPagamento = async (req, res) => {
     );
 
     // 3. Deletar registro do pagamento comissão
-    await PagamentoComissao.destroy({
-      where: { colaborador_id, periodo: p }
-    });
+    await PagamentoComissao.update(
+      {
+        deletado: 'S',
+        deletado_por: req.user ? req.user.name : 'Sistema',
+        deletado_em: new Date()
+      },
+      {
+        where: { colaborador_id, periodo: p }
+      }
+    );
 
     res.json({ ok: true });
   } catch (error) {

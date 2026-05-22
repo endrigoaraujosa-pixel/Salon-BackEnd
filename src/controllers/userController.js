@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 const listUsers = async (req, res) => {
   try {
     const users = await User.findAll({
+      where: { deletado: 'N' },
       attributes: ['id', 'name', 'email', 'role', 'ativo', 'pode_alterar_concluido', 'pode_excluir_agendamento', 'pode_excluir_pagamento', 'created_at'],
       order: [['name', 'ASC']]
     });
@@ -109,7 +110,11 @@ const deleteUser = async (req, res) => {
       if (user.id === req.user.id) {
         return res.status(400).json({ detail: 'Você não pode excluir o próprio usuário conectado' });
       }
-      await user.destroy();
+      await user.update({
+        deletado: 'S',
+        deletado_por: req.user ? req.user.name : 'Sistema',
+        deletado_em: new Date()
+      });
     }
     res.json({ ok: true });
   } catch (error) {

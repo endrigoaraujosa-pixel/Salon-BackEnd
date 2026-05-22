@@ -8,6 +8,10 @@ const VendaDireta = sequelize.define('VendaDireta', {
     primaryKey: true,
     defaultValue: () => uuidv4()
   },
+  numero_venda: {
+    type: DataTypes.INTEGER,
+    defaultValue: null
+  },
   data_venda: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
@@ -48,6 +52,10 @@ const VendaDireta = sequelize.define('VendaDireta', {
     type: DataTypes.FLOAT,
     defaultValue: 0
   },
+  itens: {
+    type: DataTypes.JSON,
+    defaultValue: []
+  },
   status: {
     type: DataTypes.STRING(50),
     defaultValue: 'pendente'
@@ -55,6 +63,19 @@ const VendaDireta = sequelize.define('VendaDireta', {
   comissao_paga: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  deletado: {
+    type: DataTypes.STRING(1),
+    defaultValue: 'N',
+    allowNull: false
+  },
+  deletado_por: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  deletado_em: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'vendas_diretas',

@@ -22,7 +22,8 @@ const dashboard = async (req, res) => {
     
     const agHoje = await Agendamento.count({ 
       where: { 
-        data_hora: { [Op.between]: [todayStart, todayEnd] } 
+        data_hora: { [Op.between]: [todayStart, todayEnd] },
+        deletado: 'N'
       } 
     });
     
@@ -32,7 +33,8 @@ const dashboard = async (req, res) => {
 
     const pagamentosMes = await Pagamento.findAll({ 
       where: { 
-        data_hora: { [Op.between]: [dataInicioMes, dataFimMes] } 
+        data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+        deletado: 'N'
       } 
     });
     const faturamentoMes = pagamentosMes.reduce((acc, p) => acc + p.valor, 0);
@@ -40,7 +42,8 @@ const dashboard = async (req, res) => {
     const concluidos = await Agendamento.count({
       where: {
         status: 'concluido',
-        data_hora: { [Op.between]: [dataInicioMes, dataFimMes] }
+        data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+        deletado: 'N'
       }
     });
     
@@ -75,18 +78,20 @@ const relatorioDre = async (req, res) => {
     const ags = await Agendamento.findAll({
       where: {
         status: 'concluido',
-        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] }
+        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
+        deletado: 'N'
       }
     });
-    const receitaServicos = ags.reduce((acc, a) => acc + a.valor_total, 0);
+    const receitaServicos = ags.reduce((acc, a) => acc + a.valor_pago, 0);
     
     const vendas = await VendaDireta.findAll({
       where: {
         status: 'pago',
-        data_venda: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] }
+        data_venda: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
+        deletado: 'N'
       }
     });
-    const receitaVendas = vendas.reduce((acc, v) => acc + v.valor_total, 0);
+    const receitaVendas = vendas.reduce((acc, v) => acc + v.valor_pago, 0);
 
     let custoProdutos = 0;
     for (const v of vendas) {
@@ -98,7 +103,8 @@ const relatorioDre = async (req, res) => {
 
     const oReceitas = await OutrasReceitas.findAll({
       where: {
-        data_recebimento: { [Op.between]: [data_inicio, data_fim] }
+        data_recebimento: { [Op.between]: [data_inicio, data_fim] },
+        deletado: 'N'
       }
     });
     const outrasReceitas = oReceitas.reduce((acc, r) => acc + r.valor, 0);
@@ -107,7 +113,8 @@ const relatorioDre = async (req, res) => {
     // Despesas do período
     const despesas = await Despesa.findAll({
       where: {
-        data_vencimento: { [Op.between]: [data_inicio, data_fim] }
+        data_vencimento: { [Op.between]: [data_inicio, data_fim] },
+        deletado: 'N'
       }
     });
     const despesasFixas = despesas.filter(d => d.tipo === 'fixo').reduce((acc, d) => acc + d.valor, 0);
@@ -127,7 +134,8 @@ const relatorioDre = async (req, res) => {
 
     const payments = await Pagamento.findAll({
       where: {
-        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] }
+        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
+        deletado: 'N'
       }
     });
     const creditoTotalVal = payments.filter(p => p.forma_pagamento === 'cartao_credito').reduce((acc, p) => acc + p.valor, 0);
@@ -175,15 +183,16 @@ const relatorioCaixa = async (req, res) => {
   try {
     const pagsAg = await Pagamento.findAll({
       where: {
-        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] }
+        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
+        deletado: 'N'
       }
     });
     
     let filteredPags = pagsAg;
 
     if (colaborador_id && colaborador_id !== 'todos') {
-      const agendamentos = await Agendamento.findAll();
-      const vendas = await VendaDireta.findAll();
+      const agendamentos = await Agendamento.findAll({ where: { deletado: 'N' } });
+      const vendas = await VendaDireta.findAll({ where: { deletado: 'N' } });
 
       filteredPags = pagsAg.filter(p => {
         if (p.agendamento_id) {
@@ -232,7 +241,7 @@ const relatorioProdutos = async (req, res) => {
   const { data_inicio, data_fim, colaborador_id, produto_id, categoria, forma_pagamento, cliente_id, status } = req.query;
 
   try {
-    const where = {};
+    const where = { deletado: 'N' };
     if (data_inicio && data_fim) {
       where.data_venda = {
         [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
@@ -271,7 +280,8 @@ const relatorioProdutos = async (req, res) => {
     const vendasIds = vendas.map(v => v.id);
     const pagamentosList = await Pagamento.findAll({
       where: {
-        venda_direta_id: { [Op.in]: vendasIds }
+        venda_direta_id: { [Op.in]: vendasIds },
+        deletado: 'N'
       }
     });
 
@@ -295,6 +305,7 @@ const relatorioProdutos = async (req, res) => {
 
       return {
         id: v.id,
+        numero_venda: v.numero_venda,
         data_venda: v.data_venda,
         produto_id: v.produto_id,
         produto_nome: v.produto_nome,
@@ -335,26 +346,25 @@ const relatorioProdutos = async (req, res) => {
     const porFormaPagamento = {};
 
     mappedVendas.forEach(v => {
-      totalFaturamento += v.valor_total;
-      totalQuantidade += v.quantidade;
-      totalCusto += v.custo_total;
+      if (v.status === 'pago') {
+        totalFaturamento += v.valor_total;
+        totalQuantidade += v.quantidade;
+        totalCusto += v.custo_total;
 
-      // Por colaborador
-      const colabName = v.colaborador_nome;
-      porColaborador[colabName] = (porColaborador[colabName] || 0) + v.valor_total;
+        // Por colaborador
+        const colabName = v.colaborador_nome;
+        porColaborador[colabName] = (porColaborador[colabName] || 0) + v.valor_total;
 
-      // Por produto
-      const prodName = v.produto_nome;
-      porProduto[prodName] = (porProduto[prodName] || 0) + v.valor_total;
+        // Por produto
+        const prodName = v.produto_nome;
+        porProduto[prodName] = (porProduto[prodName] || 0) + v.valor_total;
+      }
 
-      // Por forma de pagamento (distribuir o valor de cada pagamento se houver, senão assume a venda total no caso de pendente)
+      // Por forma de pagamento (distribuir o valor de cada pagamento se houver)
       if (v.pagamentos && v.pagamentos.length > 0) {
         v.pagamentos.forEach(p => {
           porFormaPagamento[p.forma_pagamento] = (porFormaPagamento[p.forma_pagamento] || 0) + p.valor;
         });
-      } else {
-        // Se estiver pendente e sem pagamentos
-        porFormaPagamento['pendente'] = (porFormaPagamento['pendente'] || 0) + v.valor_total;
       }
     });
 
@@ -381,7 +391,7 @@ const relatorioServicos = async (req, res) => {
   const { data_inicio, data_fim, colaborador_id, servico_id, forma_pagamento, cliente_id, status } = req.query;
 
   try {
-    const where = {};
+    const where = { deletado: 'N' };
     if (data_inicio && data_fim) {
       where.data_hora = {
         [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
@@ -400,14 +410,15 @@ const relatorioServicos = async (req, res) => {
     const agendamentos = await Agendamento.findAll({ where, order: [['data_hora', 'DESC']] });
 
     // Colaboradores para mapear nomes
-    const colaboradores = await Colaborador.findAll();
+    const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
     const colabMap = new Map(colaboradores.map(c => [c.id, c.nome]));
 
     // Pagamentos associados a estes agendamentos
     const agendsIds = agendamentos.map(a => a.id);
     const pagamentosList = await Pagamento.findAll({
       where: {
-        agendamento_id: { [Op.in]: agendsIds }
+        agendamento_id: { [Op.in]: agendsIds },
+        deletado: 'N'
       }
     });
 
@@ -480,25 +491,25 @@ const relatorioServicos = async (req, res) => {
     const porFormaPagamento = {};
 
     mappedServicos.forEach(s => {
-      totalFaturamento += s.valor;
-      totalQuantidade += 1;
-      totalDuracao += s.duracao || 0;
+      if (s.status === 'concluido') {
+        totalFaturamento += s.valor;
+        totalQuantidade += 1;
+        totalDuracao += s.duracao || 0;
 
-      // Por colaborador
-      const colabName = s.colaborador_nome;
-      porColaborador[colabName] = (porColaborador[colabName] || 0) + s.valor;
+        // Por colaborador
+        const colabName = s.colaborador_nome;
+        porColaborador[colabName] = (porColaborador[colabName] || 0) + s.valor;
 
-      // Por serviço
-      const servName = s.servico_nome;
-      porServico[servName] = (porServico[servName] || 0) + s.valor;
+        // Por serviço
+        const servName = s.servico_nome;
+        porServico[servName] = (porServico[servName] || 0) + s.valor;
+      }
 
       // Por forma de pagamento (se existirem pagamentos, distribuímos proporcionalmente ou agrupamos)
-      if (s.formas_pagamento && s.formas_pagamento.length > 0) {
+      if (s.status === 'concluido' && s.formas_pagamento && s.formas_pagamento.length > 0) {
         s.formas_pagamento.forEach(forma => {
           porFormaPagamento[forma] = (porFormaPagamento[forma] || 0) + (s.valor / s.formas_pagamento.length);
         });
-      } else {
-        porFormaPagamento['pendente'] = (porFormaPagamento['pendente'] || 0) + s.valor;
       }
     });
 

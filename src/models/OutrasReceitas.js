@@ -28,6 +28,19 @@ const OutrasReceitas = sequelize.define('OutrasReceitas', {
   observacoes: {
     type: DataTypes.TEXT,
     defaultValue: ''
+  },
+  deletado: {
+    type: DataTypes.STRING(1),
+    defaultValue: 'N',
+    allowNull: false
+  },
+  deletado_por: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  deletado_em: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'outras_receitas',

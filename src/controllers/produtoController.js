@@ -2,7 +2,10 @@ import Produto from '../models/Produto.js';
 
 const listProd = async (req, res) => {
   try {
-    const prods = await Produto.findAll({ order: [['nome', 'ASC']] });
+    const prods = await Produto.findAll({
+      where: { deletado: 'N' },
+      order: [['nome', 'ASC']]
+    });
     res.json(prods);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -41,7 +44,13 @@ const updateProd = async (req, res) => {
 const deleteProd = async (req, res) => {
   try {
     const prod = await Produto.findByPk(req.params.pid);
-    if (prod) await prod.destroy();
+    if (prod) {
+      await prod.update({
+        deletado: 'S',
+        deletado_por: req.user ? req.user.name : 'Sistema',
+        deletado_em: new Date()
+      });
+    }
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ detail: error.message });

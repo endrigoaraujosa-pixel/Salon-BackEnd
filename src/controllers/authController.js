@@ -7,7 +7,7 @@ const login = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const user = await User.findOne({ where: { email: email.toLowerCase().trim() } });
+    const user = await User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
 
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       return res.status(401).json({ detail: 'Email ou senha inválidos' });

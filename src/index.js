@@ -21,10 +21,11 @@ import { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos, relatorioSe
 import { listDespesas, createDespesa, updateDespesa, deleteDespesa } from './controllers/despesaController.js';
 import { getTaxas, saveTaxa } from './controllers/configuracaoController.js';
 import { listUsers, createUser, updateUser, deleteUser } from './controllers/userController.js';
-import { listVendas, getVenda, createVenda, deleteVenda, addPagamentos as addVendaPagamentos, updatePagamento as updateVendaPagamento, deletePagamento as deleteVendaPagamento } from './controllers/vendaDiretaController.js';
+import { listVendas, getVenda, createVenda, deleteVenda, addPagamentos as addVendaPagamentos, updatePagamento as updateVendaPagamento, deletePagamento as deleteVendaPagamento, getCarrinho, addItemCarrinho, updateItemCarrinho, removeItemCarrinho, updateCliente as updateVendaCliente } from './controllers/vendaDiretaController.js';
 import { listComissoes, pagarComissao, desfazerPagamento } from './controllers/comissaoController.js';
 import { listReceitas, createReceita, updateReceita, deleteReceita } from './controllers/outrasReceitasController.js';
 import { listCategorias, createCategoria, updateCategoria, deleteCategoria } from './controllers/categoriaController.js';
+import { getDeletados, restoreRecord } from './controllers/auditController.js';
 
 const app = express();
 
@@ -130,6 +131,12 @@ vendaDiretaRoutes.delete('/:id', protect, deleteVenda);
 vendaDiretaRoutes.post('/:id/pagamentos', protect, addVendaPagamentos);
 vendaDiretaRoutes.put('/:id/pagamentos/:pid', protect, updateVendaPagamento);
 vendaDiretaRoutes.delete('/:id/pagamentos/:pid', protect, deleteVendaPagamento);
+// Rotas de gerenciamento de carrinho
+vendaDiretaRoutes.get('/:id/carrinho', protect, getCarrinho);
+vendaDiretaRoutes.post('/:id/carrinho/itens', protect, addItemCarrinho);
+vendaDiretaRoutes.put('/:id/carrinho/itens/:itemIndex', protect, updateItemCarrinho);
+vendaDiretaRoutes.delete('/:id/carrinho/itens/:itemIndex', protect, removeItemCarrinho);
+vendaDiretaRoutes.put('/:id/cliente', protect, updateVendaCliente);
 app.use('/api/vendas-diretas', vendaDiretaRoutes);
 
 // Comissões Routes
@@ -152,6 +159,10 @@ categoriaRoutes.post('/', protect, createCategoria);
 categoriaRoutes.put('/:id', protect, updateCategoria);
 categoriaRoutes.delete('/:id', protect, deleteCategoria);
 app.use('/api/categorias', categoriaRoutes);
+
+// Auditoria Routes
+app.get('/api/auditoria/deletados', protect, getDeletados);
+app.post('/api/auditoria/restaurar', protect, restoreRecord);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
