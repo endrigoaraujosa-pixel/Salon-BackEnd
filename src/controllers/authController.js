@@ -19,13 +19,13 @@ const login = async (req, res) => {
     const token = jwt.sign(
       { sub: user.id, email: user.email },
       process.env.JWT_SECRET,
-      { expiresIn: '15m' }
+      { expiresIn: '1m' }
     );
 
     const refreshToken = jwt.sign(
       { sub: user.id },
       process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh',
-      { expiresIn: '1d' }
+      { expiresIn: '2m' }
     );
 
     res.cookie('access_token', token, {
