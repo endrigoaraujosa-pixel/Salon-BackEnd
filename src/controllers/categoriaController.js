@@ -3,7 +3,7 @@ import Categoria from '../models/Categoria.js';
 const listCategorias = async (req, res) => {
   try {
     const { tipo } = req.query;
-    const where = {};
+    const where = { deletado: 'N' };
     if (tipo) {
       where.tipo = tipo;
     }
@@ -41,7 +41,13 @@ const updateCategoria = async (req, res) => {
 const deleteCategoria = async (req, res) => {
   try {
     const categoria = await Categoria.findByPk(req.params.id);
-    if (categoria) await categoria.destroy();
+    if (categoria) {
+      await categoria.update({
+        deletado: 'S',
+        deletado_por: req.user ? req.user.name : 'Sistema',
+        deletado_em: new Date()
+      });
+    }
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ detail: error.message });

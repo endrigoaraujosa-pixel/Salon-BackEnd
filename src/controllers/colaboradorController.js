@@ -2,7 +2,10 @@ import Colaborador from '../models/Colaborador.js';
 
 const listColab = async (req, res) => {
   try {
-    const cols = await Colaborador.findAll({ order: [['nome', 'ASC']] });
+    const cols = await Colaborador.findAll({
+      where: { deletado: 'N' },
+      order: [['nome', 'ASC']]
+    });
     res.json(cols);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -33,7 +36,13 @@ const updateColab = async (req, res) => {
 const deleteColab = async (req, res) => {
   try {
     const colab = await Colaborador.findByPk(req.params.cid);
-    if (colab) await colab.destroy();
+    if (colab) {
+      await colab.update({
+        deletado: 'S',
+        deletado_por: req.user ? req.user.name : 'Sistema',
+        deletado_em: new Date()
+      });
+    }
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ detail: error.message });

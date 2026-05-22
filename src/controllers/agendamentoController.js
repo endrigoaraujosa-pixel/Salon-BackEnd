@@ -125,7 +125,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
 
 const listAgend = async (req, res) => {
   const { data, mes } = req.query;
-  const where = {};
+  const where = { deletado: 'N' };
   if (data) {
     where.data_hora = { [Op.between]: [`${data}T00:00:00`, `${data}T23:59:59`] };
   } else if (mes) {
@@ -148,9 +148,9 @@ const listAgend = async (req, res) => {
 const getAgend = async (req, res) => {
   try {
     const ag = await Agendamento.findByPk(req.params.aid);
-    if (!ag) return res.status(404).json({ detail: 'Não encontrado' });
+    if (!ag || ag.deletado === 'S') return res.status(404).json({ detail: 'Não encontrado' });
 
-    const pagamentos = await Pagamento.findAll({ where: { agendamento_id: req.params.aid } });
+    const pagamentos = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
     const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
 
     res.json({
@@ -203,11 +203,37 @@ const deleteAgend = async (req, res) => {
 
     const ag = await Agendamento.findByPk(req.params.aid);
     if (ag) {
+      // Validar pagamentos vinculados
+      const countPagamentos = await Pagamento.count({
+        where: {
+          agendamento_id: req.params.aid,
+          deletado: 'N'
+        }
+      });
+
+      if (countPagamentos > 0) {
+        console.warn(`[AUDIT] Tentativa de exclusão de agendamento bloqueada: O agendamento ID ${req.params.aid} possui pagamentos ativos.`);
+        return res.status(400).json({ detail: "Não é permitido excluir registros que possuem pagamentos vinculados." });
+      }
+
       if (ag.status === 'concluido') {
         await adjustStock(ag, 'restore');
       }
-      await ag.destroy();
-      await Pagamento.destroy({ where: { agendamento_id: req.params.aid } });
+      await ag.update({
+        deletado: 'S',
+        deletado_por: req.user ? req.user.name : 'Sistema',
+        deletado_em: new Date()
+      });
+      await Pagamento.update(
+        {
+          deletado: 'S',
+          deletado_por: req.user ? req.user.name : 'Sistema',
+          deletado_em: new Date()
+        },
+        {
+          where: { agendamento_id: req.params.aid }
+        }
+      );
     }
     res.json({ ok: true });
   } catch (error) {
@@ -230,7 +256,7 @@ const setStatus = async (req, res) => {
           return res.status(400).json({ detail: 'Não é possível concluir o atendimento sem definir o profissional que realizou cada serviço.' });
         }
       }
-      const pagamentos = await Pagamento.findAll({ where: { agendamento_id: req.params.aid } });
+      const pagamentos = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
       const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
       if (totalPago < ag.valor_total - 0.01) {
         return res.status(400).json({ detail: 'Registre o pagamento total antes de finalizar' });
@@ -261,7 +287,7 @@ const addPagamentos = async (req, res) => {
     const ag = await Agendamento.findByPk(req.params.aid);
     if (!ag) return res.status(404).json({ detail: 'Agendamento não encontrado' });
 
-    const existingPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid } });
+    const existingPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
     const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
     const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
     let adjustedPagamentos = [...pagamentos];
@@ -340,7 +366,7 @@ const updatePagamento = async (req, res) => {
     const ag = await Agendamento.findByPk(req.params.aid);
     if (ag) {
       const oldStatus = ag.status;
-      const allPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid } });
+      const allPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       ag.valor_pago = totalPago;
       if (totalPago >= ag.valor_total - 0.01) {
@@ -383,12 +409,16 @@ const deletePagamento = async (req, res) => {
     const pagamento = await Pagamento.findByPk(req.params.pid);
     if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
 
-    await pagamento.destroy();
+    await pagamento.update({
+      deletado: 'S',
+      deletado_por: req.user ? req.user.name : 'Sistema',
+      deletado_em: new Date()
+    });
 
     const ag = await Agendamento.findByPk(req.params.aid);
     if (ag) {
       const oldStatus = ag.status;
-      const allPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid } });
+      const allPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       ag.valor_pago = totalPago;
       if (totalPago >= ag.valor_total - 0.01) {

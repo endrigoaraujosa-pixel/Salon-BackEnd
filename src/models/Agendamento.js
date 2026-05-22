@@ -62,6 +62,19 @@ const Agendamento = sequelize.define('Agendamento', {
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
+  },
+  deletado: {
+    type: DataTypes.STRING(1),
+    defaultValue: 'N',
+    allowNull: false
+  },
+  deletado_por: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  deletado_em: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'agendamentos'

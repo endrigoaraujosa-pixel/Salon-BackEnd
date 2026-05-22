@@ -2,7 +2,10 @@ import OutrasReceitas from '../models/OutrasReceitas.js';
 
 const listReceitas = async (req, res) => {
   try {
-    const receitas = await OutrasReceitas.findAll({ order: [['data_recebimento', 'DESC']] });
+    const receitas = await OutrasReceitas.findAll({
+      where: { deletado: 'N' },
+      order: [['data_recebimento', 'DESC']]
+    });
     res.json(receitas);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -48,7 +51,13 @@ const updateReceita = async (req, res) => {
 const deleteReceita = async (req, res) => {
   try {
     const receita = await OutrasReceitas.findByPk(req.params.id);
-    if (receita) await receita.destroy();
+    if (receita) {
+      await receita.update({
+        deletado: 'S',
+        deletado_por: req.user ? req.user.name : 'Sistema',
+        deletado_em: new Date()
+      });
+    }
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ detail: error.message });
