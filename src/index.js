@@ -1,31 +1,24 @@
-import express from 'express';
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import 'dotenv/config';
-import { connectDB, sequelize } from './config/db.js';
-import User from './models/User.js';
-import Agendamento from './models/Agendamento.js';
-import VendaDireta from './models/VendaDireta.js';
-import PagamentoComissao from './models/PagamentoComissao.js';
-import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
-import OutrasReceitas from './models/OutrasReceitas.js';
+import express from 'express';
 
-import { login, logout, me } from './controllers/authController.js';
-import { protect, admin } from './middleware/auth.js';
-import { listClientes, createCliente, updateCliente, deleteCliente, historicoCliente } from './controllers/clienteController.js';
-import { listColab, createColab, updateColab, deleteColab } from './controllers/colaboradorController.js';
-import { listServ, createServ, updateServ, deleteServ } from './controllers/servicoController.js';
-import { listProd, createProd, updateProd, deleteProd } from './controllers/produtoController.js';
-import { listAgend, getAgend, createAgend, updateAgend, deleteAgend, setStatus, addPagamentos, updatePagamento as updateAgendamentoPagamento, deletePagamento as deleteAgendamentoPagamento } from './controllers/agendamentoController.js';
-import { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos, relatorioServicos } from './controllers/reportController.js';
-import { listDespesas, createDespesa, updateDespesa, deleteDespesa } from './controllers/despesaController.js';
-import { getTaxas, saveTaxa } from './controllers/configuracaoController.js';
-import { listUsers, createUser, updateUser, deleteUser } from './controllers/userController.js';
-import { listVendas, getVenda, createVenda, deleteVenda, addPagamentos as addVendaPagamentos, updatePagamento as updateVendaPagamento, deletePagamento as deleteVendaPagamento, getCarrinho, addItemCarrinho, updateItemCarrinho, removeItemCarrinho, updateCliente as updateVendaCliente } from './controllers/vendaDiretaController.js';
-import { listComissoes, pagarComissao, desfazerPagamento } from './controllers/comissaoController.js';
-import { listReceitas, createReceita, updateReceita, deleteReceita } from './controllers/outrasReceitasController.js';
-import { listCategorias, createCategoria, updateCategoria, deleteCategoria } from './controllers/categoriaController.js';
+import { addPagamentos, createAgend, deleteAgend, deletePagamento as deleteAgendamentoPagamento, getAgend, listAgend, setStatus, updateAgend, updatePagamento as updateAgendamentoPagamento } from './controllers/agendamentoController.js';
 import { getDeletados, restoreRecord } from './controllers/auditController.js';
+import { login, logout, me, refreshToken } from './controllers/authController.js';
+import { createCategoria, deleteCategoria, listCategorias, updateCategoria } from './controllers/categoriaController.js';
+import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente } from './controllers/clienteController.js';
+import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
+import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
+import { getTaxas, saveTaxa } from './controllers/configuracaoController.js';
+import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
+import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
+import { createProd, deleteProd, listProd, updateProd } from './controllers/produtoController.js';
+import { dashboard, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos } from './controllers/reportController.js';
+import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
+import { createUser, deleteUser, listUsers, updateUser } from './controllers/userController.js';
+import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento } from './controllers/vendaDiretaController.js';
+import { admin, protect } from './middleware/auth.js';
 
 const app = express();
 
@@ -36,6 +29,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
+app.use(cookieParser());
 app.use(express.json());
 
 // Routes
@@ -43,6 +37,7 @@ const authRoutes = express.Router();
 authRoutes.post('/login', login);
 authRoutes.post('/logout', logout);
 authRoutes.get('/me', protect, me);
+authRoutes.post('/refresh', refreshToken);
 app.use('/api/auth', authRoutes);
 
 // Clientes Routes
