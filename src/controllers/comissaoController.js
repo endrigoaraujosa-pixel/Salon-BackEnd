@@ -3,6 +3,7 @@ import Agendamento from '../models/Agendamento.js';
 import VendaDireta from '../models/VendaDireta.js';
 import Produto from '../models/Produto.js';
 import PagamentoComissao from '../models/PagamentoComissao.js';
+import Servico from '../models/Servico.js';
 import { Op } from 'sequelize';
 
 const listComissoes = async (req, res) => {
@@ -25,6 +26,7 @@ const listComissoes = async (req, res) => {
   try {
     const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
     const produtos = await Produto.findAll({ where: { deletado: 'N' } });
+    const servicos = await Servico.findAll({ where: { deletado: 'N' } });
     
     // Buscar agendamentos concluídos no período
     const agendamentos = await Agendamento.findAll({
@@ -84,17 +86,40 @@ const listComissoes = async (req, res) => {
               const pct = temAuxiliar
                 ? Number(colab.comissao_ajuda != null ? colab.comissao_ajuda : 30)
                 : Number(colab.comissao_sozinho != null ? colab.comissao_sozinho : (colab.comissao_principal || 0));
-              const val_com = val_serv * (pct / 100);
+              
+              // Calculate cost of products used in this service execution
+              let custo_produtos = 0;
+              const produtos_utilizados = item.produtos_utilizados || [];
+              for (const pu of produtos_utilizados) {
+                let custo_u = Number(pu.custo_unitario || 0);
+                if (custo_u === 0) {
+                  const prod = produtos.find(p => p.id === pu.produto_id);
+                  custo_u = prod ? Number(prod.custo_unitario || 0) : 0;
+                }
+                custo_produtos += Number(pu.quantidade || 0) * custo_u;
+              }
+
+              const base_comissao = Math.max(0, val_serv - custo_produtos);
+              const val_com = base_comissao * (pct / 100);
+              
+              const s_model = servicos.find(x => x.id === item.servico_id);
+              const linkedCount = s_model?.produtos_vinculados?.length || 0;
+              const utilizedCount = item.produtos_utilizados?.length || 0;
+              const insumos_pendentes = (linkedCount > 0 && utilizedCount === 0);
               
               const det = {
                 tipo: 'servico',
+                numero: ag.numero,
                 papel: temAuxiliar ? 'Principal (Com ajuda)' : 'Principal (Sozinho)',
                 descricao: item.nome,
                 data: ag.data_hora,
                 valor_movimentacao: val_serv,
+                custo_produtos: Number(custo_produtos.toFixed(2)),
+                base_comissao: Number(base_comissao.toFixed(2)),
                 percentual_aplicado: pct,
                 valor_comissao: Number(val_com.toFixed(2)),
-                pago: !!item.comissao_paga
+                pago: !!item.comissao_paga,
+                insumos_pendentes
               };
 
               if (item.comissao_paga) {
@@ -110,17 +135,40 @@ const listComissoes = async (req, res) => {
             if (item.auxiliar_id === colab.id) {
               const val_serv = Number(item.valor || 0);
               const pct = Number(colab.comissao_auxiliar || 0);
-              const val_com = val_serv * (pct / 100);
+              
+              // Calculate cost of products used in this service execution
+              let custo_produtos = 0;
+              const produtos_utilizados = item.produtos_utilizados || [];
+              for (const pu of produtos_utilizados) {
+                let custo_u = Number(pu.custo_unitario || 0);
+                if (custo_u === 0) {
+                  const prod = produtos.find(p => p.id === pu.produto_id);
+                  custo_u = prod ? Number(prod.custo_unitario || 0) : 0;
+                }
+                custo_produtos += Number(pu.quantidade || 0) * custo_u;
+              }
+
+              const base_comissao = Math.max(0, val_serv - custo_produtos);
+              const val_com = base_comissao * (pct / 100);
+
+              const s_model = servicos.find(x => x.id === item.servico_id);
+              const linkedCount = s_model?.produtos_vinculados?.length || 0;
+              const utilizedCount = item.produtos_utilizados?.length || 0;
+              const insumos_pendentes = (linkedCount > 0 && utilizedCount === 0);
 
               const det = {
                 tipo: 'servico',
+                numero: ag.numero,
                 papel: 'Auxiliar',
                 descricao: item.nome,
                 data: ag.data_hora,
                 valor_movimentacao: val_serv,
+                custo_produtos: Number(custo_produtos.toFixed(2)),
+                base_comissao: Number(base_comissao.toFixed(2)),
                 percentual_aplicado: pct,
                 valor_comissao: Number(val_com.toFixed(2)),
-                pago: !!item.comissao_paga
+                pago: !!item.comissao_paga,
+                insumos_pendentes
               };
 
               if (item.comissao_paga) {
@@ -159,6 +207,7 @@ const listComissoes = async (req, res) => {
 
           const det = {
             tipo: 'produto',
+            numero: venda.numero_venda,
             papel: 'Vendedor',
             descricao: item.produto_nome,
             data: venda.data_venda,

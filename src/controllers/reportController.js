@@ -12,25 +12,28 @@ import { sequelize } from '../config/db.js';
 
 const dashboard = async (req, res) => {
   try {
-    const totalClientes = await Cliente.count({ where: {deletado: 'N' } });
+    const totalClientes = await Cliente.count({ where: { deletado: 'N' } });
     const totalColaboradores = await Colaborador.count({ where: { ativo: true, deletado: 'N' } });
+    
+    const { data_inicio, data_fim } = req.query;
     
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
     const todayStart = `${todayStr}T00:00:00`;
     const todayEnd = `${todayStr}T23:59:59`;
     
+    const mesPrefix = todayStr.substring(0, 7); // YYYY-MM
+    let dataInicioMes = data_inicio ? `${data_inicio}T00:00:00` : `${mesPrefix}-01T00:00:00`;
+    let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-31T23:59:59`;
+    
+    // For agendamentos_hoje / no período
     const agHoje = await Agendamento.count({ 
       where: { 
-        data_hora: { [Op.between]: [todayStart, todayEnd] },  
+        data_hora: { [Op.between]: [data_inicio ? dataInicioMes : todayStart, data_fim ? dataFimMes : todayEnd] },  
         deletado: 'N'
       } 
     });
     
-    const mesPrefix = todayStr.substring(0, 7); // YYYY-MM
-    const dataInicioMes = `${mesPrefix}-01T00:00:00`;
-    const dataFimMes = `${mesPrefix}-31T23:59:59`;
-
     const pagamentosMes = await Pagamento.findAll({ 
       where: { 
         data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
@@ -55,6 +58,36 @@ const dashboard = async (req, res) => {
       }
     });
 
+    const concluidosAgs = await Agendamento.findAll({
+      where: {
+        status: 'concluido',
+        data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+        deletado: 'N'
+      }
+    });
+    
+    const servicosContagem = {};
+    concluidosAgs.forEach(ag => {
+      let itens = [];
+      try {
+        itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+      } catch (e) {
+        itens = ag.itens || [];
+      }
+      if (Array.isArray(itens)) {
+        itens.forEach(item => {
+          if (!servicosContagem[item.nome]) {
+            servicosContagem[item.nome] = { nome: item.nome, qtd: 0, total: 0 };
+          }
+          servicosContagem[item.nome].qtd += 1;
+          servicosContagem[item.nome].total += (item.valor || 0);
+        });
+      }
+    });
+    const topServicos = Object.values(servicosContagem)
+      .sort((a, b) => b.qtd - a.qtd)
+      .slice(0, 5);
+
     const isAdmin = req.user && req.user.role === 'admin';
 
     res.json({
@@ -65,12 +98,180 @@ const dashboard = async (req, res) => {
       ticket_medio: isAdmin ? ticketMedio : 0,
       atendimentos_mes: concluidos,
       estoque_baixo: estoqueBaixo,
-      top_servicos: []
+      top_servicos: topServicos
     });
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
 };
+
+const dashboardDetail = async (req, res) => {
+  const { metric, data_inicio, data_fim, service_name } = req.query;
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const mesPrefix = todayStr.substring(0, 7);
+  
+  let dataInicioMes = data_inicio ? `${data_inicio}T00:00:00` : `${mesPrefix}-01T00:00:00`;
+  let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-31T23:59:59`;
+  
+  try {
+    const isAdmin = req.user && req.user.role === 'admin';
+
+    if (metric === 'faturamento') {
+      if (!isAdmin) {
+        return res.status(403).json({ detail: 'Acesso negado' });
+      }
+      const pagamentos = await Pagamento.findAll({
+        where: {
+          data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+          deletado: 'N'
+        },
+        order: [['data_hora', 'DESC']]
+      });
+
+      const agendamentoIds = [...new Set(pagamentos.map(p => p.agendamento_id).filter(Boolean))];
+      const vendaDiretaIds = [...new Set(pagamentos.map(p => p.venda_direta_id).filter(Boolean))];
+
+      const agendamentos = agendamentoIds.length > 0 
+        ? await Agendamento.findAll({ where: { id: { [Op.in]: agendamentoIds } } })
+        : [];
+        
+      const vendas = vendaDiretaIds.length > 0
+        ? await VendaDireta.findAll({ where: { id: { [Op.in]: vendaDiretaIds } } })
+        : [];
+
+      const agMap = new Map(agendamentos.map(a => [a.id, a]));
+      const vMap = new Map(vendas.map(v => [v.id, v]));
+
+      const details = pagamentos.map(p => {
+        let numero = '-';
+        let cliente = 'Consumidor';
+        let itens = '-';
+        let tipo = 'outro';
+
+        if (p.agendamento_id) {
+          const ag = agMap.get(p.agendamento_id);
+          if (ag) {
+            numero = ag.numero ? `${String(ag.numero).padStart(6, '0')} | S` : '-';
+            cliente = ag.cliente_nome || 'Consumidor';
+            tipo = 'servico';
+            let parsedItens = [];
+            try {
+              parsedItens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+            } catch (e) {
+              parsedItens = ag.itens || [];
+            }
+            if (Array.isArray(parsedItens) && parsedItens.length > 0) {
+              itens = parsedItens.map(item => item.nome).join(', ');
+            }
+          }
+        } else if (p.venda_direta_id) {
+          const v = vMap.get(p.venda_direta_id);
+          if (v) {
+            numero = v.numero_venda ? `${String(v.numero_venda).padStart(6, '0')} | V` : '-';
+            cliente = v.cliente_nome || 'Consumidor';
+            tipo = 'venda';
+            itens = v.produto_nome || '-';
+          }
+        }
+
+        return {
+          id: p.id,
+          numero,
+          cliente,
+          itens,
+          valor: p.valor,
+          data_hora: p.data_hora,
+          forma_pagamento: p.forma_pagamento,
+          tipo
+        };
+      });
+
+      return res.json({ details });
+    }
+
+    if (metric === 'agendamentos' || metric === 'atendimentos' || metric === 'ticket_medio') {
+      const where = {
+        data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+        deletado: 'N'
+      };
+
+      if (metric === 'atendimentos' || metric === 'ticket_medio') {
+        where.status = 'concluido';
+      }
+
+      const ags = await Agendamento.findAll({
+        where,
+        order: [['data_hora', 'DESC']]
+      });
+
+      return res.json({ details: ags });
+    }
+
+    if (metric === 'clientes') {
+      const clientes = await Cliente.findAll({
+        where: { deletado: 'N' },
+        order: [['nome', 'ASC']]
+      });
+      return res.json({ details: clientes });
+    }
+
+    if (metric === 'estoque') {
+      const produtos = await Produto.findAll({
+        where: {
+          ativo: true,
+          quantidade_estoque: { [Op.lte]: sequelize.col('estoque_minimo') }
+        },
+        order: [['nome', 'ASC']]
+      });
+      return res.json({ details: produtos });
+    }
+
+    if (metric === 'top_servico') {
+      const ags = await Agendamento.findAll({
+        where: {
+          status: 'concluido',
+          data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+          deletado: 'N'
+        },
+        order: [['data_hora', 'DESC']]
+      });
+
+      const details = [];
+      ags.forEach(ag => {
+        let itens = [];
+        try {
+          itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+        } catch (e) {
+          itens = ag.itens || [];
+        }
+        if (Array.isArray(itens)) {
+          itens.forEach(item => {
+            if (item.nome === service_name) {
+              details.push({
+                id: `${ag.id}-${item.servico_id}`,
+                agendamento_id: ag.id,
+                numero: ag.numero,
+                data_hora: ag.data_hora,
+                cliente_nome: ag.cliente_nome || 'Consumidor',
+                servico_nome: item.nome,
+                valor: item.valor,
+                status: ag.status
+              });
+            }
+          });
+        }
+      });
+
+      return res.json({ details });
+    }
+
+    return res.status(400).json({ detail: 'Métrica inválida' });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 
 const relatorioDre = async (req, res) => {
   const { data_inicio, data_fim } = req.query;
@@ -187,16 +388,27 @@ const relatorioCaixa = async (req, res) => {
         deletado: 'N'
       }
     });
+
+    const agendamentoIds = [...new Set(pagsAg.map(p => p.agendamento_id).filter(Boolean))];
+    const vendaDiretaIds = [...new Set(pagsAg.map(p => p.venda_direta_id).filter(Boolean))];
+
+    const agendamentos = agendamentoIds.length > 0 
+      ? await Agendamento.findAll({ where: { id: { [Op.in]: agendamentoIds }, deletado: 'N' } })
+      : [];
+      
+    const vendas = vendaDiretaIds.length > 0
+      ? await VendaDireta.findAll({ where: { id: { [Op.in]: vendaDiretaIds }, deletado: 'N' } })
+      : [];
+
+    const agMap = new Map(agendamentos.map(a => [a.id, a]));
+    const vMap = new Map(vendas.map(v => [v.id, v]));
     
     let filteredPags = pagsAg;
 
     if (colaborador_id && colaborador_id !== 'todos') {
-      const agendamentos = await Agendamento.findAll({ where: { deletado: 'N' } });
-      const vendas = await VendaDireta.findAll({ where: { deletado: 'N' } });
-
       filteredPags = pagsAg.filter(p => {
         if (p.agendamento_id) {
-          const ag = agendamentos.find(a => a.id === p.agendamento_id);
+          const ag = agMap.get(p.agendamento_id);
           if (ag) {
             let itens = [];
             try {
@@ -209,7 +421,7 @@ const relatorioCaixa = async (req, res) => {
             }
           }
         } else if (p.venda_direta_id) {
-          const v = vendas.find(x => x.id === p.venda_direta_id);
+          const v = vMap.get(p.venda_direta_id);
           if (v) {
             return v.colaborador_id === colaborador_id;
           }
@@ -226,11 +438,53 @@ const relatorioCaixa = async (req, res) => {
       }
     });
 
+    const pagamentosDetalhes = filteredPags.map(p => {
+      let numero = '-';
+      let cliente = 'Consumidor';
+      let itens = '-';
+      
+      if (p.agendamento_id) {
+        const ag = agMap.get(p.agendamento_id);
+        if (ag) {
+          numero = ag.numero ? `${String(ag.numero).padStart(6, '0')} | S` : '-';
+          cliente = ag.cliente_nome || 'Consumidor';
+          
+          let parsedItens = [];
+          try {
+            parsedItens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+          } catch (e) {
+            parsedItens = ag.itens || [];
+          }
+          if (Array.isArray(parsedItens) && parsedItens.length > 0) {
+            itens = parsedItens.map(item => item.nome).join(', ');
+          }
+        }
+      } else if (p.venda_direta_id) {
+        const v = vMap.get(p.venda_direta_id);
+        if (v) {
+          numero = v.numero_venda ? `${String(v.numero_venda).padStart(6, '0')} | V` : '-';
+          cliente = v.cliente_nome || 'Consumidor';
+          itens = v.produto_nome || '-';
+        }
+      }
+
+      return {
+        id: p.id,
+        numero,
+        cliente,
+        itens,
+        valor: p.valor,
+        data_hora: p.data_hora,
+        forma_pagamento: p.forma_pagamento
+      };
+    });
+
     res.json({
       data_inicio,
       data_fim,
       totais,
-      total_pagamentos: filteredPags.length
+      total_pagamentos: filteredPags.length,
+      pagamentos: pagamentosDetalhes
     });
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -529,4 +783,4 @@ const relatorioServicos = async (req, res) => {
   }
 };
 
-export { dashboard, relatorioDre, relatorioCaixa, relatorioProdutos, relatorioServicos };
+export { dashboard, dashboardDetail, relatorioDre, relatorioCaixa, relatorioProdutos, relatorioServicos };

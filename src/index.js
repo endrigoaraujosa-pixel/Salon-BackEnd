@@ -3,18 +3,18 @@ import cors from 'cors';
 import 'dotenv/config';
 import express from 'express';
 
-import { addPagamentos, createAgend, deleteAgend, deletePagamento as deleteAgendamentoPagamento, getAgend, listAgend, setStatus, updateAgend, updatePagamento as updateAgendamentoPagamento } from './controllers/agendamentoController.js';
+import { addPagamentos, createAgend, deleteAgend, deletePagamento as deleteAgendamentoPagamento, getAgend, listAgend, setStatus, updateAgend, updatePagamento as updateAgendamentoPagamento, patchObservacoes } from './controllers/agendamentoController.js';
 import { getDeletados, restoreRecord } from './controllers/auditController.js';
 import { login, logout, me, refreshToken } from './controllers/authController.js';
 import { createCategoria, deleteCategoria, listCategorias, updateCategoria } from './controllers/categoriaController.js';
-import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente } from './controllers/clienteController.js';
+import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente, rankingClientes } from './controllers/clienteController.js';
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
 import { getTaxas, saveTaxa } from './controllers/configuracaoController.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
 import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
 import { createProd, deleteProd, listProd, updateProd } from './controllers/produtoController.js';
-import { dashboard, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos } from './controllers/reportController.js';
+import { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos } from './controllers/reportController.js';
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
 import { createUser, deleteUser, listUsers, updateUser } from './controllers/userController.js';
 import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento } from './controllers/vendaDiretaController.js';
@@ -23,9 +23,25 @@ import { admin, protect } from './middleware/auth.js';
 const app = express();
 
 // Middleware
+const allowedOrigins = [
+  'https://www.salonstudio.com.br',
+  'http://localhost:4000',
+  'http://localhost:3000',
+  'http://127.0.0.1:4000'
+];
+
 app.use(cors({
-  origin: ['https://www.salonstudio.com.br',  'http://localhost:4000', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const isAllowed = allowedOrigins.includes(origin) || 
+                      /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+):4000$/.test(origin);
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
@@ -43,6 +59,7 @@ app.use('/api/auth', authRoutes);
 // Clientes Routes
 const clienteRoutes = express.Router();
 clienteRoutes.get('/', protect, listClientes);
+clienteRoutes.get('/ranking', protect, rankingClientes);
 clienteRoutes.post('/', protect, createCliente);
 clienteRoutes.put('/:cid', protect, updateCliente);
 clienteRoutes.delete('/:cid', protect, deleteCliente);
@@ -79,6 +96,7 @@ agendRoutes.get('/', protect, listAgend);
 agendRoutes.get('/:aid', protect, getAgend);
 agendRoutes.post('/', protect, createAgend);
 agendRoutes.put('/:aid', protect, updateAgend);
+agendRoutes.put('/:aid/observacoes', protect, patchObservacoes);
 agendRoutes.delete('/:aid', protect, deleteAgend);
 agendRoutes.post('/:aid/status', protect, setStatus);
 agendRoutes.post('/:aid/pagamentos', protect, addPagamentos);
@@ -88,6 +106,7 @@ app.use('/api/agendamentos', agendRoutes);
 
 // Dashboard and Relatorios Routes
 app.get('/api/dashboard', protect, dashboard);
+app.get('/api/dashboard/detail', protect, dashboardDetail);
 app.get('/api/relatorios/dre', protect, admin, relatorioDre);
 app.get('/api/relatorios/caixa', protect, admin, relatorioCaixa);
 app.get('/api/relatorios/produtos', protect, admin, relatorioProdutos);

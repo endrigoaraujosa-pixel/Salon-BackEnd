@@ -12,17 +12,14 @@ import Produto from '../models/Produto.js';
 const adjustStock = async (ag, type) => {
   try {
     for (const item of ag.itens || []) {
-      const s = await Servico.findByPk(item.servico_id);
-      if (!s) continue;
-
-      const linked = s.produtos_vinculados || [];
-      for (const pv of linked) {
-        const prod = await Produto.findByPk(pv.produto_id);
+      const utilized = item.produtos_utilizados || [];
+      for (const pu of utilized) {
+        const prod = await Produto.findByPk(pu.produto_id);
         if (prod) {
           if (type === 'deduct') {
-            prod.quantidade_estoque -= pv.quantidade;
+            prod.quantidade_estoque -= Number(pu.quantidade || 0);
           } else if (type === 'restore') {
-            prod.quantidade_estoque += pv.quantidade;
+            prod.quantidade_estoque += Number(pu.quantidade || 0);
           }
           await prod.save();
         }
@@ -50,13 +47,36 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
         throw new Error(`O colaborador principal e o auxiliar não podem ser a mesma pessoa. (Serviço: ${s.nome})`);
       }
 
+      const resolvedProdutosUtilizados = [];
+      if (Array.isArray(item.produtos_utilizados)) {
+        for (const pu of item.produtos_utilizados) {
+          let custoUnitario = Number(pu.custo_unitario || 0);
+          if (custoUnitario === 0) {
+            const prod = await Produto.findByPk(pu.produto_id);
+            custoUnitario = prod ? Number(prod.custo_unitario || 0) : 0;
+          }
+          let prodNome = pu.produto_nome || pu.produto_name || "";
+          if (!prodNome && pu.produto_id) {
+            const prod = await Produto.findByPk(pu.produto_id);
+            prodNome = prod ? prod.nome : "";
+          }
+          resolvedProdutosUtilizados.push({
+            produto_id: pu.produto_id,
+            produto_nome: prodNome,
+            quantidade: Number(pu.quantidade || 0),
+            custo_unitario: custoUnitario
+          });
+        }
+      }
+
       itens.push({
         servico_id: item.servico_id,
         nome: s.nome,
         valor: s.valor,
         duracao: s.duracao_minutos,
         colaborador_id: item.colaborador_id || null,
-        auxiliar_id: item.auxiliar_id || null
+        auxiliar_id: item.auxiliar_id || null,
+        produtos_utilizados: resolvedProdutosUtilizados
       });
       valorTotal += s.valor;
       duracaoTotal += s.duracao_minutos;
@@ -197,6 +217,11 @@ const updateAgend = async (req, res) => {
     const ag = await Agendamento.findByPk(req.params.aid);
     if (!ag) return res.status(404).json({ detail: 'Não encontrado' });
 
+    const wasConcluido = ag.status === 'concluido';
+    if (wasConcluido) {
+      await adjustStock(ag, 'restore');
+    }
+
     if (ag.status === 'concluido') {
       const email = req.query.email || req.body.auth_email;
       const password = req.query.password || req.body.auth_password;
@@ -218,6 +243,12 @@ const updateAgend = async (req, res) => {
     delete doc.valor_pago;
 
     await ag.update(doc);
+
+    if (wasConcluido) {
+      const updatedAg = await Agendamento.findByPk(req.params.aid);
+      await adjustStock(updatedAg, 'deduct');
+    }
+
     res.json(ag);
   } catch (error) {
     res.status(400).json({ detail: error.message });
@@ -472,6 +503,21 @@ const deletePagamento = async (req, res) => {
   }
 };
 
+const patchObservacoes = async (req, res) => {
+  try {
+    const ag = await Agendamento.findByPk(req.params.aid);
+    if (!ag || ag.deletado === 'S') return res.status(404).json({ detail: 'Não encontrado' });
+
+    const { observacoes } = req.body;
+    ag.observacoes = observacoes || '';
+    await ag.save();
+
+    res.json({ ok: true, observacoes: ag.observacoes });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 export {
   listAgend,
   getAgend,
@@ -481,5 +527,6 @@ export {
   setStatus,
   addPagamentos,
   updatePagamento,
-  deletePagamento
+  deletePagamento,
+  patchObservacoes
 };
