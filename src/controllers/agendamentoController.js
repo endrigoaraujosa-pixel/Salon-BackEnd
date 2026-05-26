@@ -69,16 +69,20 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
         }
       }
 
+      const valorOriginal = item.valor_original !== undefined && item.valor_original !== null && item.valor_original !== '' ? Number(item.valor_original) : Number(s.valor || 0);
+      const valorCobrado = item.valor !== undefined && item.valor !== null && item.valor !== '' ? Number(item.valor) : Number(s.valor || 0);
+
       itens.push({
         servico_id: item.servico_id,
         nome: s.nome,
-        valor: s.valor,
+        valor: valorCobrado,
+        valor_original: valorOriginal,
         duracao: s.duracao_minutos,
         colaborador_id: item.colaborador_id || null,
         auxiliar_id: item.auxiliar_id || null,
         produtos_utilizados: resolvedProdutosUtilizados
       });
-      valorTotal += s.valor;
+      valorTotal += valorCobrado;
       duracaoTotal += s.duracao_minutos;
 
       if (item.colaborador_id) {
@@ -152,16 +156,39 @@ const listAgend = async (req, res) => {
   if (data) {
     where.data_hora = { [Op.between]: [`${data}T00:00:00`, `${data}T23:59:59`] };
   } else if (mes) {
-    // Para o mês, pegamos do dia 01 até o 31 (ou use uma lógica mais precisa se necessário)
     where.data_hora = { [Op.between]: [`${mes}-01T00:00:00`, `${mes}-31T23:59:59`] };
   }
 
   try {
+    let colabId = null;
+    if (req.user && req.user.role === 'funcionario') {
+      const colab = await Colaborador.findOne({
+        where: { nome: req.user.name, deletado: 'N' }
+      });
+      if (colab) {
+        colabId = colab.id;
+      }
+    }
+
     const agends = await Agendamento.findAll({
       where,
       order: [['data_hora', 'ASC']],
       limit: 2000
     });
+
+    if (colabId) {
+      const filtered = agends.filter(ag => {
+        let itens = [];
+        try {
+          itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+        } catch (e) {
+          itens = ag.itens || [];
+        }
+        return Array.isArray(itens) && itens.some(item => item.colaborador_id === colabId || item.auxiliar_id === colabId);
+      });
+      return res.json(filtered);
+    }
+
     res.json(agends);
   } catch (error) {
     res.status(500).json({ detail: error.message });

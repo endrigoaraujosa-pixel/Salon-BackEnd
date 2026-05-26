@@ -8,6 +8,7 @@ import VendaDireta from '../models/VendaDireta.js';
 import Despesa from '../models/Despesa.js';
 import OutrasReceitas from '../models/OutrasReceitas.js';
 import Categoria from '../models/Categoria.js';
+import Fornecedor from '../models/Fornecedor.js';
 
 const getDeletados = async (req, res) => {
   const { modulo } = req.query;
@@ -47,6 +48,9 @@ const getDeletados = async (req, res) => {
       case 'categoria':
         rawRecords = await Categoria.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
+      case 'fornecedor':
+        rawRecords = await Fornecedor.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        break;
       default:
         return res.status(400).json({ detail: 'Módulo inválido para consulta de auditoria.' });
     }
@@ -57,6 +61,8 @@ const getDeletados = async (req, res) => {
       
       if (modulo === 'cliente' || modulo === 'colaborador' || modulo === 'servico' || modulo === 'produto' || modulo === 'categoria') {
         descricao = r.nome;
+      } else if (modulo === 'fornecedor') {
+        descricao = r.nome_razosocial;
       } else if (modulo === 'usuario') {
         descricao = r.name || r.email;
       } else if (modulo === 'despesa' || modulo === 'receita') {
@@ -123,6 +129,9 @@ const restoreRecord = async (req, res) => {
         break;
       case 'categoria':
         model = Categoria;
+        break;
+      case 'fornecedor':
+        model = Fornecedor;
         break;
       default:
         return res.status(400).json({ detail: 'Módulo inválido para restauração.' });

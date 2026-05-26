@@ -16,9 +16,11 @@ import { createReceita, deleteReceita, listReceitas, updateReceita } from './con
 import { createProd, deleteProd, listProd, updateProd } from './controllers/produtoController.js';
 import { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos } from './controllers/reportController.js';
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
+import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor } from './controllers/fornecedorController.js';
 import { createUser, deleteUser, listUsers, updateUser } from './controllers/userController.js';
 import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento } from './controllers/vendaDiretaController.js';
 import { admin, protect } from './middleware/auth.js';
+import { connectDB } from './config/db.js';
 
 const app = express();
 
@@ -69,9 +71,9 @@ app.use('/api/clientes', clienteRoutes);
 // Colaboradores Routes
 const colabRoutes = express.Router();
 colabRoutes.get('/', protect, listColab);
-colabRoutes.post('/', protect, createColab);
-colabRoutes.put('/:cid', protect, updateColab);
-colabRoutes.delete('/:cid', protect, deleteColab);
+colabRoutes.post('/', protect, admin, createColab);
+colabRoutes.put('/:cid', protect, admin, updateColab);
+colabRoutes.delete('/:cid', protect, admin, deleteColab);
 app.use('/api/colaboradores', colabRoutes);
 
 // Servicos Routes
@@ -155,7 +157,7 @@ app.use('/api/vendas-diretas', vendaDiretaRoutes);
 
 // Comissões Routes
 const comissaoRoutes = express.Router();
-comissaoRoutes.get('/', protect, admin, listComissoes);
+comissaoRoutes.get('/', protect, listComissoes);
 comissaoRoutes.post('/pagar', protect, admin, pagarComissao);
 comissaoRoutes.delete('/pagar', protect, admin, desfazerPagamento);
 app.use('/api/comissoes', comissaoRoutes);
@@ -174,11 +176,25 @@ categoriaRoutes.put('/:id', protect, updateCategoria);
 categoriaRoutes.delete('/:id', protect, deleteCategoria);
 app.use('/api/categorias', categoriaRoutes);
 
+// Fornecedores Routes
+const fornecedorRoutes = express.Router();
+fornecedorRoutes.get('/', protect, listFornecedores);
+fornecedorRoutes.post('/', protect, createFornecedor);
+fornecedorRoutes.put('/:id', protect, updateFornecedor);
+fornecedorRoutes.delete('/:id', protect, deleteFornecedor);
+app.use('/api/fornecedores', fornecedorRoutes);
+
 // Auditoria Routes
 app.get('/api/auditoria/deletados', protect, getDeletados);
 app.post('/api/auditoria/restaurar', protect, restoreRecord);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  try {
+    await connectDB();
+    console.log('Database boot sequence successfully completed.');
+  } catch (dbError) {
+    console.error('Critical: Database boot sequence failed:', dbError);
+  }
 });

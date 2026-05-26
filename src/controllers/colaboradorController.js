@@ -2,8 +2,14 @@ import Colaborador from '../models/Colaborador.js';
 
 const listColab = async (req, res) => {
   try {
+    const isAdmin = req.user && req.user.role === 'admin';
+    const attributes = isAdmin 
+      ? undefined 
+      : ['id', 'nome', 'cargo', 'ativo', 'deletado'];
+
     const cols = await Colaborador.findAll({
       where: { deletado: 'N' },
+      attributes,
       order: [['nome', 'ASC']]
     });
     res.json(cols);

@@ -28,6 +28,11 @@ const listComissoes = async (req, res) => {
     const produtos = await Produto.findAll({ where: { deletado: 'N' } });
     const servicos = await Servico.findAll({ where: { deletado: 'N' } });
     
+    let filteredColaboradores = colaboradores;
+    if (req.user && req.user.role === 'funcionario') {
+      filteredColaboradores = colaboradores.filter(c => c.nome.toLowerCase() === req.user.name.toLowerCase());
+    }
+    
     // Buscar agendamentos concluídos no período
     const agendamentos = await Agendamento.findAll({
       where: {
@@ -55,7 +60,7 @@ const listComissoes = async (req, res) => {
     const comissoesList = [];
     let totalComissoes = 0;
 
-    for (const colab of colaboradores) {
+    for (const colab of filteredColaboradores) {
       // 1. Processar comissões de serviços (agendamentos)
       const detalhes_pendente = [];
       const detalhes_pago = [];
