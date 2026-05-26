@@ -50,8 +50,8 @@ export default {
     });
 
     // 2. Standard base profile UUIDs
-    const adminId = 'admin-profile-uuid-0000000000000000000';
-    const funcId = 'func-profile-uuid-0000000000000000000';
+    const adminId = 'admin-profile-uuid-00000000000000000';
+    const funcId = 'func-profile-uuid-000000000000000000';
 
     const adminPerms = JSON.stringify({
       menus: {
