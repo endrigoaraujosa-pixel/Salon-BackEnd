@@ -12,17 +12,14 @@ import Produto from '../models/Produto.js';
 const adjustStock = async (ag, type) => {
   try {
     for (const item of ag.itens || []) {
-      const s = await Servico.findByPk(item.servico_id);
-      if (!s) continue;
-
-      const linked = s.produtos_vinculados || [];
-      for (const pv of linked) {
-        const prod = await Produto.findByPk(pv.produto_id);
+      const utilized = item.produtos_utilizados || [];
+      for (const pu of utilized) {
+        const prod = await Produto.findByPk(pu.produto_id);
         if (prod) {
           if (type === 'deduct') {
-            prod.quantidade_estoque -= pv.quantidade;
+            prod.quantidade_estoque -= Number(pu.quantidade || 0);
           } else if (type === 'restore') {
-            prod.quantidade_estoque += pv.quantidade;
+            prod.quantidade_estoque += Number(pu.quantidade || 0);
           }
           await prod.save();
         }
@@ -50,15 +47,42 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
         throw new Error(`O colaborador principal e o auxiliar não podem ser a mesma pessoa. (Serviço: ${s.nome})`);
       }
 
+      const resolvedProdutosUtilizados = [];
+      if (Array.isArray(item.produtos_utilizados)) {
+        for (const pu of item.produtos_utilizados) {
+          let custoUnitario = Number(pu.custo_unitario || 0);
+          if (custoUnitario === 0) {
+            const prod = await Produto.findByPk(pu.produto_id);
+            custoUnitario = prod ? Number(prod.custo_unitario || 0) : 0;
+          }
+          let prodNome = pu.produto_nome || pu.produto_name || "";
+          if (!prodNome && pu.produto_id) {
+            const prod = await Produto.findByPk(pu.produto_id);
+            prodNome = prod ? prod.nome : "";
+          }
+          resolvedProdutosUtilizados.push({
+            produto_id: pu.produto_id,
+            produto_nome: prodNome,
+            quantidade: Number(pu.quantidade || 0),
+            custo_unitario: custoUnitario
+          });
+        }
+      }
+
+      const valorOriginal = item.valor_original !== undefined && item.valor_original !== null && item.valor_original !== '' ? Number(item.valor_original) : Number(s.valor || 0);
+      const valorCobrado = item.valor !== undefined && item.valor !== null && item.valor !== '' ? Number(item.valor) : Number(s.valor || 0);
+
       itens.push({
         servico_id: item.servico_id,
         nome: s.nome,
-        valor: s.valor,
+        valor: valorCobrado,
+        valor_original: valorOriginal,
         duracao: s.duracao_minutos,
         colaborador_id: item.colaborador_id || null,
-        auxiliar_id: item.auxiliar_id || null
+        auxiliar_id: item.auxiliar_id || null,
+        produtos_utilizados: resolvedProdutosUtilizados
       });
-      valorTotal += s.valor;
+      valorTotal += valorCobrado;
       duracaoTotal += s.duracao_minutos;
 
       if (item.colaborador_id) {
@@ -88,22 +112,25 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
 
   const existentes = await Agendamento.findAll({ where });
 
-  for (const item of body.itens_selecionados) {
-    const idsVerificar = [item.colaborador_id, item.auxiliar_id].filter(id => id);
+  // Apenas validar conflito em NOVOS agendamentos (sem excludeId) e se ignorar_conflito nao for verdadeiro
+  if (!excludeId && !body.ignorar_conflito) {
+    for (const item of body.itens_selecionados) {
+      const idsVerificar = [item.colaborador_id, item.auxiliar_id].filter(id => id);
 
-    for (const ag of existentes) {
-      const agInicio = new Date(ag.data_hora);
-      const agFim = new Date(agInicio.getTime() + ag.duracao_minutos * 60000);
+      for (const ag of existentes) {
+        const agInicio = new Date(ag.data_hora);
+        const agFim = new Date(agInicio.getTime() + ag.duracao_minutos * 60000);
 
-      const sobrepoe = agInicio < novoFim && agFim > novoInicio;
+        const sobrepoe = agInicio < novoFim && agFim > novoInicio;
 
-      if (sobrepoe) {
-        const profsNoExistente = ag.profissionais.map(p => p.id);
-        const conflito = idsVerificar.some(id => profsNoExistente.includes(id));
+        if (sobrepoe) {
+          const profsNoExistente = ag.profissionais.map(p => p.id);
+          const conflito = idsVerificar.some(id => profsNoExistente.includes(id));
 
-        if (conflito) {
-          const profConflito = (await Colaborador.findByPk(idsVerificar.find(id => profsNoExistente.includes(id))))?.nome;
-          throw new Error(`Conflito de horário: O profissional ${profConflito} já possui um agendamento entre ${agInicio.toLocaleTimeString()} e ${agFim.toLocaleTimeString()}`);
+          if (conflito) {
+            const profConflito = (await Colaborador.findByPk(idsVerificar.find(id => profsNoExistente.includes(id))))?.nome;
+            throw new Error(`Conflito de horário: O profissional ${profConflito} já possui um agendamento entre ${agInicio.toLocaleTimeString()} e ${agFim.toLocaleTimeString()}`);
+          }
         }
       }
     }
@@ -129,16 +156,39 @@ const listAgend = async (req, res) => {
   if (data) {
     where.data_hora = { [Op.between]: [`${data}T00:00:00`, `${data}T23:59:59`] };
   } else if (mes) {
-    // Para o mês, pegamos do dia 01 até o 31 (ou use uma lógica mais precisa se necessário)
     where.data_hora = { [Op.between]: [`${mes}-01T00:00:00`, `${mes}-31T23:59:59`] };
   }
 
   try {
+    let colabId = null;
+    if (req.user && req.user.role === 'funcionario') {
+      const colab = await Colaborador.findOne({
+        where: { nome: req.user.name, deletado: 'N' }
+      });
+      if (colab) {
+        colabId = colab.id;
+      }
+    }
+
     const agends = await Agendamento.findAll({
       where,
       order: [['data_hora', 'ASC']],
       limit: 2000
     });
+
+    if (colabId) {
+      const filtered = agends.filter(ag => {
+        let itens = [];
+        try {
+          itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+        } catch (e) {
+          itens = ag.itens || [];
+        }
+        return Array.isArray(itens) && itens.some(item => item.colaborador_id === colabId || item.auxiliar_id === colabId);
+      });
+      return res.json(filtered);
+    }
+
     res.json(agends);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -149,6 +199,17 @@ const getAgend = async (req, res) => {
   try {
     const ag = await Agendamento.findByPk(req.params.aid);
     if (!ag || ag.deletado === 'S') return res.status(404).json({ detail: 'Não encontrado' });
+
+    const { email, password } = req.query;
+    if (email && password) {
+      const authUser = await User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
+      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
+      }
+      if (!authUser.pode_alterar_concluido) {
+        return res.status(403).json({ detail: 'Este usuário não possui permissão para alterar agendamentos concluídos.' });
+      }
+    }
 
     const pagamentos = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
     const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
@@ -183,12 +244,87 @@ const updateAgend = async (req, res) => {
     const ag = await Agendamento.findByPk(req.params.aid);
     if (!ag) return res.status(404).json({ detail: 'Não encontrado' });
 
+    const wasConcluido = ag.status === 'concluido';
+    if (wasConcluido) {
+      await adjustStock(ag, 'restore');
+    }
+
+    let isOnlyInsumos = req.query.only_insumos === 'true' || req.body.only_insumos === true;
+    if (isOnlyInsumos) {
+      const tempDoc = await buildAgendamentoDoc(req.body, req.params.aid);
+      
+      const sameCliente = tempDoc.cliente_id === ag.cliente_id;
+      const sameDataHora = Math.abs(new Date(tempDoc.data_hora).getTime() - new Date(ag.data_hora).getTime()) < 1000;
+      const sameObservacoes = (tempDoc.observacoes || '') === (ag.observacoes || '');
+      
+      let agItensList = [];
+      try {
+        agItensList = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : (ag.itens || []);
+      } catch (e) {
+        agItensList = ag.itens || [];
+      }
+
+      let sameItens = Array.isArray(tempDoc.itens) && Array.isArray(agItensList) && tempDoc.itens.length === agItensList.length;
+      if (sameItens) {
+        for (let i = 0; i < tempDoc.itens.length; i++) {
+          const itemDoc = tempDoc.itens[i];
+          const itemAg = agItensList[i];
+          
+          const docColab = itemDoc.colaborador_id || null;
+          const agColab = itemAg.colaborador_id || null;
+          const docAux = itemDoc.auxiliar_id || null;
+          const agAux = itemAg.auxiliar_id || null;
+
+          if (
+            itemDoc.servico_id !== itemAg.servico_id ||
+            docColab !== agColab ||
+            docAux !== agAux ||
+            Math.abs(Number(itemDoc.valor || 0) - Number(itemAg.valor || 0)) > 0.01
+          ) {
+            sameItens = false;
+            break;
+          }
+        }
+      }
+      
+      console.log("[DEBUG UPDATE AGEND] Comparison results:");
+      console.log(`- sameCliente: ${sameCliente} (tempDoc: ${tempDoc.cliente_id}, ag: ${ag.cliente_id})`);
+      console.log(`- sameDataHora: ${sameDataHora} (tempDoc: ${new Date(tempDoc.data_hora).toISOString()}, ag: ${new Date(ag.data_hora).toISOString()})`);
+      console.log(`- sameObservacoes: ${sameObservacoes} (tempDoc: '${tempDoc.observacoes || ""}', ag: '${ag.observacoes || ""}')`);
+      console.log(`- sameItens: ${sameItens}`);
+
+      if (!sameCliente || !sameDataHora || !sameObservacoes || !sameItens) {
+        isOnlyInsumos = false;
+      }
+    }
+
+    if (ag.status === 'concluido' && !isOnlyInsumos) {
+      const email = req.query.email || req.body.auth_email;
+      const password = req.query.password || req.body.auth_password;
+      if (!email || !password) {
+        return res.status(400).json({ detail: 'Para alterar um agendamento concluído, é necessária a autorização de um administrador (usuário e senha).' });
+      }
+      const authUser = await User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
+      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
+      }
+      if (!authUser.pode_alterar_concluido) {
+        return res.status(403).json({ detail: 'Este usuário não possui permissão para alterar agendamentos concluídos.' });
+      }
+    }
+
     const doc = await buildAgendamentoDoc(req.body, req.params.aid);
     // Remove status and valor_pago from update to prevent manual overrides
     delete doc.status;
     delete doc.valor_pago;
 
     await ag.update(doc);
+
+    if (wasConcluido) {
+      const updatedAg = await Agendamento.findByPk(req.params.aid);
+      await adjustStock(updatedAg, 'deduct');
+    }
+
     res.json(ag);
   } catch (error) {
     res.status(400).json({ detail: error.message });
@@ -443,6 +579,21 @@ const deletePagamento = async (req, res) => {
   }
 };
 
+const patchObservacoes = async (req, res) => {
+  try {
+    const ag = await Agendamento.findByPk(req.params.aid);
+    if (!ag || ag.deletado === 'S') return res.status(404).json({ detail: 'Não encontrado' });
+
+    const { observacoes } = req.body;
+    ag.observacoes = observacoes || '';
+    await ag.save();
+
+    res.json({ ok: true, observacoes: ag.observacoes });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 export {
   listAgend,
   getAgend,
@@ -452,5 +603,6 @@ export {
   setStatus,
   addPagamentos,
   updatePagamento,
-  deletePagamento
+  deletePagamento,
+  patchObservacoes
 };

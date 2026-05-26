@@ -26,6 +26,10 @@ const Despesa = sequelize.define('Despesa', {
     type: DataTypes.STRING(255),
     defaultValue: ''
   },
+  data_documento: {
+    type: DataTypes.STRING(50),
+    defaultValue: ''
+  },
   data_vencimento: {
     type: DataTypes.STRING(50),
     defaultValue: ''
@@ -37,6 +41,27 @@ const Despesa = sequelize.define('Despesa', {
   pago: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  status: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    defaultValue: 'Aberto' // 'Aberto', 'Pago', 'Vencido', 'Cancelado'
+  },
+  numero_documento: {
+    type: DataTypes.STRING(100),
+    defaultValue: ''
+  },
+  fornecedor: {
+    type: DataTypes.STRING(255),
+    defaultValue: ''
+  },
+  baixado_por: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  baixado_em: {
+    type: DataTypes.DATE,
+    allowNull: true
   },
   observacoes: {
     type: DataTypes.TEXT,

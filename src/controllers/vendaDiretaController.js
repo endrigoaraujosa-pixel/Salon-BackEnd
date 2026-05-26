@@ -227,7 +227,7 @@ const addPagamentos = async (req, res) => {
       for (const item of itensVenda) {
         const produto = await Produto.findByPk(item.produto_id);
         if (produto) {
-          produto.quantidade_estoque = Math.max(0, produto.quantidade_estoque - Number(item.quantidade));
+          produto.quantidade_estoque = Math.max(0, Number((produto.quantidade_estoque - Number(item.quantidade)).toFixed(3)));
           await produto.save();
         }
       }
@@ -274,7 +274,7 @@ const updatePagamento = async (req, res) => {
         for (const item of itensVenda) {
           const produto = await Produto.findByPk(item.produto_id);
           if (produto) {
-            produto.quantidade_estoque += Number(item.quantidade);
+            produto.quantidade_estoque = Number((produto.quantidade_estoque + Number(item.quantidade)).toFixed(3));
             await produto.save();
           }
         }
@@ -287,7 +287,7 @@ const updatePagamento = async (req, res) => {
         for (const item of itensVenda) {
           const produto = await Produto.findByPk(item.produto_id);
           if (produto) {
-            produto.quantidade_estoque = Math.max(0, produto.quantidade_estoque - Number(item.quantidade));
+            produto.quantidade_estoque = Math.max(0, Number((produto.quantidade_estoque - Number(item.quantidade)).toFixed(3)));
             await produto.save();
           }
         }
@@ -346,7 +346,7 @@ const deletePagamento = async (req, res) => {
         for (const item of itensVenda) {
           const produto = await Produto.findByPk(item.produto_id);
           if (produto) {
-            produto.quantidade_estoque += Number(item.quantidade);
+            produto.quantidade_estoque = Number((produto.quantidade_estoque + Number(item.quantidade)).toFixed(3));
             await produto.save();
           }
         }

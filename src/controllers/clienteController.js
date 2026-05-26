@@ -85,10 +85,86 @@ const historicoCliente = async (req, res) => {
   }
 };
 
+const rankingClientes = async (req, res) => {
+  try {
+    const { startDate, endDate, limit = 10, type = 'consumo' } = req.query;
+    
+    const clientes = await Cliente.findAll({
+      where: { deletado: 'N' }
+    });
+
+    const agendWhere = { deletado: 'N', status: 'concluido' };
+    const vendaWhere = { deletado: 'N', status: 'pago' };
+
+    if (startDate || endDate) {
+      const dateRange = {};
+      if (startDate) dateRange[Op.gte] = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        dateRange[Op.lte] = end;
+      }
+      agendWhere.data_hora = dateRange;
+      vendaWhere.data_venda = dateRange;
+    }
+
+    const agendamentos = await Agendamento.findAll({ where: agendWhere });
+    const vendas = await VendaDireta.findAll({ where: vendaWhere });
+
+    const rankingMap = {};
+
+    clientes.forEach(c => {
+      rankingMap[c.id] = {
+        cliente_id: c.id,
+        nome: c.nome,
+        telefone: c.telefone || "",
+        email: c.email || "",
+        total_gasto: 0,
+        total_visitas: 0
+      };
+    });
+
+    agendamentos.forEach(a => {
+      if (rankingMap[a.cliente_id]) {
+        rankingMap[a.cliente_id].total_gasto += a.valor_total || 0;
+        rankingMap[a.cliente_id].total_visitas += 1;
+      }
+    });
+
+    vendas.forEach(v => {
+      if (rankingMap[v.cliente_id]) {
+        rankingMap[v.cliente_id].total_gasto += v.valor_total || 0;
+      }
+    });
+
+    const rankingArray = Object.values(rankingMap);
+
+    if (type === 'visitas') {
+      rankingArray.sort((a, b) => b.total_visitas - a.total_visitas || b.total_gasto - a.total_gasto);
+    } else if (type === 'todos') {
+      rankingArray.sort((a, b) => a.nome.localeCompare(b.nome));
+    } else {
+      rankingArray.sort((a, b) => b.total_gasto - a.total_gasto || b.total_visitas - a.total_visitas);
+    }
+
+    const result = type === 'todos' ? rankingArray : rankingArray.slice(0, Number(limit));
+
+    const ranked = result.map((item, idx) => ({
+      ...item,
+      posicao: idx + 1
+    }));
+
+    res.json(ranked);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 export {
   listClientes,
   createCliente,
   updateCliente,
   deleteCliente,
-  historicoCliente
+  historicoCliente,
+  rankingClientes
 };

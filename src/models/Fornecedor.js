@@ -2,43 +2,35 @@ import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
 
-const Colaborador = sequelize.define('Colaborador', {
+const Fornecedor = sequelize.define('Fornecedor', {
   id: {
     type: DataTypes.STRING(36),
     primaryKey: true,
     defaultValue: () => uuidv4()
   },
-  nome: {
+  nome_razosocial: {
     type: DataTypes.STRING(255),
     allowNull: false
   },
-  cargo: {
-    type: DataTypes.STRING(255),
+  cpf_cnpj: {
+    type: DataTypes.STRING(50),
     defaultValue: ''
   },
   telefone: {
     type: DataTypes.STRING(50),
     defaultValue: ''
   },
-  comissao_principal: {
-    type: DataTypes.FLOAT,
-    defaultValue: 40
+  email: {
+    type: DataTypes.STRING(255),
+    defaultValue: ''
   },
-  comissao_sozinho: {
-    type: DataTypes.FLOAT,
-    defaultValue: 40
+  endereco: {
+    type: DataTypes.TEXT,
+    defaultValue: ''
   },
-  comissao_ajuda: {
-    type: DataTypes.FLOAT,
-    defaultValue: 30
-  },
-  comissao_auxiliar: {
-    type: DataTypes.FLOAT,
-    defaultValue: 20
-  },
-  ativo: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true
+  observacoes: {
+    type: DataTypes.TEXT,
+    defaultValue: ''
   },
   criado_em: {
     type: DataTypes.DATE,
@@ -58,7 +50,7 @@ const Colaborador = sequelize.define('Colaborador', {
     allowNull: true
   }
 }, {
-  tableName: 'colaboradores'
+  tableName: 'fornecedores'
 });
 
-export default Colaborador;
+export default Fornecedor;
