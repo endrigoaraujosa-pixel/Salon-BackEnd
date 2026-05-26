@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
+import PerfilAcesso from '../models/PerfilAcesso.js';
 
 const login = async (req, res) => {
   const { email, password } = req.body;
@@ -44,6 +45,8 @@ const login = async (req, res) => {
       path: '/'
     });
 
+    const perfil = user.perfil_acesso_id ? await PerfilAcesso.findByPk(user.perfil_acesso_id) : null;
+
     res.json({
       token,
       user: {
@@ -51,9 +54,12 @@ const login = async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        perfil_acesso_id: user.perfil_acesso_id,
+        perfil: perfil ? perfil.toJSON() : null,
         ativo: user.ativo,
         pode_alterar_concluido: user.pode_alterar_concluido,
-        pode_excluir_agendamento: user.pode_excluir_agendamento
+        pode_excluir_agendamento: user.pode_excluir_agendamento,
+        pode_excluir_pagamento: user.pode_excluir_pagamento
       }
     });
   } catch (error) {
@@ -107,6 +113,8 @@ const refreshToken = async (req, res) => {
       path: '/'
     });
 
+    const perfil = user.perfil_acesso_id ? await PerfilAcesso.findByPk(user.perfil_acesso_id) : null;
+
     res.json({
       token: newAccessToken,
       user: {
@@ -114,9 +122,12 @@ const refreshToken = async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        perfil_acesso_id: user.perfil_acesso_id,
+        perfil: perfil ? perfil.toJSON() : null,
         ativo: user.ativo,
         pode_alterar_concluido: user.pode_alterar_concluido,
-        pode_excluir_agendamento: user.pode_excluir_agendamento
+        pode_excluir_agendamento: user.pode_excluir_agendamento,
+        pode_excluir_pagamento: user.pode_excluir_pagamento
       }
     });
   } catch (error) {

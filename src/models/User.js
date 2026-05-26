@@ -24,6 +24,10 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING(50),
     defaultValue: 'funcionario'
   },
+  perfil_acesso_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true
+  },
   ativo: {
     type: DataTypes.BOOLEAN,
     defaultValue: true

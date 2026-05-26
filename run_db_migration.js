@@ -4,6 +4,9 @@ import addCommissions from './src/migrations/20260522132600-add-commission-perce
 import createFornecedores from './src/migrations/20260525230000-create-fornecedores.js';
 import addColumnsToDespesas from './src/migrations/20260525231000-add-columns-to-despesas.js';
 import addColumnsToOutrasReceitas from './src/migrations/20260525232000-add-columns-to-outras-receitas.js';
+import createEstoqueTables from './src/migrations/20260526110000-create-estoque-tables.js';
+import addSerieAndUniquenessToEstoque from './src/migrations/20260526120500-add-serie-and-uniqueness-to-estoque.js';
+import createAccessProfilesAndPermissions from './src/migrations/20260526154500-create-access-profiles-and-permissions.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -51,6 +54,30 @@ async function run() {
       console.log('Add columns to outras receitas migration completed.');
     } catch (e) {
       console.log('Add columns to outras receitas migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running create estoque tables migration (up)...');
+    try {
+      await createEstoqueTables.up(queryInterface, Sequelize);
+      console.log('Create estoque tables migration completed.');
+    } catch (e) {
+      console.log('Create estoque tables migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add serie and uniqueness to estoque migration (up)...');
+    try {
+      await addSerieAndUniquenessToEstoque.up(queryInterface, Sequelize);
+      console.log('Add serie and uniqueness to estoque migration completed.');
+    } catch (e) {
+      console.log('Add serie and uniqueness to estoque migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running create access profiles and permissions migration (up)...');
+    try {
+      await createAccessProfilesAndPermissions.up(queryInterface, Sequelize);
+      console.log('Create access profiles and permissions migration completed.');
+    } catch (e) {
+      console.log('Create access profiles and permissions migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');

@@ -18,8 +18,10 @@ import { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProd
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
 import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor } from './controllers/fornecedorController.js';
 import { createUser, deleteUser, listUsers, updateUser } from './controllers/userController.js';
+import { listarPerfis, obterPerfil, criarPerfil, atualizarPerfil, deletarPerfil } from './controllers/perfilAcessoController.js';
+import { listEntradas, getEntradaDetail, registrarEntrada, registrarAjusteInventario, listMovimentacoes } from './controllers/estoqueController.js';
 import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento } from './controllers/vendaDiretaController.js';
-import { admin, protect } from './middleware/auth.js';
+import { admin, protect, requirePermission } from './middleware/auth.js';
 import { connectDB } from './config/db.js';
 
 const app = express();
@@ -60,50 +62,50 @@ app.use('/api/auth', authRoutes);
 
 // Clientes Routes
 const clienteRoutes = express.Router();
-clienteRoutes.get('/', protect, listClientes);
-clienteRoutes.get('/ranking', protect, rankingClientes);
-clienteRoutes.post('/', protect, createCliente);
-clienteRoutes.put('/:cid', protect, updateCliente);
-clienteRoutes.delete('/:cid', protect, deleteCliente);
-clienteRoutes.get('/:cid/historico', protect, historicoCliente);
+clienteRoutes.get('/', protect, requirePermission('clientes'), listClientes);
+clienteRoutes.get('/ranking', protect, requirePermission('clientes'), rankingClientes);
+clienteRoutes.post('/', protect, requirePermission('clientes', 'criar'), createCliente);
+clienteRoutes.put('/:cid', protect, requirePermission('clientes', 'editar'), updateCliente);
+clienteRoutes.delete('/:cid', protect, requirePermission('clientes', 'excluir'), deleteCliente);
+clienteRoutes.get('/:cid/historico', protect, requirePermission('clientes'), historicoCliente);
 app.use('/api/clientes', clienteRoutes);
 
 // Colaboradores Routes
 const colabRoutes = express.Router();
-colabRoutes.get('/', protect, listColab);
-colabRoutes.post('/', protect, admin, createColab);
-colabRoutes.put('/:cid', protect, admin, updateColab);
-colabRoutes.delete('/:cid', protect, admin, deleteColab);
+colabRoutes.get('/', protect, requirePermission('colaboradores'), listColab);
+colabRoutes.post('/', protect, requirePermission('colaboradores', 'criar'), createColab);
+colabRoutes.put('/:cid', protect, requirePermission('colaboradores', 'editar'), updateColab);
+colabRoutes.delete('/:cid', protect, requirePermission('colaboradores', 'excluir'), deleteColab);
 app.use('/api/colaboradores', colabRoutes);
 
 // Servicos Routes
 const servRoutes = express.Router();
-servRoutes.get('/', protect, listServ);
-servRoutes.post('/', protect, createServ);
-servRoutes.put('/:sid', protect, updateServ);
-servRoutes.delete('/:sid', protect, deleteServ);
+servRoutes.get('/', protect, requirePermission('servicos'), listServ);
+servRoutes.post('/', protect, requirePermission('servicos', 'criar'), createServ);
+servRoutes.put('/:sid', protect, requirePermission('servicos', 'editar'), updateServ);
+servRoutes.delete('/:sid', protect, requirePermission('servicos', 'excluir'), deleteServ);
 app.use('/api/servicos', servRoutes);
 
 // Produtos Routes
 const prodRoutes = express.Router();
-prodRoutes.get('/', protect, listProd);
-prodRoutes.post('/', protect, createProd);
-prodRoutes.put('/:pid', protect, updateProd);
-prodRoutes.delete('/:pid', protect, deleteProd);
+prodRoutes.get('/', protect, requirePermission('produtos'), listProd);
+prodRoutes.post('/', protect, requirePermission('produtos', 'criar'), createProd);
+prodRoutes.put('/:pid', protect, requirePermission('produtos', 'editar'), updateProd);
+prodRoutes.delete('/:pid', protect, requirePermission('produtos', 'excluir'), deleteProd);
 app.use('/api/produtos', prodRoutes);
 
 // Agendamentos Routes
 const agendRoutes = express.Router();
-agendRoutes.get('/', protect, listAgend);
-agendRoutes.get('/:aid', protect, getAgend);
-agendRoutes.post('/', protect, createAgend);
-agendRoutes.put('/:aid', protect, updateAgend);
-agendRoutes.put('/:aid/observacoes', protect, patchObservacoes);
-agendRoutes.delete('/:aid', protect, deleteAgend);
-agendRoutes.post('/:aid/status', protect, setStatus);
-agendRoutes.post('/:aid/pagamentos', protect, addPagamentos);
-agendRoutes.put('/:aid/pagamentos/:pid', protect, updateAgendamentoPagamento);
-agendRoutes.delete('/:aid/pagamentos/:pid', protect, deleteAgendamentoPagamento);
+agendRoutes.get('/', protect, requirePermission('agenda'), listAgend);
+agendRoutes.get('/:aid', protect, requirePermission('agenda'), getAgend);
+agendRoutes.post('/', protect, requirePermission('agenda', 'criar'), createAgend);
+agendRoutes.put('/:aid', protect, requirePermission('agenda', 'editar'), updateAgend);
+agendRoutes.put('/:aid/observacoes', protect, requirePermission('agenda', 'editar'), patchObservacoes);
+agendRoutes.delete('/:aid', protect, requirePermission('agenda', 'excluir'), deleteAgend);
+agendRoutes.post('/:aid/status', protect, requirePermission('agenda', 'editar'), setStatus);
+agendRoutes.post('/:aid/pagamentos', protect, requirePermission('agenda', 'editar'), addPagamentos);
+agendRoutes.put('/:aid/pagamentos/:pid', protect, requirePermission('agenda', 'editar'), updateAgendamentoPagamento);
+agendRoutes.delete('/:aid/pagamentos/:pid', protect, requirePermission('agenda', 'excluir'), deleteAgendamentoPagamento);
 app.use('/api/agendamentos', agendRoutes);
 
 // Dashboard and Relatorios Routes
@@ -116,56 +118,55 @@ app.get('/api/relatorios/servicos', protect, admin, relatorioServicos);
 
 // Users Routes
 const userRoutes = express.Router();
-userRoutes.get('/', protect, admin, listUsers);
-userRoutes.post('/', protect, admin, createUser);
-userRoutes.put('/:id', protect, admin, updateUser);
-userRoutes.delete('/:id', protect, admin, deleteUser);
+userRoutes.get('/', protect, requirePermission('usuarios'), listUsers);
+userRoutes.post('/', protect, requirePermission('usuarios', 'criar'), createUser);
+userRoutes.put('/:id', protect, requirePermission('usuarios', 'editar'), updateUser);
+userRoutes.delete('/:id', protect, requirePermission('usuarios', 'excluir'), deleteUser);
 app.use('/api/users', userRoutes);
 
 // Despesas Routes
 const despesaRoutes = express.Router();
-despesaRoutes.get('/', protect, admin, listDespesas);
-despesaRoutes.post('/', protect, admin, createDespesa);
-despesaRoutes.put('/:id', protect, admin, updateDespesa);
-despesaRoutes.delete('/:id', protect, admin, deleteDespesa);
+despesaRoutes.get('/', protect, requirePermission('despesas'), listDespesas);
+despesaRoutes.post('/', protect, requirePermission('despesas', 'criar'), createDespesa);
+despesaRoutes.put('/:id', protect, requirePermission('despesas', 'editar'), updateDespesa);
+despesaRoutes.delete('/:id', protect, requirePermission('despesas', 'excluir'), deleteDespesa);
 app.use('/api/despesas', despesaRoutes);
 
 // Outras Receitas Routes
 const outrasReceitasRoutes = express.Router();
-outrasReceitasRoutes.get('/', protect, admin, listReceitas);
-outrasReceitasRoutes.post('/', protect, admin, createReceita);
-outrasReceitasRoutes.put('/:id', protect, admin, updateReceita);
-outrasReceitasRoutes.delete('/:id', protect, admin, deleteReceita);
+outrasReceitasRoutes.get('/', protect, requirePermission('receitas'), listReceitas);
+outrasReceitasRoutes.post('/', protect, requirePermission('receitas', 'criar'), createReceita);
+outrasReceitasRoutes.put('/:id', protect, requirePermission('receitas', 'editar'), updateReceita);
+outrasReceitasRoutes.delete('/:id', protect, requirePermission('receitas', 'excluir'), deleteReceita);
 app.use('/api/outras-receitas', outrasReceitasRoutes);
 
 // Vendas Diretas Routes
 const vendaDiretaRoutes = express.Router();
-vendaDiretaRoutes.get('/', protect, listVendas);
-vendaDiretaRoutes.get('/:id', protect, getVenda);
-vendaDiretaRoutes.post('/', protect, createVenda);
-vendaDiretaRoutes.delete('/:id', protect, deleteVenda);
-vendaDiretaRoutes.post('/:id/pagamentos', protect, addVendaPagamentos);
-vendaDiretaRoutes.put('/:id/pagamentos/:pid', protect, updateVendaPagamento);
-vendaDiretaRoutes.delete('/:id/pagamentos/:pid', protect, deleteVendaPagamento);
-// Rotas de gerenciamento de carrinho
-vendaDiretaRoutes.get('/:id/carrinho', protect, getCarrinho);
-vendaDiretaRoutes.post('/:id/carrinho/itens', protect, addItemCarrinho);
-vendaDiretaRoutes.put('/:id/carrinho/itens/:itemIndex', protect, updateItemCarrinho);
-vendaDiretaRoutes.delete('/:id/carrinho/itens/:itemIndex', protect, removeItemCarrinho);
-vendaDiretaRoutes.put('/:id/cliente', protect, updateVendaCliente);
+vendaDiretaRoutes.get('/', protect, requirePermission('vendas'), listVendas);
+vendaDiretaRoutes.get('/:id', protect, requirePermission('vendas'), getVenda);
+vendaDiretaRoutes.post('/', protect, requirePermission('vendas', 'criar'), createVenda);
+vendaDiretaRoutes.delete('/:id', protect, requirePermission('vendas', 'excluir'), deleteVenda);
+vendaDiretaRoutes.post('/:id/pagamentos', protect, requirePermission('vendas', 'criar'), addVendaPagamentos);
+vendaDiretaRoutes.put('/:id/pagamentos/:pid', protect, requirePermission('vendas', 'editar'), updateVendaPagamento);
+vendaDiretaRoutes.delete('/:id/pagamentos/:pid', protect, requirePermission('vendas', 'excluir'), deleteVendaPagamento);
+vendaDiretaRoutes.get('/:id/carrinho', protect, requirePermission('vendas'), getCarrinho);
+vendaDiretaRoutes.post('/:id/carrinho/itens', protect, requirePermission('vendas', 'criar'), addItemCarrinho);
+vendaDiretaRoutes.put('/:id/carrinho/itens/:itemIndex', protect, requirePermission('vendas', 'editar'), updateItemCarrinho);
+vendaDiretaRoutes.delete('/:id/carrinho/itens/:itemIndex', protect, requirePermission('vendas', 'excluir'), removeItemCarrinho);
+vendaDiretaRoutes.put('/:id/cliente', protect, requirePermission('vendas', 'editar'), updateVendaCliente);
 app.use('/api/vendas-diretas', vendaDiretaRoutes);
 
 // Comissões Routes
 const comissaoRoutes = express.Router();
-comissaoRoutes.get('/', protect, listComissoes);
-comissaoRoutes.post('/pagar', protect, admin, pagarComissao);
-comissaoRoutes.delete('/pagar', protect, admin, desfazerPagamento);
+comissaoRoutes.get('/', protect, requirePermission('comissoes'), listComissoes);
+comissaoRoutes.post('/pagar', protect, requirePermission('comissoes', 'editar'), pagarComissao);
+comissaoRoutes.delete('/pagar', protect, requirePermission('comissoes', 'excluir'), desfazerPagamento);
 app.use('/api/comissoes', comissaoRoutes);
 
 // Configuracoes Routes
 const configRoutes = express.Router();
-configRoutes.get('/taxas-cartao', protect, getTaxas);
-configRoutes.post('/taxas-cartao', protect, saveTaxa);
+configRoutes.get('/taxas-cartao', protect, requirePermission('configuracoes'), getTaxas);
+configRoutes.post('/taxas-cartao', protect, requirePermission('configuracoes', 'editar'), saveTaxa);
 app.use('/api/configuracoes', configRoutes);
 
 // Categorias Routes
@@ -176,6 +177,15 @@ categoriaRoutes.put('/:id', protect, updateCategoria);
 categoriaRoutes.delete('/:id', protect, deleteCategoria);
 app.use('/api/categorias', categoriaRoutes);
 
+// Perfis de Acesso Routes
+const perfilRoutes = express.Router();
+perfilRoutes.get('/', protect, admin, listarPerfis);
+perfilRoutes.get('/:id', protect, admin, obterPerfil);
+perfilRoutes.post('/', protect, admin, criarPerfil);
+perfilRoutes.put('/:id', protect, admin, atualizarPerfil);
+perfilRoutes.delete('/:id', protect, admin, deletarPerfil);
+app.use('/api/perfis-acesso', perfilRoutes);
+
 // Fornecedores Routes
 const fornecedorRoutes = express.Router();
 fornecedorRoutes.get('/', protect, listFornecedores);
@@ -183,6 +193,15 @@ fornecedorRoutes.post('/', protect, createFornecedor);
 fornecedorRoutes.put('/:id', protect, updateFornecedor);
 fornecedorRoutes.delete('/:id', protect, deleteFornecedor);
 app.use('/api/fornecedores', fornecedorRoutes);
+
+// Estoque Routes
+const estoqueRoutes = express.Router();
+estoqueRoutes.get('/entradas', protect, listEntradas);
+estoqueRoutes.get('/entradas/:id', protect, getEntradaDetail);
+estoqueRoutes.post('/entradas', protect, registrarEntrada);
+estoqueRoutes.post('/inventario/ajuste', protect, registrarAjusteInventario);
+estoqueRoutes.get('/movimentacoes', protect, listMovimentacoes);
+app.use('/api/estoque', estoqueRoutes);
 
 // Auditoria Routes
 app.get('/api/auditoria/deletados', protect, getDeletados);

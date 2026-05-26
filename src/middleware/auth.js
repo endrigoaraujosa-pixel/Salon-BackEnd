@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import PerfilAcesso from '../models/PerfilAcesso.js';
 
 const protect = async (req, res, next) => {
   let token;
@@ -22,14 +23,19 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ detail: 'Usuário não encontrado' });
     }
 
+    const perfil = user.perfil_acesso_id ? await PerfilAcesso.findByPk(user.perfil_acesso_id) : null;
+
     req.user = {
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
+      perfil_acesso_id: user.perfil_acesso_id,
+      perfil: perfil ? perfil.toJSON() : null,
       ativo: user.ativo,
       pode_alterar_concluido: user.pode_alterar_concluido,
-      pode_excluir_agendamento: user.pode_excluir_agendamento
+      pode_excluir_agendamento: user.pode_excluir_agendamento,
+      pode_excluir_pagamento: user.pode_excluir_pagamento
     };
 
     next();
@@ -49,4 +55,51 @@ const admin = (req, res, next) => {
   }
 };
 
-export { protect, admin };
+const requirePermission = (menu, acao) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ detail: 'Não autenticado' });
+    }
+
+    // Administrators always bypass all constraints
+    if (req.user.role === 'admin') {
+      return next();
+    }
+
+    // Special Permission overrides
+    if (menu === 'agenda' && acao === 'excluir') {
+      if (req.user.pode_excluir_agendamento || req.user.pode_excluir_pagamento) {
+        return next();
+      }
+    }
+
+    if (menu === 'vendas' && acao === 'excluir') {
+      if (req.user.pode_excluir_pagamento) {
+        return next();
+      }
+    }
+
+    const perfil = req.user.perfil;
+    if (!perfil || !perfil.permissoes) {
+      return res.status(403).json({ detail: 'Acesso restrito: Perfil de acesso sem permissões definidas.' });
+    }
+
+    if (menu) {
+      const menusPerm = perfil.permissoes.menus || {};
+      if (!menusPerm[menu]) {
+        return res.status(403).json({ detail: `Você não tem permissão para acessar este módulo (${menu}).` });
+      }
+    }
+
+    if (acao) {
+      const acoesPerm = perfil.permissoes.acoes || {};
+      if (!acoesPerm[acao]) {
+        return res.status(403).json({ detail: `Você não tem permissão para realizar esta ação (${acao}).` });
+      }
+    }
+
+    next();
+  };
+};
+
+export { protect, admin, requirePermission };

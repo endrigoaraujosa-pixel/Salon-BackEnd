@@ -249,7 +249,56 @@ const updateAgend = async (req, res) => {
       await adjustStock(ag, 'restore');
     }
 
-    if (ag.status === 'concluido') {
+    let isOnlyInsumos = req.query.only_insumos === 'true' || req.body.only_insumos === true;
+    if (isOnlyInsumos) {
+      const tempDoc = await buildAgendamentoDoc(req.body, req.params.aid);
+      
+      const sameCliente = tempDoc.cliente_id === ag.cliente_id;
+      const sameDataHora = Math.abs(new Date(tempDoc.data_hora).getTime() - new Date(ag.data_hora).getTime()) < 1000;
+      const sameObservacoes = (tempDoc.observacoes || '') === (ag.observacoes || '');
+      
+      let agItensList = [];
+      try {
+        agItensList = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : (ag.itens || []);
+      } catch (e) {
+        agItensList = ag.itens || [];
+      }
+
+      let sameItens = Array.isArray(tempDoc.itens) && Array.isArray(agItensList) && tempDoc.itens.length === agItensList.length;
+      if (sameItens) {
+        for (let i = 0; i < tempDoc.itens.length; i++) {
+          const itemDoc = tempDoc.itens[i];
+          const itemAg = agItensList[i];
+          
+          const docColab = itemDoc.colaborador_id || null;
+          const agColab = itemAg.colaborador_id || null;
+          const docAux = itemDoc.auxiliar_id || null;
+          const agAux = itemAg.auxiliar_id || null;
+
+          if (
+            itemDoc.servico_id !== itemAg.servico_id ||
+            docColab !== agColab ||
+            docAux !== agAux ||
+            Math.abs(Number(itemDoc.valor || 0) - Number(itemAg.valor || 0)) > 0.01
+          ) {
+            sameItens = false;
+            break;
+          }
+        }
+      }
+      
+      console.log("[DEBUG UPDATE AGEND] Comparison results:");
+      console.log(`- sameCliente: ${sameCliente} (tempDoc: ${tempDoc.cliente_id}, ag: ${ag.cliente_id})`);
+      console.log(`- sameDataHora: ${sameDataHora} (tempDoc: ${new Date(tempDoc.data_hora).toISOString()}, ag: ${new Date(ag.data_hora).toISOString()})`);
+      console.log(`- sameObservacoes: ${sameObservacoes} (tempDoc: '${tempDoc.observacoes || ""}', ag: '${ag.observacoes || ""}')`);
+      console.log(`- sameItens: ${sameItens}`);
+
+      if (!sameCliente || !sameDataHora || !sameObservacoes || !sameItens) {
+        isOnlyInsumos = false;
+      }
+    }
+
+    if (ag.status === 'concluido' && !isOnlyInsumos) {
       const email = req.query.email || req.body.auth_email;
       const password = req.query.password || req.body.auth_password;
       if (!email || !password) {
