@@ -18,6 +18,12 @@ const createProd = async (req, res) => {
     if (!categoria_id) {
       return res.status(400).json({ detail: 'A categoria é obrigatória' });
     }
+    if (req.body.quantidade_estoque !== undefined) {
+      req.body.quantidade_estoque = Number(Number(req.body.quantidade_estoque || 0).toFixed(3));
+    }
+    if (req.body.estoque_minimo !== undefined) {
+      req.body.estoque_minimo = Number(Number(req.body.estoque_minimo || 0).toFixed(3));
+    }
     const prod = await Produto.create(req.body);
     res.status(201).json(prod);
   } catch (error) {
@@ -34,6 +40,12 @@ const updateProd = async (req, res) => {
     const prod = await Produto.findByPk(req.params.pid);
     if (!prod) return res.status(404).json({ detail: 'Produto não encontrado' });
     
+    if (req.body.quantidade_estoque !== undefined) {
+      req.body.quantidade_estoque = Number(Number(req.body.quantidade_estoque || 0).toFixed(3));
+    }
+    if (req.body.estoque_minimo !== undefined) {
+      req.body.estoque_minimo = Number(Number(req.body.estoque_minimo || 0).toFixed(3));
+    }
     await prod.update(req.body);
     res.json(prod);
   } catch (error) {
