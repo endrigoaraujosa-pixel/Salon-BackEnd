@@ -24,6 +24,23 @@ const connectDB = async () => {
 
     await sequelize.sync();
     console.log('PostgreSQL/SQLite connected and synced via Sequelize');
+
+    // Backfill de permissão realizar_pagamento em perfis_acesso
+    try {
+      const { default: PerfilAcesso } = await import('../models/PerfilAcesso.js');
+      const perfis = await PerfilAcesso.findAll();
+      for (const perfil of perfis) {
+        let perms = perfil.permissoes || {};
+        if (perms.acoes && perms.acoes.realizar_pagamento === undefined) {
+          perms.acoes.realizar_pagamento = true;
+          perfil.permissoes = perms;
+          await perfil.save();
+          console.log(`Backfilled realizar_pagamento permission for profile: ${perfil.nome}`);
+        }
+      }
+    } catch (perfilError) {
+      console.error('Error backfilling profile permissions:', perfilError);
+    }
  
     // Backfill de numeração sequencial para vendas antigas
     try {
