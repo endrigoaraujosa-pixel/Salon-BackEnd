@@ -73,7 +73,8 @@ export default {
       acoes: {
         criar: true,
         editar: true,
-        excluir: true
+        excluir: true,
+        realizar_pagamento: true
       }
     });
 
@@ -97,7 +98,8 @@ export default {
       acoes: {
         criar: true,
         editar: true,
-        excluir: false
+        excluir: false,
+        realizar_pagamento: true
       }
     });
 

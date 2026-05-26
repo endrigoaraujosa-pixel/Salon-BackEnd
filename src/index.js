@@ -103,8 +103,8 @@ agendRoutes.put('/:aid', protect, requirePermission('agenda', 'editar'), updateA
 agendRoutes.put('/:aid/observacoes', protect, requirePermission('agenda', 'editar'), patchObservacoes);
 agendRoutes.delete('/:aid', protect, requirePermission('agenda', 'excluir'), deleteAgend);
 agendRoutes.post('/:aid/status', protect, requirePermission('agenda', 'editar'), setStatus);
-agendRoutes.post('/:aid/pagamentos', protect, requirePermission('agenda', 'editar'), addPagamentos);
-agendRoutes.put('/:aid/pagamentos/:pid', protect, requirePermission('agenda', 'editar'), updateAgendamentoPagamento);
+agendRoutes.post('/:aid/pagamentos', protect, requirePermission('agenda', 'realizar_pagamento'), addPagamentos);
+agendRoutes.put('/:aid/pagamentos/:pid', protect, requirePermission('agenda', 'realizar_pagamento'), updateAgendamentoPagamento);
 agendRoutes.delete('/:aid/pagamentos/:pid', protect, requirePermission('agenda', 'excluir'), deleteAgendamentoPagamento);
 app.use('/api/agendamentos', agendRoutes);
 
@@ -146,8 +146,8 @@ vendaDiretaRoutes.get('/', protect, requirePermission('vendas'), listVendas);
 vendaDiretaRoutes.get('/:id', protect, requirePermission('vendas'), getVenda);
 vendaDiretaRoutes.post('/', protect, requirePermission('vendas', 'criar'), createVenda);
 vendaDiretaRoutes.delete('/:id', protect, requirePermission('vendas', 'excluir'), deleteVenda);
-vendaDiretaRoutes.post('/:id/pagamentos', protect, requirePermission('vendas', 'criar'), addVendaPagamentos);
-vendaDiretaRoutes.put('/:id/pagamentos/:pid', protect, requirePermission('vendas', 'editar'), updateVendaPagamento);
+vendaDiretaRoutes.post('/:id/pagamentos', protect, requirePermission('vendas', 'realizar_pagamento'), addVendaPagamentos);
+vendaDiretaRoutes.put('/:id/pagamentos/:pid', protect, requirePermission('vendas', 'realizar_pagamento'), updateVendaPagamento);
 vendaDiretaRoutes.delete('/:id/pagamentos/:pid', protect, requirePermission('vendas', 'excluir'), deleteVendaPagamento);
 vendaDiretaRoutes.get('/:id/carrinho', protect, requirePermission('vendas'), getCarrinho);
 vendaDiretaRoutes.post('/:id/carrinho/itens', protect, requirePermission('vendas', 'criar'), addItemCarrinho);
