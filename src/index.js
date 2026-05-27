@@ -118,9 +118,9 @@ app.get('/api/relatorios/servicos', protect, admin, relatorioServicos);
 
 // Users Routes
 const userRoutes = express.Router();
-userRoutes.get('/', protect, requirePermission('usuarios'), listUsers);
+userRoutes.get('/', protect, listUsers);
 userRoutes.post('/', protect, requirePermission('usuarios', 'criar'), createUser);
-userRoutes.put('/:id', protect, requirePermission('usuarios', 'editar'), updateUser);
+userRoutes.put('/:id', protect, updateUser);
 userRoutes.delete('/:id', protect, requirePermission('usuarios', 'excluir'), deleteUser);
 app.use('/api/users', userRoutes);
 
