@@ -172,34 +172,11 @@ const listAgend = async (req, res) => {
   }
 
   try {
-    let colabId = null;
-    if (req.user && req.user.role === 'funcionario') {
-      const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
-      const normalizedUserName = normalizeName(req.user.name);
-      const colab = colaboradores.find(c => normalizeName(c.nome) === normalizedUserName);
-      if (colab) {
-        colabId = colab.id;
-      }
-    }
-
     const agends = await Agendamento.findAll({
       where,
       order: [['data_hora', 'ASC']],
       limit: 2000
     });
-
-    if (colabId) {
-      const filtered = agends.filter(ag => {
-        let itens = [];
-        try {
-          itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
-        } catch (e) {
-          itens = ag.itens || [];
-        }
-        return Array.isArray(itens) && itens.some(item => item.colaborador_id === colabId || item.auxiliar_id === colabId);
-      });
-      return res.json(filtered);
-    }
 
     res.json(agends);
   } catch (error) {
