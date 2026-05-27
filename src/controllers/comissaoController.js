@@ -201,35 +201,37 @@ const listComissoes = async (req, res) => {
 
         for (const item of itensVenda) {
           // Se comissao_pct está no item, usa direto; caso contrário busca no produto
-          let pct = item.comissao_pct != null ? Number(item.comissao_pct) : 0;
-          if (item.comissao_pct == null) {
+          let pct = item.comissao_pct != null ? Number(item.comissao_pct) : null;
+          if (pct == null) {
             const prod = produtos.find(p => p.id === item.produto_id);
             pct = prod ? Number(prod.comissao || 0) : 0;
           }
 
-          const val_item = Number(item.subtotal || item.preco_unitario * item.quantidade || 0);
-          const val_com = val_item * (pct / 100);
+          if (pct > 0) {
+            const val_item = Number(item.subtotal || item.preco_unitario * item.quantidade || 0);
+            const val_com = val_item * (pct / 100);
 
-          const det = {
-            tipo: 'produto',
-            numero: venda.numero_venda,
-            papel: 'Vendedor',
-            descricao: item.produto_nome,
-            data: venda.data_venda,
-            valor_movimentacao: val_item,
-            percentual_aplicado: pct,
-            valor_comissao: Number(val_com.toFixed(2)),
-            pago: !!venda.comissao_paga
-          };
+            const det = {
+              tipo: 'produto',
+              numero: venda.numero_venda,
+              papel: 'Vendedor',
+              descricao: item.produto_nome,
+              data: venda.data_venda,
+              valor_movimentacao: val_item,
+              percentual_aplicado: pct,
+              valor_comissao: Number(val_com.toFixed(2)),
+              pago: !!venda.comissao_paga
+            };
 
-          if (venda.comissao_paga) {
-            total_produtos_pago += val_item;
-            atendimentos_pago++;
-            detalhes_pago.push(det);
-          } else {
-            total_produtos_pendente += val_item;
-            atendimentos_pendente++;
-            detalhes_pendente.push(det);
+            if (venda.comissao_paga) {
+              total_produtos_pago += val_item;
+              atendimentos_pago++;
+              detalhes_pago.push(det);
+            } else {
+              total_produtos_pendente += val_item;
+              atendimentos_pendente++;
+              detalhes_pendente.push(det);
+            }
           }
         }
       }
@@ -287,9 +289,41 @@ const listComissoes = async (req, res) => {
       }
     }
 
+    const faturamentoBrutoServicos = agendamentos.reduce((acc, a) => acc + (a.valor_pago || a.valor_total || 0), 0);
+    
+    let faturamentoBrutoProdutos = 0;
+    for (const venda of vendas) {
+      if (!venda.colaborador_id) continue;
+      let itensVenda = [];
+      try {
+        itensVenda = typeof venda.itens === 'string' ? JSON.parse(venda.itens) : venda.itens;
+      } catch (e) {
+        itensVenda = [];
+      }
+      if (!Array.isArray(itensVenda) || itensVenda.length === 0) {
+        itensVenda = [{ produto_id: venda.produto_id, produto_nome: venda.produto_nome, quantidade: venda.quantidade, subtotal: venda.valor_total, comissao_pct: null }];
+      }
+      for (const item of itensVenda) {
+        let pct = item.comissao_pct != null ? Number(item.comissao_pct) : null;
+        if (pct == null) {
+          const prod = produtos.find(p => p.id === item.produto_id);
+          pct = prod ? Number(prod.comissao || 0) : 0;
+        }
+        if (pct > 0) {
+          const val_item = Number(item.subtotal || item.preco_unitario * item.quantidade || 0);
+          faturamentoBrutoProdutos += val_item;
+        }
+      }
+    }
+
+    const faturamentoBrutoTotal = faturamentoBrutoServicos + faturamentoBrutoProdutos;
+
     res.json({
       periodo,
       total: Number(totalComissoes.toFixed(2)),
+      faturamento_bruto_servicos: Number(faturamentoBrutoServicos.toFixed(2)),
+      faturamento_bruto_produtos: Number(faturamentoBrutoProdutos.toFixed(2)),
+      faturamento_bruto_total: Number(faturamentoBrutoTotal.toFixed(2)),
       comissoes: comissoesList
     });
   } catch (error) {
