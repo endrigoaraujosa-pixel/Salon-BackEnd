@@ -11,13 +11,23 @@ import Categoria from '../models/Categoria.js';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/db.js';
 
+const normalizeName = (name) => {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ');
+};
+
 const dashboard = async (req, res) => {
   try {
     let colabId = null;
     if (req.user && req.user.role === 'funcionario') {
-      const colab = await Colaborador.findOne({
-        where: { nome: req.user.name, deletado: 'N' }
-      });
+      const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
+      const normalizedUserName = normalizeName(req.user.name);
+      const colab = colaboradores.find(c => normalizeName(c.nome) === normalizedUserName);
       if (colab) {
         colabId = colab.id;
       }
@@ -50,8 +60,10 @@ const dashboard = async (req, res) => {
     const todayEnd = `${todayStr}T23:59:59`;
     
     const mesPrefix = todayStr.substring(0, 7); // YYYY-MM
+    const [year, month] = mesPrefix.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
     let dataInicioMes = data_inicio ? `${data_inicio}T00:00:00` : `${mesPrefix}-01T00:00:00`;
-    let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-31T23:59:59`;
+    let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-${String(lastDay).padStart(2, '0')}T23:59:59`;
     
     // For agendamentos_hoje / no período
     const allAgsPeriod = await Agendamento.findAll({
@@ -172,18 +184,20 @@ const dashboardDetail = async (req, res) => {
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
   const mesPrefix = todayStr.substring(0, 7);
+  const [year, month] = mesPrefix.split('-').map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
   
   let dataInicioMes = data_inicio ? `${data_inicio}T00:00:00` : `${mesPrefix}-01T00:00:00`;
-  let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-31T23:59:59`;
+  let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-${String(lastDay).padStart(2, '0')}T23:59:59`;
   
   try {
     const isAdmin = req.user && req.user.role === 'admin';
 
     let colabId = null;
     if (req.user && req.user.role === 'funcionario') {
-      const colab = await Colaborador.findOne({
-        where: { nome: req.user.name, deletado: 'N' }
-      });
+      const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
+      const normalizedUserName = normalizeName(req.user.name);
+      const colab = colaboradores.find(c => normalizeName(c.nome) === normalizedUserName);
       if (colab) {
         colabId = colab.id;
       }
