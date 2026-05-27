@@ -30,6 +30,7 @@ const protect = async (req, res, next) => {
       email: user.email,
       name: user.name,
       role: user.role,
+      colaborador_id: user.colaborador_id,
       perfil_acesso_id: user.perfil_acesso_id,
       perfil: perfil ? perfil.toJSON() : null,
       ativo: user.ativo,

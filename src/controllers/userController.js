@@ -14,7 +14,7 @@ const listUsers = async (req, res) => {
 
     const users = await User.findAll({
       where: whereClause,
-      attributes: ['id', 'name', 'email', 'role', 'perfil_acesso_id', 'ativo', 'pode_alterar_concluido', 'pode_excluir_agendamento', 'pode_excluir_pagamento', 'created_at'],
+      attributes: ['id', 'name', 'email', 'role', 'perfil_acesso_id', 'colaborador_id', 'ativo', 'pode_alterar_concluido', 'pode_excluir_agendamento', 'pode_excluir_pagamento', 'created_at'],
       order: [['name', 'ASC']]
     });
     res.json(users);
@@ -28,7 +28,7 @@ const createUser = async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ detail: 'Acesso restrito a administradores' });
     }
-    const { name, email, role, perfil_acesso_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
+    const { name, email, role, perfil_acesso_id, colaborador_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
     if (!email || !senha) {
       return res.status(400).json({ detail: 'Email e senha são obrigatórios' });
     }
@@ -59,6 +59,7 @@ const createUser = async (req, res) => {
       email: email.toLowerCase().trim(),
       role: calculatedRole,
       perfil_acesso_id: perfil_acesso_id || null,
+      colaborador_id: colaborador_id || null,
       ativo: ativo !== undefined ? ativo : true,
       pode_alterar_concluido: pode_alterar_concluido || false,
       pode_excluir_agendamento: pode_excluir_agendamento || false,
@@ -72,6 +73,7 @@ const createUser = async (req, res) => {
       email: user.email,
       role: user.role,
       perfil_acesso_id: user.perfil_acesso_id,
+      colaborador_id: user.colaborador_id,
       ativo: user.ativo,
       pode_alterar_concluido: user.pode_alterar_concluido,
       pode_excluir_agendamento: user.pode_excluir_agendamento,
@@ -96,7 +98,7 @@ const updateUser = async (req, res) => {
       return res.status(404).json({ detail: 'Usuário não encontrado' });
     }
 
-    const { name, email, role, perfil_acesso_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
+    const { name, email, role, perfil_acesso_id, colaborador_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
 
     if (!isAdmin && isEditingSelf) {
       if (senha && senha.trim()) {
@@ -109,6 +111,7 @@ const updateUser = async (req, res) => {
           email: user.email,
           role: user.role,
           perfil_acesso_id: user.perfil_acesso_id,
+          colaborador_id: user.colaborador_id,
           ativo: user.ativo,
           pode_alterar_concluido: user.pode_alterar_concluido,
           pode_excluir_agendamento: user.pode_excluir_agendamento,
@@ -147,6 +150,7 @@ const updateUser = async (req, res) => {
     }
 
     if (ativo !== undefined) user.ativo = ativo;
+    if (colaborador_id !== undefined) user.colaborador_id = colaborador_id || null;
     if (pode_alterar_concluido !== undefined) user.pode_alterar_concluido = pode_alterar_concluido;
     if (pode_excluir_agendamento !== undefined) user.pode_excluir_agendamento = pode_excluir_agendamento;
     if (pode_excluir_pagamento !== undefined) user.pode_excluir_pagamento = pode_excluir_pagamento;
@@ -164,6 +168,7 @@ const updateUser = async (req, res) => {
       email: user.email,
       role: user.role,
       perfil_acesso_id: user.perfil_acesso_id,
+      colaborador_id: user.colaborador_id,
       ativo: user.ativo,
       pode_alterar_concluido: user.pode_alterar_concluido,
       pode_excluir_agendamento: user.pode_excluir_agendamento,
