@@ -108,8 +108,26 @@ const rankingClientes = async (req, res) => {
       vendaWhere.data_venda = dateRange;
     }
 
-    const agendamentos = await Agendamento.findAll({ where: agendWhere });
-    const vendas = await VendaDireta.findAll({ where: vendaWhere });
+    const agendamentos = await Agendamento.findAll({
+      attributes: [
+        'cliente_id',
+        [Agendamento.sequelize.fn('SUM', Agendamento.sequelize.col('valor_total')), 'total_gasto'],
+        [Agendamento.sequelize.fn('COUNT', Agendamento.sequelize.col('id')), 'total_visitas']
+      ],
+      where: agendWhere,
+      group: ['cliente_id'],
+      raw: true
+    });
+
+    const vendas = await VendaDireta.findAll({
+      attributes: [
+        'cliente_id',
+        [VendaDireta.sequelize.fn('SUM', VendaDireta.sequelize.col('valor_total')), 'total_gasto']
+      ],
+      where: vendaWhere,
+      group: ['cliente_id'],
+      raw: true
+    });
 
     const rankingMap = {};
 
@@ -126,14 +144,14 @@ const rankingClientes = async (req, res) => {
 
     agendamentos.forEach(a => {
       if (rankingMap[a.cliente_id]) {
-        rankingMap[a.cliente_id].total_gasto += a.valor_total || 0;
-        rankingMap[a.cliente_id].total_visitas += 1;
+        rankingMap[a.cliente_id].total_gasto += Number(a.total_gasto || 0);
+        rankingMap[a.cliente_id].total_visitas += Number(a.total_visitas || 0);
       }
     });
 
     vendas.forEach(v => {
       if (rankingMap[v.cliente_id]) {
-        rankingMap[v.cliente_id].total_gasto += v.valor_total || 0;
+        rankingMap[v.cliente_id].total_gasto += Number(v.total_gasto || 0);
       }
     });
 
