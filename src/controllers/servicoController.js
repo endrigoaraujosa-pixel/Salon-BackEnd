@@ -56,6 +56,7 @@ const deleteServ = async (req, res) => {
 
     // Verificar se o serviço possui agendamento em aberto, confirmado ou em andamento
     const activeAgendamentos = await Agendamento.findAll({
+      attributes: ['id', 'itens'],
       where: {
         deletado: 'N',
         status: { [Op.in]: ['agendado', 'confirmado', 'em_andamento'] }

@@ -36,7 +36,10 @@ const dashboard = async (req, res) => {
     let totalClientes = 0;
     if (colabId) {
       // Find agendamentos belonging to this professional to identify their unique clients
-      const colabAgs = await Agendamento.findAll({ where: { deletado: 'N' } });
+      const colabAgs = await Agendamento.findAll({
+        attributes: ['itens', 'cliente_nome'],
+        where: { deletado: 'N' }
+      });
       const clientNames = new Set();
       colabAgs.forEach(ag => {
         let itens = [];
@@ -67,6 +70,7 @@ const dashboard = async (req, res) => {
     
     // For agendamentos_hoje / no período
     const allAgsPeriod = await Agendamento.findAll({
+      attributes: ['id', 'itens'],
       where: {
         data_hora: { [Op.between]: [data_inicio ? dataInicioMes : todayStart, data_fim ? dataFimMes : todayEnd] },
         deletado: 'N'
@@ -84,6 +88,7 @@ const dashboard = async (req, res) => {
       agHoje = allAgsPeriod.length;
     }
     const concluidosAgs = await Agendamento.findAll({
+      attributes: ['id', 'itens', 'valor_pago', 'valor_total'],
       where: {
         status: 'concluido',
         data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
@@ -335,7 +340,10 @@ const dashboardDetail = async (req, res) => {
       });
 
       if (colabId) {
-        const colabAgs = await Agendamento.findAll({ where: { deletado: 'N' } });
+        const colabAgs = await Agendamento.findAll({
+          attributes: ['itens', 'cliente_nome'],
+          where: { deletado: 'N' }
+        });
         const clientNames = new Set();
         colabAgs.forEach(ag => {
           let itens = [];
