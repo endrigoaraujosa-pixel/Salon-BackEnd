@@ -6,6 +6,16 @@ import PagamentoComissao from '../models/PagamentoComissao.js';
 import Servico from '../models/Servico.js';
 import { Op } from 'sequelize';
 
+const normalizeName = (name) => {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ');
+};
+
 const listComissoes = async (req, res) => {
   const { mes, data_inicio, data_fim, status } = req.query;
   const statusFilter = status || 'pendente'; // 'pendente' | 'pago' | 'todos'
@@ -16,8 +26,10 @@ const listComissoes = async (req, res) => {
     end = data_fim;
     periodo = `${data_inicio}_${data_fim}`;
   } else if (mes) {
+    const [year, month] = mes.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
     start = `${mes}-01`;
-    end = `${mes}-31`;
+    end = `${mes}-${String(lastDay).padStart(2, '0')}`;
     periodo = mes;
   } else {
     return res.status(400).json({ detail: 'Informe o mês ou o período de datas' });
@@ -30,7 +42,8 @@ const listComissoes = async (req, res) => {
     
     let filteredColaboradores = colaboradores;
     if (req.user && req.user.role === 'funcionario') {
-      filteredColaboradores = colaboradores.filter(c => c.nome.toLowerCase() === req.user.name.toLowerCase());
+      const normalizedUserName = normalizeName(req.user.name);
+      filteredColaboradores = colaboradores.filter(c => normalizeName(c.nome) === normalizedUserName);
     }
     
     // Buscar agendamentos concluídos no período
@@ -341,8 +354,10 @@ const pagarComissao = async (req, res) => {
     start = parts[0];
     end = parts[1];
   } else {
+    const [year, month] = p.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
     start = `${p}-01`;
-    end = `${p}-31`;
+    end = `${p}-${String(lastDay).padStart(2, '0')}`;
   }
 
   try {
@@ -423,8 +438,10 @@ const desfazerPagamento = async (req, res) => {
     start = parts[0];
     end = parts[1];
   } else {
+    const [year, month] = p.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
     start = `${p}-01`;
-    end = `${p}-31`;
+    end = `${p}-${String(lastDay).padStart(2, '0')}`;
   }
 
   try {

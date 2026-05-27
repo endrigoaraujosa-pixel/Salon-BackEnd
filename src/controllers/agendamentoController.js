@@ -150,21 +150,33 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   };
 };
 
+const normalizeName = (name) => {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ');
+};
+
 const listAgend = async (req, res) => {
   const { data, mes } = req.query;
   const where = { deletado: 'N' };
   if (data) {
     where.data_hora = { [Op.between]: [`${data}T00:00:00`, `${data}T23:59:59`] };
   } else if (mes) {
-    where.data_hora = { [Op.between]: [`${mes}-01T00:00:00`, `${mes}-31T23:59:59`] };
+    const [year, month] = mes.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    where.data_hora = { [Op.between]: [`${mes}-01T00:00:00`, `${mes}-${String(lastDay).padStart(2, '0')}T23:59:59`] };
   }
 
   try {
     let colabId = null;
     if (req.user && req.user.role === 'funcionario') {
-      const colab = await Colaborador.findOne({
-        where: { nome: req.user.name, deletado: 'N' }
-      });
+      const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
+      const normalizedUserName = normalizeName(req.user.name);
+      const colab = colaboradores.find(c => normalizeName(c.nome) === normalizedUserName);
       if (colab) {
         colabId = colab.id;
       }
