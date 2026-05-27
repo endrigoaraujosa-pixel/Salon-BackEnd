@@ -41,9 +41,13 @@ const listComissoes = async (req, res) => {
     const servicos = await Servico.findAll({ where: { deletado: 'N' } });
     
     let filteredColaboradores = colaboradores;
-    if (req.user && req.user.role === 'funcionario') {
-      const normalizedUserName = normalizeName(req.user.name);
-      filteredColaboradores = colaboradores.filter(c => normalizeName(c.nome) === normalizedUserName);
+    if (req.user && req.user.role !== 'admin') {
+      if (req.user.colaborador_id) {
+        filteredColaboradores = colaboradores.filter(c => c.id === req.user.colaborador_id);
+      } else {
+        const normalizedUserName = normalizeName(req.user.name);
+        filteredColaboradores = colaboradores.filter(c => normalizeName(c.nome) === normalizedUserName);
+      }
     }
     
     // Buscar agendamentos concluídos no período

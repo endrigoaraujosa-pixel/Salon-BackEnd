@@ -28,6 +28,10 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING(36),
     allowNull: true
   },
+  colaborador_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true
+  },
   ativo: {
     type: DataTypes.BOOLEAN,
     defaultValue: true

@@ -7,6 +7,8 @@ import addColumnsToOutrasReceitas from './src/migrations/20260525232000-add-colu
 import createEstoqueTables from './src/migrations/20260526110000-create-estoque-tables.js';
 import addSerieAndUniquenessToEstoque from './src/migrations/20260526120500-add-serie-and-uniqueness-to-estoque.js';
 import createAccessProfilesAndPermissions from './src/migrations/20260526154500-create-access-profiles-and-permissions.js';
+import addRealizarPagamentoPermission from './src/migrations/20260526190000-add-realizar-pagamento-permission.js';
+import addColaboradorIdToUsers from './src/migrations/20260527130000-add-colaborador-id-to-users.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -78,6 +80,22 @@ async function run() {
       console.log('Create access profiles and permissions migration completed.');
     } catch (e) {
       console.log('Create access profiles and permissions migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add realizar pagamento permission migration (up)...');
+    try {
+      await addRealizarPagamentoPermission.up(queryInterface, Sequelize);
+      console.log('Add realizar pagamento permission migration completed.');
+    } catch (e) {
+      console.log('Add realizar pagamento permission migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add colaborador_id to users migration (up)...');
+    try {
+      await addColaboradorIdToUsers.up(queryInterface, Sequelize);
+      console.log('Add colaborador_id to users migration completed.');
+    } catch (e) {
+      console.log('Add colaborador_id to users migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');
