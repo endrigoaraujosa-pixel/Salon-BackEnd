@@ -59,6 +59,14 @@ const Agendamento = sequelize.define('Agendamento', {
     type: DataTypes.DATE,
     defaultValue: null
   },
+  criado_por_id: {
+    type: DataTypes.STRING(36),
+    defaultValue: null
+  },
+  criado_por_nome: {
+    type: DataTypes.STRING(255),
+    defaultValue: null
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

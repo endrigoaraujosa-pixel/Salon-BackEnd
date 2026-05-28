@@ -10,6 +10,7 @@ import createAccessProfilesAndPermissions from './src/migrations/20260526154500-
 import addRealizarPagamentoPermission from './src/migrations/20260526190000-add-realizar-pagamento-permission.js';
 import addColaboradorIdToUsers from './src/migrations/20260527130000-add-colaborador-id-to-users.js';
 import createEmpresa from './src/migrations/20260528120000-create-empresa.js';
+import addCriadoPorToAgendamentos from './src/migrations/20260528175000-add-criado-por-to-agendamentos.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -105,6 +106,14 @@ async function run() {
       console.log('Create empresa migration completed.');
     } catch (e) {
       console.log('Create empresa migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add criado_por to agendamentos migration (up)...');
+    try {
+      await addCriadoPorToAgendamentos.up(queryInterface, Sequelize);
+      console.log('Add criado_por to agendamentos migration completed.');
+    } catch (e) {
+      console.log('Add criado_por to agendamentos migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');
