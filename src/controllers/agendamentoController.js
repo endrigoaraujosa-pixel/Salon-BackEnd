@@ -220,7 +220,10 @@ const createAgend = async (req, res) => {
     const ag = await Agendamento.create({
       ...doc,
       id: uuidv4(),
-      numero: maxNum + 1
+      numero: maxNum + 1,
+      criado_por_id: req.user?.id || null,
+      criado_por_nome: req.user?.name || null,
+      criado_em: new Date()
     });
     res.status(201).json(ag);
   } catch (error) {
