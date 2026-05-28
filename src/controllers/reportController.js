@@ -23,14 +23,30 @@ const normalizeName = (name) => {
 
 const dashboard = async (req, res) => {
   try {
-    let colabId = null;
-    if (req.user && req.user.role === 'funcionario') {
-      const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
-      const normalizedUserName = normalizeName(req.user.name);
-      const colab = colaboradores.find(c => normalizeName(c.nome) === normalizedUserName);
-      if (colab) {
-        colabId = colab.id;
+    const { data_inicio, data_fim, colaborador_id } = req.query;
+
+    const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' }, order: [['nome', 'ASC']] });
+
+    let userMappedColabId = null;
+    if (req.user) {
+      if (req.user.colaborador_id) {
+        userMappedColabId = req.user.colaborador_id;
+      } else if (req.user.role === 'funcionario') {
+        const normalizedUserName = normalizeName(req.user.name);
+        const colab = colaboradores.find(c => normalizeName(c.nome) === normalizedUserName);
+        if (colab) {
+          userMappedColabId = colab.id;
+        }
       }
+    }
+
+    let colabId = null;
+    if (colaborador_id === 'todos') {
+      colabId = null;
+    } else if (colaborador_id) {
+      colabId = colaborador_id;
+    } else if (req.user && req.user.role === 'funcionario') {
+      colabId = userMappedColabId;
     }
 
     let totalClientes = 0;
@@ -54,8 +70,6 @@ const dashboard = async (req, res) => {
     }
 
     const totalColaboradores = colabId ? 1 : await Colaborador.count({ where: { ativo: true, deletado: 'N' } });
-    
-    const { data_inicio, data_fim } = req.query;
     
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -177,7 +191,8 @@ const dashboard = async (req, res) => {
       ticket_medio: isAdmin ? ticketMedio : 0,
       atendimentos_mes: concluidos,
       estoque_baixo: estoqueBaixo,
-      top_servicos: topServicos
+      top_servicos: topServicos,
+      colaboradores: colaboradores.map(c => ({ id: c.id, nome: c.nome }))
     });
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -185,28 +200,42 @@ const dashboard = async (req, res) => {
 };
 
 const dashboardDetail = async (req, res) => {
-  const { metric, data_inicio, data_fim, service_name } = req.query;
-  const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
-  const mesPrefix = todayStr.substring(0, 7);
-  const [year, month] = mesPrefix.split('-').map(Number);
-  const lastDay = new Date(year, month, 0).getDate();
-  
-  let dataInicioMes = data_inicio ? `${data_inicio}T00:00:00` : `${mesPrefix}-01T00:00:00`;
-  let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-${String(lastDay).padStart(2, '0')}T23:59:59`;
-  
-  try {
-    const isAdmin = req.user && req.user.role === 'admin';
+  const { metric, data_inicio, data_fim, service_name, colaborador_id } = req.query;
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const mesPrefix = todayStr.substring(0, 7);
+    const [year, month] = mesPrefix.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    
+    let dataInicioMes = data_inicio ? `${data_inicio}T00:00:00` : `${mesPrefix}-01T00:00:00`;
+    let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-${String(lastDay).padStart(2, '0')}T23:59:59`;
+    
+    try {
+      const isAdmin = req.user && req.user.role === 'admin';
 
-    let colabId = null;
-    if (req.user && req.user.role === 'funcionario') {
       const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
-      const normalizedUserName = normalizeName(req.user.name);
-      const colab = colaboradores.find(c => normalizeName(c.nome) === normalizedUserName);
-      if (colab) {
-        colabId = colab.id;
+
+      let userMappedColabId = null;
+      if (req.user) {
+        if (req.user.colaborador_id) {
+          userMappedColabId = req.user.colaborador_id;
+        } else if (req.user.role === 'funcionario') {
+          const normalizedUserName = normalizeName(req.user.name);
+          const colab = colaboradores.find(c => normalizeName(c.nome) === normalizedUserName);
+          if (colab) {
+            userMappedColabId = colab.id;
+          }
+        }
       }
-    }
+
+      let colabId = null;
+      if (colaborador_id === 'todos') {
+        colabId = null;
+      } else if (colaborador_id) {
+        colabId = colaborador_id;
+      } else if (req.user && req.user.role === 'funcionario') {
+        colabId = userMappedColabId;
+      }
 
     if (metric === 'faturamento') {
       if (!isAdmin) {

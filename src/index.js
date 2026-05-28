@@ -10,7 +10,7 @@ import { createCategoria, deleteCategoria, listCategorias, updateCategoria } fro
 import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente, rankingClientes } from './controllers/clienteController.js';
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
-import { getTaxas, saveTaxa } from './controllers/configuracaoController.js';
+import { getTaxas, saveTaxa, getEmpresa, saveEmpresa } from './controllers/configuracaoController.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
 import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
 import { createProd, deleteProd, listProd, updateProd } from './controllers/produtoController.js';
@@ -167,6 +167,8 @@ app.use('/api/comissoes', comissaoRoutes);
 const configRoutes = express.Router();
 configRoutes.get('/taxas-cartao', protect, requirePermission('configuracoes'), getTaxas);
 configRoutes.post('/taxas-cartao', protect, requirePermission('configuracoes', 'editar'), saveTaxa);
+configRoutes.get('/empresa', protect, getEmpresa);
+configRoutes.post('/empresa', protect, requirePermission('configuracoes', 'editar'), saveEmpresa);
 app.use('/api/configuracoes', configRoutes);
 
 // Categorias Routes

@@ -1,4 +1,5 @@
 import TaxaCartao from '../models/TaxaCartao.js';
+import Empresa from '../models/Empresa.js';
 
 const getTaxas = async (req, res) => {
   try {
@@ -40,4 +41,43 @@ const saveTaxa = async (req, res) => {
   }
 };
 
-export { getTaxas, saveTaxa };
+const getEmpresa = async (req, res) => {
+  try {
+    let empresa = await Empresa.findOne();
+    if (!empresa) {
+      empresa = await Empresa.create({
+        razao_social: '',
+        nome_fantasia: '',
+        cnpj: '',
+        inscricao_estadual: '',
+        email: '',
+        telefone: '',
+        endereco_cep: '',
+        endereco_logradouro: '',
+        endereco_numero: '',
+        endereco_bairro: '',
+        endereco_cidade: '',
+        endereco_uf: ''
+      });
+    }
+    res.json(empresa);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const saveEmpresa = async (req, res) => {
+  try {
+    let empresa = await Empresa.findOne();
+    if (!empresa) {
+      empresa = await Empresa.create(req.body);
+    } else {
+      await empresa.update(req.body);
+    }
+    res.json(empresa);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export { getTaxas, saveTaxa, getEmpresa, saveEmpresa };
