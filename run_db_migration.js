@@ -9,6 +9,7 @@ import addSerieAndUniquenessToEstoque from './src/migrations/20260526120500-add-
 import createAccessProfilesAndPermissions from './src/migrations/20260526154500-create-access-profiles-and-permissions.js';
 import addRealizarPagamentoPermission from './src/migrations/20260526190000-add-realizar-pagamento-permission.js';
 import addColaboradorIdToUsers from './src/migrations/20260527130000-add-colaborador-id-to-users.js';
+import createEmpresa from './src/migrations/20260528120000-create-empresa.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -96,6 +97,14 @@ async function run() {
       console.log('Add colaborador_id to users migration completed.');
     } catch (e) {
       console.log('Add colaborador_id to users migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running create empresa migration (up)...');
+    try {
+      await createEmpresa.up(queryInterface, Sequelize);
+      console.log('Create empresa migration completed.');
+    } catch (e) {
+      console.log('Create empresa migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');
