@@ -17,7 +17,7 @@ const normalizeName = (name) => {
 };
 
 const listComissoes = async (req, res) => {
-  const { mes, data_inicio, data_fim, status } = req.query;
+  const { mes, data_inicio, data_fim, status, colaborador_id } = req.query;
   const statusFilter = status || 'pendente'; // 'pendente' | 'pago' | 'todos'
   
   let start, end, periodo;
@@ -48,6 +48,8 @@ const listComissoes = async (req, res) => {
         const normalizedUserName = normalizeName(req.user.name);
         filteredColaboradores = colaboradores.filter(c => normalizeName(c.nome) === normalizedUserName);
       }
+    } else if (colaborador_id && colaborador_id !== 'todos') {
+      filteredColaboradores = colaboradores.filter(c => String(c.id) === String(colaborador_id));
     }
     
     // Buscar agendamentos concluídos no período
@@ -76,6 +78,7 @@ const listComissoes = async (req, res) => {
 
     const comissoesList = [];
     let totalComissoes = 0;
+    const uniqueAgendamentosPeriodo = new Set();
 
     for (const colab of filteredColaboradores) {
       // 1. Processar comissões de serviços (agendamentos)
@@ -85,12 +88,12 @@ const listComissoes = async (req, res) => {
       let total_principal_pendente = 0;
       let total_auxiliar_pendente = 0;
       let total_produtos_pendente = 0;
-      let atendimentos_pendente = 0;
+      const set_atendimentos_pendente = new Set();
 
       let total_principal_pago = 0;
       let total_auxiliar_pago = 0;
       let total_produtos_pago = 0;
-      let atendimentos_pago = 0;
+      const set_atendimentos_pago = new Set();
 
       for (const ag of agendamentos) {
         let itens = [];
@@ -146,11 +149,13 @@ const listComissoes = async (req, res) => {
 
               if (item.comissao_paga) {
                 total_principal_pago += val_serv;
-                atendimentos_pago++;
+                set_atendimentos_pago.add(ag.id);
+                uniqueAgendamentosPeriodo.add(ag.id);
                 detalhes_pago.push(det);
               } else {
                 total_principal_pendente += val_serv;
-                atendimentos_pendente++;
+                set_atendimentos_pendente.add(ag.id);
+                uniqueAgendamentosPeriodo.add(ag.id);
                 detalhes_pendente.push(det);
               }
             }
@@ -195,11 +200,13 @@ const listComissoes = async (req, res) => {
 
               if (item.comissao_paga) {
                 total_auxiliar_pago += val_serv;
-                atendimentos_pago++;
+                set_atendimentos_pago.add(ag.id);
+                uniqueAgendamentosPeriodo.add(ag.id);
                 detalhes_pago.push(det);
               } else {
                 total_auxiliar_pendente += val_serv;
-                atendimentos_pendente++;
+                set_atendimentos_pendente.add(ag.id);
+                uniqueAgendamentosPeriodo.add(ag.id);
                 detalhes_pendente.push(det);
               }
             }
@@ -224,10 +231,18 @@ const listComissoes = async (req, res) => {
             pct = prod ? Number(prod.comissao || 0) : 0;
           }
 
-          if (pct > 0) {
-            const val_item = Number(item.subtotal || item.preco_unitario * item.quantidade || 0);
-            const val_com = val_item * (pct / 100);
+          const val_item = Number(item.subtotal || item.preco_unitario * item.quantidade || 0);
+          const val_com = val_item * (pct / 100);
 
+          // Sempre inclui no total de produtos vendidos (mesmo sem comissão)
+          if (venda.comissao_paga) {
+            total_produtos_pago += val_item;
+          } else {
+            total_produtos_pendente += val_item;
+          }
+
+          // Só cria detalhe de comissão se há percentual > 0
+          if (pct > 0) {
             const det = {
               tipo: 'produto',
               numero: venda.numero_venda,
@@ -241,12 +256,8 @@ const listComissoes = async (req, res) => {
             };
 
             if (venda.comissao_paga) {
-              total_produtos_pago += val_item;
-              atendimentos_pago++;
               detalhes_pago.push(det);
             } else {
-              total_produtos_pendente += val_item;
-              atendimentos_pendente++;
               detalhes_pendente.push(det);
             }
           }
@@ -262,6 +273,12 @@ const listComissoes = async (req, res) => {
       // Adicionar linha de Não Pago se houver comissões pendentes (ou se ativo e listando pendentes)
       if (statusFilter === 'pendente' || statusFilter === 'todos') {
         if (val_comissao_pendente > 0 || (colab.ativo && val_comissao_pendente === 0 && val_comissao_pago === 0)) {
+          let comissao_produtos_pendente = 0;
+          for (const det of detalhes_pendente) {
+            if (det.tipo === 'produto') {
+              comissao_produtos_pendente += det.valor_comissao;
+            }
+          }
           comissoesList.push({
             colaborador_id: colab.id,
             colaborador_nome: colab.nome,
@@ -269,10 +286,11 @@ const listComissoes = async (req, res) => {
             comissao_sozinho: colab.comissao_sozinho,
             comissao_ajuda: colab.comissao_ajuda,
             comissao_auxiliar: colab.comissao_auxiliar,
-            atendimentos: atendimentos_pendente,
+            atendimentos: set_atendimentos_pendente.size,
             total_principal: total_principal_pendente,
             total_auxiliar: total_auxiliar_pendente,
             total_produtos: total_produtos_pendente,
+            comissao_produtos: Number(comissao_produtos_pendente.toFixed(2)),
             valor_comissao: Number(val_comissao_pendente.toFixed(2)),
             pago: false,
             data_pagamento: null,
@@ -285,6 +303,12 @@ const listComissoes = async (req, res) => {
       // Adicionar linha de Pago se houver comissões pagas
       if (statusFilter === 'pago' || statusFilter === 'todos') {
         if (val_comissao_pago > 0) {
+          let comissao_produtos_pago = 0;
+          for (const det of detalhes_pago) {
+            if (det.tipo === 'produto') {
+              comissao_produtos_pago += det.valor_comissao;
+            }
+          }
           comissoesList.push({
             colaborador_id: colab.id,
             colaborador_nome: colab.nome,
@@ -292,10 +316,11 @@ const listComissoes = async (req, res) => {
             comissao_sozinho: colab.comissao_sozinho,
             comissao_ajuda: colab.comissao_ajuda,
             comissao_auxiliar: colab.comissao_auxiliar,
-            atendimentos: atendimentos_pago,
+            atendimentos: set_atendimentos_pago.size,
             total_principal: total_principal_pago,
             total_auxiliar: total_auxiliar_pago,
             total_produtos: total_produtos_pago,
+            comissao_produtos: Number(comissao_produtos_pago.toFixed(2)),
             valor_comissao: Number(val_comissao_pago.toFixed(2)),
             pago: true,
             data_pagamento: data_pagamento,
@@ -306,32 +331,11 @@ const listComissoes = async (req, res) => {
       }
     }
 
+    // Faturamento bruto de serviços = soma de todos os agendamentos concluídos (valor único por atendimento)
     const faturamentoBrutoServicos = agendamentos.reduce((acc, a) => acc + (a.valor_pago || a.valor_total || 0), 0);
     
-    let faturamentoBrutoProdutos = 0;
-    for (const venda of vendas) {
-      if (!venda.colaborador_id) continue;
-      let itensVenda = [];
-      try {
-        itensVenda = typeof venda.itens === 'string' ? JSON.parse(venda.itens) : venda.itens;
-      } catch (e) {
-        itensVenda = [];
-      }
-      if (!Array.isArray(itensVenda) || itensVenda.length === 0) {
-        itensVenda = [{ produto_id: venda.produto_id, produto_nome: venda.produto_nome, quantidade: venda.quantidade, subtotal: venda.valor_total, comissao_pct: null }];
-      }
-      for (const item of itensVenda) {
-        let pct = item.comissao_pct != null ? Number(item.comissao_pct) : null;
-        if (pct == null) {
-          const prod = produtos.find(p => p.id === item.produto_id);
-          pct = prod ? Number(prod.comissao || 0) : 0;
-        }
-        if (pct > 0) {
-          const val_item = Number(item.subtotal || item.preco_unitario * item.quantidade || 0);
-          faturamentoBrutoProdutos += val_item;
-        }
-      }
-    }
+    // Faturamento bruto de produtos = soma de todas as vendas diretas pagas (valor total da venda)
+    const faturamentoBrutoProdutos = vendas.reduce((acc, v) => acc + (v.valor_pago || v.valor_total || 0), 0);
 
     const faturamentoBrutoTotal = faturamentoBrutoServicos + faturamentoBrutoProdutos;
 
@@ -341,6 +345,7 @@ const listComissoes = async (req, res) => {
       faturamento_bruto_servicos: Number(faturamentoBrutoServicos.toFixed(2)),
       faturamento_bruto_produtos: Number(faturamentoBrutoProdutos.toFixed(2)),
       faturamento_bruto_total: Number(faturamentoBrutoTotal.toFixed(2)),
+      atendimentos_total_count: uniqueAgendamentosPeriodo.size,
       comissoes: comissoesList
     });
   } catch (error) {
