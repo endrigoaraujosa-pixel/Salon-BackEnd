@@ -281,7 +281,7 @@ const listComissoes = async (req, res) => {
           }
           comissoesList.push({
             colaborador_id: colab.id,
-            colaborador_nome: colab.nome,
+            colaborador_nome: (colab.nome || '').trim(),
             comissao_principal: colab.comissao_principal,
             comissao_sozinho: colab.comissao_sozinho,
             comissao_ajuda: colab.comissao_ajuda,
@@ -311,7 +311,7 @@ const listComissoes = async (req, res) => {
           }
           comissoesList.push({
             colaborador_id: colab.id,
-            colaborador_nome: colab.nome,
+            colaborador_nome: (colab.nome || '').trim(),
             comissao_principal: colab.comissao_principal,
             comissao_sozinho: colab.comissao_sozinho,
             comissao_ajuda: colab.comissao_ajuda,
