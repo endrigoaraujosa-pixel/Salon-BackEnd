@@ -194,11 +194,12 @@ const listComissoes = async (req, res) => {
                 base_comissao: Number(base_comissao.toFixed(2)),
                 percentual_aplicado: pct,
                 valor_comissao: Number(val_com.toFixed(2)),
-                pago: !!item.comissao_paga,
+                pago: !!item.comissao_paga_auxiliar,
                 insumos_pendentes
               };
 
-              if (item.comissao_paga) {
+              const isPagoAux = !!item.comissao_paga_auxiliar;
+              if (isPagoAux) {
                 total_auxiliar_pago += val_serv;
                 set_atendimentos_pago.add(ag.id);
                 uniqueAgendamentosPeriodo.add(ag.id);
@@ -392,9 +393,15 @@ const pagarComissao = async (req, res) => {
 
       if (Array.isArray(itens)) {
         itens = itens.map(item => {
-          if (item.colaborador_id === colaborador_id || item.auxiliar_id === colaborador_id) {
+          if (item.colaborador_id === colaborador_id) {
             if (!item.comissao_paga) {
               item.comissao_paga = true;
+              updated = true;
+            }
+          }
+          if (item.auxiliar_id === colaborador_id) {
+            if (!item.comissao_paga_auxiliar) {
+              item.comissao_paga_auxiliar = true;
               updated = true;
             }
           }
@@ -476,9 +483,15 @@ const desfazerPagamento = async (req, res) => {
 
       if (Array.isArray(itens)) {
         itens = itens.map(item => {
-          if (item.colaborador_id === colaborador_id || item.auxiliar_id === colaborador_id) {
+          if (item.colaborador_id === colaborador_id) {
             if (item.comissao_paga) {
               item.comissao_paga = false;
+              updated = true;
+            }
+          }
+          if (item.auxiliar_id === colaborador_id) {
+            if (item.comissao_paga_auxiliar) {
+              item.comissao_paga_auxiliar = false;
               updated = true;
             }
           }
