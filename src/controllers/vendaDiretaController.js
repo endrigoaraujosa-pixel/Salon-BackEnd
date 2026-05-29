@@ -9,7 +9,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { Op } from 'sequelize';
 
 const listVendas = async (req, res) => {
-  const { data_inicio, data_fim } = req.query;
+  const { data_inicio, data_fim, cliente_id, status } = req.query;
+  console.log('[DEBUG listVendas] Received query params:', { data_inicio, data_fim, cliente_id, status });
   try {
     const where = { deletado: 'N' };
     if (data_inicio && data_fim) {
@@ -17,6 +18,13 @@ const listVendas = async (req, res) => {
         [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
       };
     }
+    if (cliente_id) {
+      where.cliente_id = cliente_id;
+    }
+    if (status) {
+      where.status = status;
+    }
+    console.log('[DEBUG listVendas] sequelize where:', where);
     const vendas = await VendaDireta.findAll({
       where,
       order: [['data_venda', 'DESC']]
