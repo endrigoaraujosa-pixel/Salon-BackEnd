@@ -275,6 +275,42 @@ const dashboardDetail = async (req, res) => {
         }
       });
 
+      // Fetch associated payments to resolve split payment methods
+      const agendamentoIds = ags.map(a => a.id).filter(Boolean);
+      const vendaIds = vendas.map(v => v.id).filter(Boolean);
+
+      const orClauses = [];
+      if (agendamentoIds.length > 0) {
+        orClauses.push({ agendamento_id: { [Op.in]: agendamentoIds } });
+      }
+      if (vendaIds.length > 0) {
+        orClauses.push({ venda_direta_id: { [Op.in]: vendaIds } });
+      }
+
+      let payments = [];
+      if (orClauses.length > 0) {
+        payments = await Pagamento.findAll({
+          where: {
+            deletado: 'N',
+            [Op.or]: orClauses
+          }
+        });
+      }
+
+      const agPaymentsMap = {};
+      const vdPaymentsMap = {};
+
+      payments.forEach(p => {
+        if (p.agendamento_id) {
+          if (!agPaymentsMap[p.agendamento_id]) agPaymentsMap[p.agendamento_id] = [];
+          agPaymentsMap[p.agendamento_id].push(p);
+        }
+        if (p.venda_direta_id) {
+          if (!vdPaymentsMap[p.venda_direta_id]) vdPaymentsMap[p.venda_direta_id] = [];
+          vdPaymentsMap[p.venda_direta_id].push(p);
+        }
+      });
+
       const details = [];
 
       // Map services
@@ -289,6 +325,11 @@ const dashboardDetail = async (req, res) => {
         if (Array.isArray(parsed) && parsed.length > 0) {
           itemsStr = parsed.map(item => item.nome).join(', ');
         }
+
+        const agPayments = agPaymentsMap[ag.id] || [];
+        const forms = [...new Set(agPayments.map(p => p.forma_pagamento).filter(Boolean))];
+        const formaPagamento = forms.length > 0 ? forms.join(' / ') : (ag.forma_pagamento || 'N/A');
+
         details.push({
           id: ag.id,
           numero: ag.numero ? `${String(ag.numero).padStart(6, '0')} | S` : '-',
@@ -296,13 +337,17 @@ const dashboardDetail = async (req, res) => {
           itens: itemsStr,
           valor: ag.valor_pago || ag.valor_total || 0,
           data_hora: ag.data_hora,
-          forma_pagamento: ag.forma_pagamento || 'N/A',
+          forma_pagamento: formaPagamento,
           tipo: 'servico'
         });
       });
 
       // Map product sales
       vendas.forEach(v => {
+        const vdPayments = vdPaymentsMap[v.id] || [];
+        const forms = [...new Set(vdPayments.map(p => p.forma_pagamento).filter(Boolean))];
+        const formaPagamento = forms.length > 0 ? forms.join(' / ') : (v.forma_pagamento || 'N/A');
+
         details.push({
           id: v.id,
           numero: v.numero_venda ? `${String(v.numero_venda).padStart(6, '0')} | V` : '-',
@@ -310,7 +355,7 @@ const dashboardDetail = async (req, res) => {
           itens: v.produto_nome || '-',
           valor: v.valor_pago || v.valor_total || 0,
           data_hora: v.data_venda,
-          forma_pagamento: v.forma_pagamento || 'N/A',
+          forma_pagamento: formaPagamento,
           tipo: 'venda'
         });
       });
