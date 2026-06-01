@@ -11,6 +11,8 @@ import { createCliente, deleteCliente, historicoCliente, listClientes, updateCli
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
 import { getTaxas, saveTaxa, getEmpresa, saveEmpresa } from './controllers/configuracaoController.js';
+import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect } from './modules/whatsapp/whatsapp.controller.js';
+import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
 import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
 import { createProd, deleteProd, listProd, updateProd } from './controllers/produtoController.js';
@@ -23,6 +25,7 @@ import { listEntradas, getEntradaDetail, registrarEntrada, registrarAjusteInvent
 import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento } from './controllers/vendaDiretaController.js';
 import { admin, protect, requirePermission } from './middleware/auth.js';
 import { connectDB } from './config/db.js';
+import { startReminderJob } from './jobs/whatsapp-reminder.job.js';
 
 const app = express();
 
@@ -169,6 +172,12 @@ configRoutes.get('/taxas-cartao', protect, requirePermission('configuracoes'), g
 configRoutes.post('/taxas-cartao', protect, requirePermission('configuracoes', 'editar'), saveTaxa);
 configRoutes.get('/empresa', protect, getEmpresa);
 configRoutes.post('/empresa', protect, requirePermission('configuracoes', 'editar'), saveEmpresa);
+configRoutes.get('/whatsapp', protect, requirePermission('configuracoes'), getWhatsappConfig);
+configRoutes.post('/whatsapp', protect, requirePermission('configuracoes', 'editar'), saveWhatsappConfig);
+configRoutes.get('/whatsapp/historico', protect, requirePermission('agenda'), getWhatsappHistory);
+configRoutes.post('/whatsapp/reenviar/:id', protect, requirePermission('agenda', 'editar'), postResendReminder);
+configRoutes.get('/whatsapp/local-status', protect, requirePermission('configuracoes'), getLocalStatus);
+configRoutes.post('/whatsapp/local-disconnect', protect, requirePermission('configuracoes', 'editar'), postLocalDisconnect);
 app.use('/api/configuracoes', configRoutes);
 
 // Categorias Routes
@@ -215,6 +224,12 @@ app.listen(PORT, async () => {
   try {
     await connectDB();
     console.log('Database boot sequence successfully completed.');
+    
+    // Start background WhatsApp reminder processing job
+    startReminderJob();
+
+    // Initialize Local WhatsApp Web Client
+    initLocalClient();
   } catch (dbError) {
     console.error('Critical: Database boot sequence failed:', dbError);
   }

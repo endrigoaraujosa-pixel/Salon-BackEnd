@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
 import Produto from '../models/Produto.js';
+import { generateReminders, cancelReminders } from '../modules/whatsapp/reminder.service.js';
 
 const adjustStock = async (ag, type) => {
   try {
@@ -225,6 +226,10 @@ const createAgend = async (req, res) => {
       criado_por_nome: req.user?.name || null,
       criado_em: new Date()
     });
+    
+    // Generate automatic WhatsApp reminders
+    await generateReminders(ag);
+
     res.status(201).json(ag);
   } catch (error) {
     res.status(400).json({ detail: error.message });
@@ -317,6 +322,9 @@ const updateAgend = async (req, res) => {
       await adjustStock(updatedAg, 'deduct');
     }
 
+    // Update scheduled WhatsApp reminders (handles rescheduling)
+    await generateReminders(ag);
+
     res.json(ag);
   } catch (error) {
     res.status(400).json({ detail: error.message });
@@ -362,6 +370,9 @@ const deleteAgend = async (req, res) => {
           where: { agendamento_id: req.params.aid }
         }
       );
+
+      // Cancel any pending reminders
+      await cancelReminders(req.params.aid);
     }
     res.json({ ok: true });
   } catch (error) {
@@ -402,6 +413,14 @@ const setStatus = async (req, res) => {
 
     ag.status = status;
     await ag.save();
+
+    // WhatsApp Reminders hooks
+    if (status === 'cancelado') {
+      await cancelReminders(ag.id);
+    } else if (status === 'agendado' || status === 'confirmado') {
+      await generateReminders(ag);
+    }
+
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ detail: error.message });

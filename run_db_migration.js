@@ -11,6 +11,8 @@ import addRealizarPagamentoPermission from './src/migrations/20260526190000-add-
 import addColaboradorIdToUsers from './src/migrations/20260527130000-add-colaborador-id-to-users.js';
 import createEmpresa from './src/migrations/20260528120000-create-empresa.js';
 import addCriadoPorToAgendamentos from './src/migrations/20260528175000-add-criado-por-to-agendamentos.js';
+import createWhatsAppTables from './src/migrations/20260601000000-create-whatsapp-tables.js';
+import addApiFieldsToWhatsappConfig from './src/migrations/20260601100000-add-api-fields-to-whatsapp-config.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -114,6 +116,22 @@ async function run() {
       console.log('Add criado_por to agendamentos migration completed.');
     } catch (e) {
       console.log('Add criado_por to agendamentos migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running create whatsapp tables migration (up)...');
+    try {
+      await createWhatsAppTables.up(queryInterface, Sequelize);
+      console.log('Create whatsapp tables migration completed.');
+    } catch (e) {
+      console.log('Create whatsapp tables migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add API fields to whatsapp config migration (up)...');
+    try {
+      await addApiFieldsToWhatsappConfig.up(queryInterface, Sequelize);
+      console.log('Add API fields to whatsapp config migration completed.');
+    } catch (e) {
+      console.log('Add API fields to whatsapp config migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');
