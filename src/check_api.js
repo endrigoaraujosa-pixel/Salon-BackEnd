@@ -1,39 +1,26 @@
-import Colaborador from '../models/Colaborador.js';
-import Agendamento from '../models/Agendamento.js';
-import VendaDireta from '../models/VendaDireta.js';
-import Produto from '../models/Produto.js';
-import PagamentoComissao from '../models/PagamentoComissao.js';
-import Servico from '../models/Servico.js';
+import { Sequelize } from 'sequelize';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Import models
+import Colaborador from './models/Colaborador.js';
+import Agendamento from './models/Agendamento.js';
+import VendaDireta from './models/VendaDireta.js';
+import Produto from './models/Produto.js';
+import PagamentoComissao from './models/PagamentoComissao.js';
+import Servico from './models/Servico.js';
 import { Op } from 'sequelize';
 
-const normalizeName = (name) => {
-  if (!name) return '';
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .replace(/\s+/g, ' ');
-};
-
-const listComissoes = async (req, res) => {
-  const { mes, data_inicio, data_fim, status, colaborador_id } = req.query;
-  const statusFilter = status || 'pendente'; // 'pendente' | 'pago' | 'todos'
-  
-  let start, end, periodo;
-  if (data_inicio && data_fim) {
-    start = data_inicio;
-    end = data_fim;
-    periodo = `${data_inicio}_${data_fim}`;
-  } else if (mes) {
-    const [year, month] = mes.split('-').map(Number);
-    const lastDay = new Date(year, month, 0).getDate();
-    start = `${mes}-01`;
-    end = `${mes}-${String(lastDay).padStart(2, '0')}`;
-    periodo = mes;
-  } else {
-    return res.status(400).json({ detail: 'Informe o mês ou o período de datas' });
-  }
+async function main() {
+  const data_inicio = '2026-06-01';
+  const data_fim = '2026-06-30';
+  const statusFilter = 'pendente';
+  const start = data_inicio;
+  const end = data_fim;
+  const periodo = `${data_inicio}_${data_fim}`;
 
   try {
     const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
@@ -41,16 +28,6 @@ const listComissoes = async (req, res) => {
     const servicos = await Servico.findAll({ where: { deletado: 'N' } });
     
     let filteredColaboradores = colaboradores;
-    if (req.user && req.user.role !== 'admin') {
-      if (req.user.colaborador_id) {
-        filteredColaboradores = colaboradores.filter(c => c.id === req.user.colaborador_id);
-      } else {
-        const normalizedUserName = normalizeName(req.user.name);
-        filteredColaboradores = colaboradores.filter(c => normalizeName(c.nome) === normalizedUserName);
-      }
-    } else if (colaborador_id && colaborador_id !== 'todos') {
-      filteredColaboradores = colaboradores.filter(c => String(c.id) === String(colaborador_id));
-    }
     
     // Buscar agendamentos concluídos no período
     const agendamentos = await Agendamento.findAll({
@@ -243,49 +220,25 @@ const listComissoes = async (req, res) => {
         }
       }
 
-      // 2. Processar comissões de vendas de produtos (vendas diretas) — suporta multi-itens
+      // 2. Processar comissões de vendas de produtos (vendas diretas)
       for (const venda of vendas) {
         if (venda.colaborador_id !== colab.id) continue;
-
-        // Carrinho novo: processar cada item individualmente
-        const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
-          ? venda.itens
-          : [{ produto_id: venda.produto_id, produto_nome: venda.produto_nome, quantidade: venda.quantidade, subtotal: venda.valor_total, comissao_pct: null }];
-
+        const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0 ? venda.itens : [];
         for (const item of itensVenda) {
-          // Se comissao_pct está no item, usa direto; caso contrário busca no produto
           let pct = item.comissao_pct != null ? Number(item.comissao_pct) : null;
           if (pct == null) {
             const prod = produtos.find(p => p.id === item.produto_id);
             pct = prod ? Number(prod.comissao || 0) : 0;
           }
-
           const val_item = Number(item.subtotal || item.preco_unitario * item.quantidade || 0);
+          const val_com = val_item * (pct / 100);
 
-          // Decidir base de comissão com base na flag do desconto
-          let val_item_comissao = val_item;
-          if (item.preco_unitario_original !== undefined) {
-            let descontoMeta = venda.desconto_aplicado;
-            if (typeof descontoMeta === 'string') {
-              try {
-                descontoMeta = JSON.parse(descontoMeta);
-              } catch (e) {}
-            }
-            if (descontoMeta && descontoMeta.incide_comissao === false) {
-              val_item_comissao = Number(item.preco_unitario_original) * Number(item.quantidade);
-            }
-          }
-
-          const val_com = val_item_comissao * (pct / 100);
-
-          // Sempre inclui no total de produtos vendidos (mesmo sem comissão)
           if (venda.comissao_paga) {
             total_produtos_pago += val_item;
           } else {
             total_produtos_pendente += val_item;
           }
 
-          // Só cria detalhe de comissão se há percentual > 0
           if (pct > 0) {
             const det = {
               tipo: 'produto',
@@ -298,7 +251,6 @@ const listComissoes = async (req, res) => {
               valor_comissao: Number(val_com.toFixed(2)),
               pago: !!venda.comissao_paga
             };
-
             if (venda.comissao_paga) {
               detalhes_pago.push(det);
             } else {
@@ -311,10 +263,6 @@ const listComissoes = async (req, res) => {
       const val_comissao_pendente = detalhes_pendente.reduce((acc, d) => acc + d.valor_comissao, 0);
       const val_comissao_pago = detalhes_pago.reduce((acc, d) => acc + d.valor_comissao, 0);
 
-      const pagRec = pagamentosComissao.find(p => p.colaborador_id === colab.id);
-      const data_pagamento = pagRec ? pagRec.data_pagamento : null;
-
-      // Adicionar linha de Não Pago se houver comissões pendentes (ou se ativo e listando pendentes)
       if (statusFilter === 'pendente' || statusFilter === 'todos') {
         if (val_comissao_pendente > 0 || (colab.ativo && val_comissao_pendente === 0 && val_comissao_pago === 0)) {
           let comissao_produtos_pendente = 0;
@@ -326,61 +274,21 @@ const listComissoes = async (req, res) => {
           comissoesList.push({
             colaborador_id: colab.id,
             colaborador_nome: (colab.nome || '').trim(),
-            comissao_principal: colab.comissao_principal,
-            comissao_sozinho: colab.comissao_sozinho,
-            comissao_ajuda: colab.comissao_ajuda,
-            comissao_auxiliar: colab.comissao_auxiliar,
             atendimentos: set_atendimentos_pendente.size,
             total_principal: total_principal_pendente,
             total_auxiliar: total_auxiliar_pendente,
             total_produtos: total_produtos_pendente,
-            comissao_produtos: Number(comissao_produtos_pendente.toFixed(2)),
             valor_comissao: Number(val_comissao_pendente.toFixed(2)),
             pago: false,
-            data_pagamento: null,
             detalhes: detalhes_pendente
           });
           totalComissoes += val_comissao_pendente;
         }
       }
-
-      // Adicionar linha de Pago se houver comissões pagas
-      if (statusFilter === 'pago' || statusFilter === 'todos') {
-        if (val_comissao_pago > 0) {
-          let comissao_produtos_pago = 0;
-          for (const det of detalhes_pago) {
-            if (det.tipo === 'produto') {
-              comissao_produtos_pago += det.valor_comissao;
-            }
-          }
-          comissoesList.push({
-            colaborador_id: colab.id,
-            colaborador_nome: (colab.nome || '').trim(),
-            comissao_principal: colab.comissao_principal,
-            comissao_sozinho: colab.comissao_sozinho,
-            comissao_ajuda: colab.comissao_ajuda,
-            comissao_auxiliar: colab.comissao_auxiliar,
-            atendimentos: set_atendimentos_pago.size,
-            total_principal: total_principal_pago,
-            total_auxiliar: total_auxiliar_pago,
-            total_produtos: total_produtos_pago,
-            comissao_produtos: Number(comissao_produtos_pago.toFixed(2)),
-            valor_comissao: Number(val_comissao_pago.toFixed(2)),
-            pago: true,
-            data_pagamento: data_pagamento,
-            detalhes: detalhes_pago
-          });
-          totalComissoes += val_comissao_pago;
-        }
-      }
     }
 
-    // Faturamento bruto de serviços = soma de todos os agendamentos concluídos (valor único por atendimento)
     const faturamentoBrutoServicos = agendamentos.reduce((acc, a) => acc + (a.valor_pago || a.valor_total || 0), 0);
-    
-    // Faturamento bruto de produtos = soma de todas as vendas diretas pagas (valor total da venda)
     const faturamentoBrutoProdutos = vendas.reduce((acc, v) => acc + (v.valor_pago || v.valor_total || 0), 0);
-
     const faturamentoBrutoTotal = faturamentoBrutoServicos + faturamentoBrutoProdutos;
 
     // Calcular deduções de insumos deduplicadas
@@ -413,208 +321,14 @@ const listComissoes = async (req, res) => {
       }
     }
 
-    res.json({
-      periodo,
-      total: Number(totalComissoes.toFixed(2)),
-      faturamento_bruto_servicos: Number(faturamentoBrutoServicos.toFixed(2)),
-      faturamento_bruto_produtos: Number(faturamentoBrutoProdutos.toFixed(2)),
-      faturamento_bruto_total: Number(faturamentoBrutoTotal.toFixed(2)),
-      custo_insumos_total: Number(totalInsumosTotal.toFixed(2)),
-      atendimentos_total_count: uniqueAgendamentosPeriodo.size,
-      comissoes: comissoesList
+    console.log({
+      totalInsumosTotal,
+      comissoesListLength: comissoesList.length,
+      filteredColaboradoresLength: filteredColaboradores.length
     });
   } catch (error) {
-    res.status(500).json({ detail: error.message });
+    console.error(error);
   }
-};
+}
 
-const pagarComissao = async (req, res) => {
-  const { colaborador_id, mes, periodo, valor } = req.body;
-  const p = periodo || mes;
-  
-  let start, end;
-  if (p.includes('_')) {
-    const parts = p.split('_');
-    start = parts[0];
-    end = parts[1];
-  } else {
-    const [year, month] = p.split('-').map(Number);
-    const lastDay = new Date(year, month, 0).getDate();
-    start = `${p}-01`;
-    end = `${p}-${String(lastDay).padStart(2, '0')}`;
-  }
-
-  try {
-    // 1. Marcar comissões de serviços como pagas no JSON dos agendamentos concluídos do período
-    const agendamentos = await Agendamento.findAll({
-      where: {
-        status: 'concluido',
-        deletado: 'N',
-        data_hora: {
-          [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
-        }
-      }
-    });
-
-    for (const ag of agendamentos) {
-      let itens = [];
-      let updated = false;
-      try {
-        itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
-      } catch (e) {
-        itens = ag.itens || [];
-      }
-
-      if (Array.isArray(itens)) {
-        itens = itens.map(item => {
-          if (item.colaborador_id === colaborador_id) {
-            if (!item.comissao_paga) {
-              item.comissao_paga = true;
-              updated = true;
-            }
-          }
-          if (item.auxiliar_id === colaborador_id) {
-            if (!item.comissao_paga_auxiliar) {
-              item.comissao_paga_auxiliar = true;
-              updated = true;
-            }
-          }
-          return item;
-        });
-
-        if (updated) {
-          ag.itens = itens;
-          ag.changed('itens', true);
-          await ag.save();
-        }
-      }
-    }
-
-    // 2. Marcar comissões de vendas como pagas no período
-    await VendaDireta.update(
-      { comissao_paga: true },
-      {
-        where: {
-          colaborador_id,
-          status: 'pago',
-          deletado: 'N',
-          data_venda: {
-            [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
-          }
-        }
-      }
-    );
-
-    // 3. Registrar o log do pagamento
-    await PagamentoComissao.create({
-      colaborador_id,
-      periodo: p,
-      valor: valor || 0
-    });
-
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ detail: error.message });
-  }
-};
-
-const desfazerPagamento = async (req, res) => {
-  const { colaborador_id, mes, periodo } = req.query;
-  const p = periodo || mes;
-
-  let start, end;
-  if (p.includes('_')) {
-    const parts = p.split('_');
-    start = parts[0];
-    end = parts[1];
-  } else {
-    const [year, month] = p.split('-').map(Number);
-    const lastDay = new Date(year, month, 0).getDate();
-    start = `${p}-01`;
-    end = `${p}-${String(lastDay).padStart(2, '0')}`;
-  }
-
-  try {
-    // 1. Desmarcar comissões de serviços no período
-    const agendamentos = await Agendamento.findAll({
-      where: {
-        status: 'concluido',
-        deletado: 'N',
-        data_hora: {
-          [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
-        }
-      }
-    });
-
-    for (const ag of agendamentos) {
-      let itens = [];
-      let updated = false;
-      try {
-        itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
-      } catch (e) {
-        itens = ag.itens || [];
-      }
-
-      if (Array.isArray(itens)) {
-        itens = itens.map(item => {
-          if (item.colaborador_id === colaborador_id) {
-            if (item.comissao_paga) {
-              item.comissao_paga = false;
-              updated = true;
-            }
-          }
-          if (item.auxiliar_id === colaborador_id) {
-            if (item.comissao_paga_auxiliar) {
-              item.comissao_paga_auxiliar = false;
-              updated = true;
-            }
-          }
-          return item;
-        });
-
-        if (updated) {
-          ag.itens = itens;
-          ag.changed('itens', true);
-          await ag.save();
-        }
-      }
-    }
-
-    // 2. Desmarcar comissões de vendas no período
-    await VendaDireta.update(
-      { comissao_paga: false },
-      {
-        where: {
-          colaborador_id,
-          status: 'pago',
-          deletado: 'N',
-          data_venda: {
-            [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
-          }
-        }
-      }
-    );
-
-    // 3. Deletar registro do pagamento comissão
-    await PagamentoComissao.update(
-      {
-        deletado: 'S',
-        deletado_por: req.user ? req.user.name : 'Sistema',
-        deletado_em: new Date()
-      },
-      {
-        where: { colaborador_id, periodo: p }
-      }
-    );
-
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ detail: error.message });
-  }
-};
-
-export {
-  listComissoes,
-  pagarComissao,
-  desfazerPagamento
-};
+main();

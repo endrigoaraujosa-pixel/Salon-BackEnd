@@ -14,6 +14,11 @@ const TaxaCartao = sequelize.define('TaxaCartao', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  dias_recebimento: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: true
+  },
   deletado: {
     type: DataTypes.STRING(1),
     defaultValue: 'N',

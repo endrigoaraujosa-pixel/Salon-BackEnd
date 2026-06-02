@@ -4,6 +4,7 @@ import Servico from '../models/Servico.js';
 import Colaborador from '../models/Colaborador.js';
 import Pagamento from '../models/Pagamento.js';
 import User from '../models/User.js';
+import Desconto from '../models/Desconto.js';
 import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
@@ -605,6 +606,120 @@ const patchObservacoes = async (req, res) => {
   }
 };
 
+const aplicarDescontoAgendamento = async (req, res) => {
+  const { aid } = req.params;
+  const { descontoId } = req.body;
+
+  try {
+    const ag = await Agendamento.findByPk(aid);
+    if (!ag || ag.deletado === 'S') {
+      return res.status(404).json({ detail: 'Agendamento não encontrado' });
+    }
+
+    if (ag.status === 'concluido' || ag.valor_pago > 0) {
+      return res.status(400).json({ detail: 'Não é possível aplicar desconto em um agendamento finalizado ou pago.' });
+    }
+
+    let itens = Array.isArray(ag.itens) ? [...ag.itens] : [];
+
+    // Se descontoId for nulo/vazio, reverter o desconto
+    if (!descontoId) {
+      itens = itens.map(item => {
+        if (item.valor_original !== undefined) {
+          item.valor = item.valor_original;
+          delete item.valor_original;
+        }
+        return item;
+      });
+
+      ag.itens = itens;
+      ag.changed('itens', true);
+      const valor_total = itens.reduce((acc, i) => acc + Number(i.valor || 0), 0);
+      await ag.update({ itens, valor_total, desconto_aplicado: null });
+
+      return res.json({ ok: true, agendamento: ag });
+    }
+
+    const desconto = await Desconto.findOne({ where: { id: descontoId, deletado: 'N', ativo: true } });
+    if (!desconto) {
+      return res.status(444).json({ detail: 'Desconto não encontrado ou inativo.' });
+    }
+
+    // Verificar itens vinculados
+    let vinculados = { services: [], products: [] };
+    if (desconto.itens_vinculados) {
+      try {
+        vinculados = typeof desconto.itens_vinculados === "string"
+          ? JSON.parse(desconto.itens_vinculados)
+          : desconto.itens_vinculados;
+      } catch (e) {}
+    }
+
+    const isRestrictedToItems = (vinculados.products && vinculados.products.length > 0) || (vinculados.services && vinculados.services.length > 0);
+
+    // Identificar itens elegíveis (serviços) e reverter quaisquer descontos anteriores primeiro
+    let eligibleItens = [];
+    itens = itens.map(item => {
+      if (item.valor_original !== undefined) {
+        item.valor = item.valor_original;
+      } else {
+        item.valor_original = item.valor;
+      }
+
+      const isEligible = !isRestrictedToItems || (vinculados.services && vinculados.services.includes(item.servico_id));
+      if (isEligible) {
+        eligibleItens.push(item);
+      }
+      return item;
+    });
+
+    if (eligibleItens.length === 0) {
+      return res.status(400).json({ detail: 'Este desconto não é elegível para nenhum serviço deste agendamento.' });
+    }
+
+    const subtotalElegivel = eligibleItens.reduce((acc, i) => acc + Number(i.valor), 0);
+
+    // Calcular desconto
+    let totalDiscount = 0;
+    if (desconto.tipo === 'porcentagem') {
+      totalDiscount = subtotalElegivel * (desconto.valor / 100);
+    } else { // valor_fixo
+      totalDiscount = Math.min(desconto.valor, subtotalElegivel);
+    }
+
+    // Distribuir desconto
+    if (subtotalElegivel > 0) {
+      eligibleItens.forEach(item => {
+        const proporcao = item.valor / subtotalElegivel;
+        const itemDiscount = totalDiscount * proporcao;
+        item.valor = Math.max(0, Number((item.valor - itemDiscount).toFixed(2)));
+      });
+    }
+
+    ag.itens = itens;
+    ag.changed('itens', true);
+    const valor_total = itens.reduce((acc, i) => acc + Number(i.valor || 0), 0);
+    await ag.update({
+      itens,
+      valor_total,
+      desconto_aplicado: {
+        desconto_id: desconto.id,
+        codigo: desconto.codigo,
+        descricao: desconto.descricao,
+        tipo: desconto.tipo,
+        valor_desconto: desconto.valor,
+        total_descontado: Number(totalDiscount.toFixed(2)),
+        incide_comissao: desconto.incide_comissao !== false && desconto.incide_comissao !== 0,
+        aplicado_em: new Date().toISOString()
+      }
+    });
+
+    res.json({ ok: true, agendamento: ag });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 export {
   listAgend,
   getAgend,
@@ -615,5 +730,6 @@ export {
   addPagamentos,
   updatePagamento,
   deletePagamento,
-  patchObservacoes
+  patchObservacoes,
+  aplicarDescontoAgendamento
 };

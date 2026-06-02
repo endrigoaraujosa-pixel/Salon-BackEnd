@@ -4,6 +4,7 @@ import Colaborador from '../models/Colaborador.js';
 import Cliente from '../models/Cliente.js';
 import Pagamento from '../models/Pagamento.js';
 import User from '../models/User.js';
+import Desconto from '../models/Desconto.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { Op } from 'sequelize';
@@ -654,6 +655,150 @@ const updateCliente = async (req, res) => {
   }
 };
 
+const aplicarDescontoVenda = async (req, res) => {
+  const { id } = req.params;
+  const { descontoId } = req.body;
+
+  try {
+    const venda = await VendaDireta.findByPk(id);
+    if (!venda || venda.deletado === 'S') {
+      return res.status(404).json({ detail: 'Venda não encontrada' });
+    }
+
+    if (venda.status === 'pago' || venda.valor_pago > 0) {
+      return res.status(400).json({ detail: 'Não é possível aplicar desconto em uma venda que já possui pagamentos.' });
+    }
+
+    // Normalizar itens
+    let itens = Array.isArray(venda.itens) && venda.itens.length > 0
+      ? [...venda.itens]
+      : [{
+          produto_id: venda.produto_id,
+          produto_nome: venda.produto_nome,
+          quantidade: venda.quantidade,
+          preco_unitario: venda.quantidade > 0 ? venda.valor_total / venda.quantidade : venda.valor_total,
+          subtotal: venda.valor_total,
+          comissao_pct: 0
+        }];
+
+    // Se descontoId for nulo/vazio, estamos limpando o desconto (reverter para original)
+    if (!descontoId) {
+      // Reverter preços para original
+      itens = itens.map(item => {
+        if (item.preco_unitario_original !== undefined) {
+          item.preco_unitario = item.preco_unitario_original;
+          item.subtotal = item.quantidade * item.preco_unitario;
+          delete item.preco_unitario_original;
+        }
+        return item;
+      });
+
+      venda.itens = itens;
+      venda.changed('itens', true);
+      const valor_total = itens.reduce((acc, i) => acc + Number(i.subtotal || 0), 0);
+      const primeiro = itens[0] || {};
+      
+      await venda.update({
+        itens,
+        valor_total,
+        desconto_aplicado: null,
+        produto_id: primeiro.produto_id || venda.produto_id,
+        produto_nome: itens.length === 1 ? primeiro.produto_nome : `${primeiro.produto_nome} (+${itens.length - 1})`,
+        quantidade: itens.reduce((acc, i) => acc + Number(i.quantidade || 0), 0)
+      });
+
+      return res.json({ ok: true, venda });
+    }
+
+    const desconto = await Desconto.findOne({ where: { id: descontoId, deletado: 'N', ativo: true } });
+    if (!desconto) {
+      return res.status(444).json({ detail: 'Desconto não encontrado ou inativo.' });
+    }
+
+    // Verificar itens vinculados
+    let vinculados = { services: [], products: [] };
+    if (desconto.itens_vinculados) {
+      try {
+        vinculados = typeof desconto.itens_vinculados === "string"
+          ? JSON.parse(desconto.itens_vinculados)
+          : desconto.itens_vinculados;
+      } catch (e) {}
+    }
+
+    const isRestrictedToItems = (vinculados.products && vinculados.products.length > 0) || (vinculados.services && vinculados.services.length > 0);
+
+    // Identificar itens elegíveis e reverter quaisquer descontos anteriores primeiro
+    let eligibleItens = [];
+    itens = itens.map(item => {
+      // Restore first if already discounted previously
+      if (item.preco_unitario_original !== undefined) {
+        item.preco_unitario = item.preco_unitario_original;
+        item.subtotal = item.quantidade * item.preco_unitario;
+      } else {
+        // Save original price
+        item.preco_unitario_original = item.preco_unitario;
+      }
+
+      const isEligible = !isRestrictedToItems || (vinculados.products && vinculados.products.includes(item.produto_id));
+      if (isEligible) {
+        eligibleItens.push(item);
+      }
+      return item;
+    });
+
+    if (eligibleItens.length === 0) {
+      return res.status(400).json({ detail: 'Este desconto não é elegível para nenhum produto desta venda.' });
+    }
+
+    const subtotalElegivel = eligibleItens.reduce((acc, i) => acc + Number(i.subtotal), 0);
+
+    // Calcular o desconto total a ser aplicado
+    let totalDiscount = 0;
+    if (desconto.tipo === 'porcentagem') {
+      totalDiscount = subtotalElegivel * (desconto.valor / 100);
+    } else { // valor_fixo
+      totalDiscount = Math.min(desconto.valor, subtotalElegivel);
+    }
+
+    // Distribuir o desconto proporcionalmente aos subtotais dos itens elegíveis
+    if (subtotalElegivel > 0) {
+      eligibleItens.forEach(item => {
+        const proporcao = item.subtotal / subtotalElegivel;
+        const itemDiscount = totalDiscount * proporcao;
+        item.subtotal = Math.max(0, Number((item.subtotal - itemDiscount).toFixed(2)));
+        item.preco_unitario = Number((item.subtotal / item.quantidade).toFixed(2));
+      });
+    }
+
+    venda.itens = itens;
+    venda.changed('itens', true);
+    const valor_total = itens.reduce((acc, i) => acc + Number(i.subtotal || 0), 0);
+    const primeiro = itens[0] || {};
+
+    await venda.update({
+      itens,
+      valor_total,
+      desconto_aplicado: {
+        desconto_id: desconto.id,
+        codigo: desconto.codigo,
+        descricao: desconto.descricao,
+        tipo: desconto.tipo,
+        valor_desconto: desconto.valor,
+        total_descontado: Number(totalDiscount.toFixed(2)),
+        incide_comissao: desconto.incide_comissao !== false && desconto.incide_comissao !== 0,
+        aplicado_em: new Date().toISOString()
+      },
+      produto_id: primeiro.produto_id || venda.produto_id,
+      produto_nome: itens.length === 1 ? primeiro.produto_nome : `${primeiro.produto_nome} (+${itens.length - 1})`,
+      quantidade: itens.reduce((acc, i) => acc + Number(i.quantidade || 0), 0)
+    });
+
+    res.json({ ok: true, venda });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 export {
   listVendas,
   getVenda,
@@ -666,5 +811,6 @@ export {
   addItemCarrinho,
   updateItemCarrinho,
   removeItemCarrinho,
-  updateCliente
+  updateCliente,
+  aplicarDescontoVenda
 };

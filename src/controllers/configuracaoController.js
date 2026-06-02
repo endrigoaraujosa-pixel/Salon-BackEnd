@@ -6,8 +6,8 @@ const getTaxas = async (req, res) => {
     let taxas = await TaxaCartao.findAll();
     if (taxas.length === 0) {
       await TaxaCartao.bulkCreate([
-        { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true },
-        { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true }
+        { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true, dias_recebimento: 30 },
+        { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true, dias_recebimento: 1 }
       ]);
       taxas = await TaxaCartao.findAll();
     }
@@ -19,19 +19,24 @@ const getTaxas = async (req, res) => {
 
 const saveTaxa = async (req, res) => {
   try {
-    const { forma_pagamento, percentual, ativo } = req.body;
+    const { forma_pagamento, percentual, ativo, dias_recebimento } = req.body;
     if (!forma_pagamento) {
       return res.status(400).json({ detail: 'Forma de pagamento é obrigatória' });
     }
 
     const [taxa, created] = await TaxaCartao.findOrCreate({
       where: { forma_pagamento },
-      defaults: { percentual: percentual || 0, ativo: ativo !== undefined ? ativo : true }
+      defaults: { 
+        percentual: percentual || 0, 
+        ativo: ativo !== undefined ? ativo : true,
+        dias_recebimento: dias_recebimento !== undefined ? parseInt(dias_recebimento) : 0
+      }
     });
 
     if (!created) {
       if (percentual !== undefined) taxa.percentual = percentual;
       if (ativo !== undefined) taxa.ativo = ativo;
+      if (dias_recebimento !== undefined) taxa.dias_recebimento = parseInt(dias_recebimento) || 0;
       await taxa.save();
     }
 

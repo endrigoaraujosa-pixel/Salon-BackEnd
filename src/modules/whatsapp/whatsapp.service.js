@@ -44,7 +44,7 @@ export async function saveConfig(data) {
  * @param {object} filters - Filtros de busca (status, startDate, endDate, cliente)
  */
 export async function getHistory(filters = {}) {
-  const { status, startDate, endDate, cliente } = filters;
+  const { status, startDate, endDate, cliente, numero } = filters;
   
   let query = `
     SELECT 
@@ -57,6 +57,7 @@ export async function getHistory(filters = {}) {
       l.mensagem,
       l.erro,
       l.tentativas,
+      a.numero AS agendamento_numero,
       a.data_hora AS agendamento_data_hora,
       COALESCE(c.nome, a.cliente_nome) AS cliente_nome,
       COALESCE(c.telefone, '') AS cliente_telefone
@@ -86,6 +87,11 @@ export async function getHistory(filters = {}) {
   if (cliente) {
     query += ` AND (c.nome LIKE :clientePattern OR a.cliente_nome LIKE :clientePattern)`;
     replacements.clientePattern = `%${cliente}%`;
+  }
+
+  if (numero && !isNaN(parseInt(numero, 10))) {
+    query += ` AND a.numero = :numero`;
+    replacements.numero = parseInt(numero, 10);
   }
 
   // Ordenar por data programada mais recente

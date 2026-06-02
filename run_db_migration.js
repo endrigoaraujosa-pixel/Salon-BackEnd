@@ -13,6 +13,7 @@ import createEmpresa from './src/migrations/20260528120000-create-empresa.js';
 import addCriadoPorToAgendamentos from './src/migrations/20260528175000-add-criado-por-to-agendamentos.js';
 import createWhatsAppTables from './src/migrations/20260601000000-create-whatsapp-tables.js';
 import addApiFieldsToWhatsappConfig from './src/migrations/20260601100000-add-api-fields-to-whatsapp-config.js';
+import addDescontoFields from './src/migrations/20260602100000-add-desconto-fields.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -132,6 +133,14 @@ async function run() {
       console.log('Add API fields to whatsapp config migration completed.');
     } catch (e) {
       console.log('Add API fields to whatsapp config migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add discount fields migration (up)...');
+    try {
+      await addDescontoFields.up(queryInterface, Sequelize);
+      console.log('Add discount fields migration completed.');
+    } catch (e) {
+      console.log('Add discount fields migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');

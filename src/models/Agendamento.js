@@ -51,6 +51,11 @@ const Agendamento = sequelize.define('Agendamento', {
     type: DataTypes.FLOAT,
     defaultValue: 0
   },
+  desconto_aplicado: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    defaultValue: null
+  },
   alterado_por_id: {
     type: DataTypes.STRING(36),
     defaultValue: null
