@@ -737,6 +737,8 @@ const relatorioDre = async (req, res) => {
     }
     const creditoRate = rates.find(r => r.forma_pagamento === 'cartao_credito' && r.ativo)?.percentual || 0;
     const debitoRate = rates.find(r => r.forma_pagamento === 'cartao_debito' && r.ativo)?.percentual || 0;
+    const creditoDias = rates.find(r => r.forma_pagamento === 'cartao_credito')?.dias_recebimento || 0;
+    const debitoDias = rates.find(r => r.forma_pagamento === 'cartao_debito')?.dias_recebimento || 0;
 
     const payments = await Pagamento.findAll({
       where: {
@@ -750,6 +752,19 @@ const relatorioDre = async (req, res) => {
     const taxasCredito = creditoTotalVal * (creditoRate / 100);
     const taxasDebito = debitoTotalVal * (debitoRate / 100);
     const taxasTotal = taxasCredito + taxasDebito;
+
+    // Calcular Prazo Médio de Recebimento (PMR) ponderado
+    let totalWeightedDays = 0;
+    let totalPaymentVolume = 0;
+    payments.forEach(p => {
+      let dias = 0;
+      if (p.forma_pagamento === 'cartao_credito') dias = creditoDias;
+      else if (p.forma_pagamento === 'cartao_debito') dias = debitoDias;
+      // dinheiro e pix são 0
+      totalWeightedDays += p.valor * dias;
+      totalPaymentVolume += p.valor;
+    });
+    const pmr = totalPaymentVolume > 0 ? Math.round(totalWeightedDays / totalPaymentVolume) : 0;
 
     const despesasOperacionais = despesasFixas + despesasVariaveis + taxasTotal;
     const lucroBruto = receitaBruta - custoProdutos;
@@ -773,7 +788,10 @@ const relatorioDre = async (req, res) => {
       taxas_cartao: {
         credito: taxasCredito,
         debito: taxasDebito,
-        total: taxasTotal
+        total: taxasTotal,
+        credito_dias: creditoDias,
+        debito_dias: debitoDias,
+        pmr: pmr
       },
       despesas_operacionais: despesasOperacionais,
       lucro_liquido: lucroLiquido,

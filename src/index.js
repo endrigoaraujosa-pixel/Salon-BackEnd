@@ -3,7 +3,7 @@ import cors from 'cors';
 import 'dotenv/config';
 import express from 'express';
 
-import { addPagamentos, createAgend, deleteAgend, deletePagamento as deleteAgendamentoPagamento, getAgend, listAgend, setStatus, updateAgend, updatePagamento as updateAgendamentoPagamento, patchObservacoes } from './controllers/agendamentoController.js';
+import { addPagamentos, createAgend, deleteAgend, deletePagamento as deleteAgendamentoPagamento, getAgend, listAgend, setStatus, updateAgend, updatePagamento as updateAgendamentoPagamento, patchObservacoes, aplicarDescontoAgendamento } from './controllers/agendamentoController.js';
 import { getDeletados, restoreRecord } from './controllers/auditController.js';
 import { login, logout, me, refreshToken } from './controllers/authController.js';
 import { createCategoria, deleteCategoria, listCategorias, updateCategoria } from './controllers/categoriaController.js';
@@ -11,6 +11,8 @@ import { createCliente, deleteCliente, historicoCliente, listClientes, updateCli
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
 import { getTaxas, saveTaxa, getEmpresa, saveEmpresa } from './controllers/configuracaoController.js';
+import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect } from './modules/whatsapp/whatsapp.controller.js';
+import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
 import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
 import { createProd, deleteProd, listProd, updateProd } from './controllers/produtoController.js';
@@ -20,9 +22,12 @@ import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor 
 import { createUser, deleteUser, listUsers, updateUser } from './controllers/userController.js';
 import { listarPerfis, obterPerfil, criarPerfil, atualizarPerfil, deletarPerfil } from './controllers/perfilAcessoController.js';
 import { listEntradas, getEntradaDetail, registrarEntrada, registrarAjusteInventario, listMovimentacoes } from './controllers/estoqueController.js';
-import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento } from './controllers/vendaDiretaController.js';
+import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento, aplicarDescontoVenda } from './controllers/vendaDiretaController.js';
+import { listDescontos, createDesconto, updateDesconto, deleteDesconto, validarDescontoAutorizacao } from './controllers/descontoController.js';
 import { admin, protect, requirePermission } from './middleware/auth.js';
 import { connectDB } from './config/db.js';
+import { startReminderJob } from './jobs/whatsapp-reminder.job.js';
+import Desconto from './models/Desconto.js';
 
 const app = express();
 
@@ -106,6 +111,7 @@ agendRoutes.post('/:aid/status', protect, requirePermission('agenda', 'editar'),
 agendRoutes.post('/:aid/pagamentos', protect, requirePermission('agenda', 'realizar_pagamento'), addPagamentos);
 agendRoutes.put('/:aid/pagamentos/:pid', protect, requirePermission('agenda', 'realizar_pagamento'), updateAgendamentoPagamento);
 agendRoutes.delete('/:aid/pagamentos/:pid', protect, requirePermission('agenda', 'excluir'), deleteAgendamentoPagamento);
+agendRoutes.post('/:aid/aplicar-desconto', protect, requirePermission('agenda', 'realizar_pagamento'), aplicarDescontoAgendamento);
 app.use('/api/agendamentos', agendRoutes);
 
 // Dashboard and Relatorios Routes
@@ -154,6 +160,7 @@ vendaDiretaRoutes.post('/:id/carrinho/itens', protect, requirePermission('vendas
 vendaDiretaRoutes.put('/:id/carrinho/itens/:itemIndex', protect, requirePermission('vendas', 'editar'), updateItemCarrinho);
 vendaDiretaRoutes.delete('/:id/carrinho/itens/:itemIndex', protect, requirePermission('vendas', 'excluir'), removeItemCarrinho);
 vendaDiretaRoutes.put('/:id/cliente', protect, requirePermission('vendas', 'editar'), updateVendaCliente);
+vendaDiretaRoutes.post('/:id/aplicar-desconto', protect, requirePermission('vendas', 'realizar_pagamento'), aplicarDescontoVenda);
 app.use('/api/vendas-diretas', vendaDiretaRoutes);
 
 // Comissões Routes
@@ -165,10 +172,16 @@ app.use('/api/comissoes', comissaoRoutes);
 
 // Configuracoes Routes
 const configRoutes = express.Router();
-configRoutes.get('/taxas-cartao', protect, requirePermission('configuracoes'), getTaxas);
-configRoutes.post('/taxas-cartao', protect, requirePermission('configuracoes', 'editar'), saveTaxa);
+configRoutes.get('/taxas-cartao', protect, requirePermission('cadastros'), getTaxas);
+configRoutes.post('/taxas-cartao', protect, requirePermission('cadastros', 'editar'), saveTaxa);
 configRoutes.get('/empresa', protect, getEmpresa);
 configRoutes.post('/empresa', protect, requirePermission('configuracoes', 'editar'), saveEmpresa);
+configRoutes.get('/whatsapp', protect, requirePermission('configuracoes'), getWhatsappConfig);
+configRoutes.post('/whatsapp', protect, requirePermission('configuracoes', 'editar'), saveWhatsappConfig);
+configRoutes.get('/whatsapp/historico', protect, requirePermission('agenda'), getWhatsappHistory);
+configRoutes.post('/whatsapp/reenviar/:id', protect, requirePermission('agenda', 'editar'), postResendReminder);
+configRoutes.get('/whatsapp/local-status', protect, requirePermission('configuracoes'), getLocalStatus);
+configRoutes.post('/whatsapp/local-disconnect', protect, requirePermission('configuracoes', 'editar'), postLocalDisconnect);
 app.use('/api/configuracoes', configRoutes);
 
 // Categorias Routes
@@ -178,6 +191,15 @@ categoriaRoutes.post('/', protect, createCategoria);
 categoriaRoutes.put('/:id', protect, updateCategoria);
 categoriaRoutes.delete('/:id', protect, deleteCategoria);
 app.use('/api/categorias', categoriaRoutes);
+
+// Descontos Routes
+const descontoRoutes = express.Router();
+descontoRoutes.get('/', protect, requirePermission('cadastros'), listDescontos);
+descontoRoutes.post('/', protect, requirePermission('cadastros', 'criar'), createDesconto);
+descontoRoutes.put('/:id', protect, requirePermission('cadastros', 'editar'), updateDesconto);
+descontoRoutes.delete('/:id', protect, requirePermission('cadastros', 'excluir'), deleteDesconto);
+descontoRoutes.post('/validar', protect, validarDescontoAutorizacao);
+app.use('/api/descontos', descontoRoutes);
 
 // Perfis de Acesso Routes
 const perfilRoutes = express.Router();
@@ -190,10 +212,10 @@ app.use('/api/perfis-acesso', perfilRoutes);
 
 // Fornecedores Routes
 const fornecedorRoutes = express.Router();
-fornecedorRoutes.get('/', protect, listFornecedores);
-fornecedorRoutes.post('/', protect, createFornecedor);
-fornecedorRoutes.put('/:id', protect, updateFornecedor);
-fornecedorRoutes.delete('/:id', protect, deleteFornecedor);
+fornecedorRoutes.get('/', protect, requirePermission('cadastros'), listFornecedores);
+fornecedorRoutes.post('/', protect, requirePermission('cadastros', 'criar'), createFornecedor);
+fornecedorRoutes.put('/:id', protect, requirePermission('cadastros', 'editar'), updateFornecedor);
+fornecedorRoutes.delete('/:id', protect, requirePermission('cadastros', 'excluir'), deleteFornecedor);
 app.use('/api/fornecedores', fornecedorRoutes);
 
 // Estoque Routes
@@ -214,7 +236,18 @@ app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   try {
     await connectDB();
+    await Desconto.sync({ alter: true });
+    const { default: VendaDiretaModel } = await import('./models/VendaDireta.js');
+    const { default: AgendamentoModel } = await import('./models/Agendamento.js');
+    await VendaDiretaModel.sync({ alter: true });
+    await AgendamentoModel.sync({ alter: true });
     console.log('Database boot sequence successfully completed.');
+    
+    // Start background WhatsApp reminder processing job
+    startReminderJob();
+
+    // Initialize Local WhatsApp Web Client
+    initLocalClient();
   } catch (dbError) {
     console.error('Critical: Database boot sequence failed:', dbError);
   }

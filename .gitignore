@@ -36,3 +36,7 @@ coverage/
 sequelize.sqlite
 teste.sqlite
 database.sqlite
+
+# WhatsApp Web session credentials and cache
+.wwebjs_auth/
+.wwebjs_cache/

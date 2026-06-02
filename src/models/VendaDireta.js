@@ -56,6 +56,11 @@ const VendaDireta = sequelize.define('VendaDireta', {
     type: DataTypes.JSON,
     defaultValue: []
   },
+  desconto_aplicado: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    defaultValue: null
+  },
   status: {
     type: DataTypes.STRING(50),
     defaultValue: 'pendente'
