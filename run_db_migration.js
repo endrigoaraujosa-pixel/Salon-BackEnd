@@ -14,6 +14,7 @@ import addCriadoPorToAgendamentos from './src/migrations/20260528175000-add-cria
 import createWhatsAppTables from './src/migrations/20260601000000-create-whatsapp-tables.js';
 import addApiFieldsToWhatsappConfig from './src/migrations/20260601100000-add-api-fields-to-whatsapp-config.js';
 import addDescontoFields from './src/migrations/20260602100000-add-desconto-fields.js';
+import addAuditFieldsToVendasDiretas from './src/migrations/20260603100000-add-audit-fields-to-vendas-diretas.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -141,6 +142,14 @@ async function run() {
       console.log('Add discount fields migration completed.');
     } catch (e) {
       console.log('Add discount fields migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add audit fields to vendas diretas migration (up)...');
+    try {
+      await addAuditFieldsToVendasDiretas.up(queryInterface, Sequelize);
+      console.log('Add audit fields to vendas diretas migration completed.');
+    } catch (e) {
+      console.log('Add audit fields to vendas diretas migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');

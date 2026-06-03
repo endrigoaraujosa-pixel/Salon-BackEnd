@@ -61,6 +61,18 @@ const VendaDireta = sequelize.define('VendaDireta', {
     allowNull: true,
     defaultValue: null
   },
+  data_lancamento: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  },
+  criado_por_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true
+  },
+  criado_por_nome: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
   status: {
     type: DataTypes.STRING(50),
     defaultValue: 'pendente'
