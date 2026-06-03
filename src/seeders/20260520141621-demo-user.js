@@ -2,11 +2,11 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
 export default {
-  async up (queryInterface, Sequelize) {
+  async up(queryInterface, Sequelize) {
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash('admin', salt);
 
-    await queryInterface.bulkInsert('users', [{
+    await queryInterface.bulkInsert({ schema: 'company_salon', tableName: 'users' }, [{
       id: uuidv4(),
       email: 'admin@salon.com',
       password_hash: password_hash,
@@ -22,7 +22,7 @@ export default {
     }], {});
   },
 
-  async down (queryInterface, Sequelize) {
+  async down(queryInterface, Sequelize) {
     await queryInterface.bulkDelete('users', { email: 'admin@salon.com' }, {});
   }
 };

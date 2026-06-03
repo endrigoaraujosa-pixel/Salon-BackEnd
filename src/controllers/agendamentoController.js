@@ -1,22 +1,15 @@
-import Agendamento from '../models/Agendamento.js';
-import Cliente from '../models/Cliente.js';
-import Servico from '../models/Servico.js';
-import Colaborador from '../models/Colaborador.js';
-import Pagamento from '../models/Pagamento.js';
-import User from '../models/User.js';
-import Desconto from '../models/Desconto.js';
 import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
-import Produto from '../models/Produto.js';
 import { generateReminders, cancelReminders } from '../modules/whatsapp/reminder.service.js';
+import { db } from '../config/db.js';
 
 const adjustStock = async (ag, type) => {
   try {
     for (const item of ag.itens || []) {
       const utilized = item.produtos_utilizados || [];
       for (const pu of utilized) {
-        const prod = await Produto.findByPk(pu.produto_id);
+        const prod = await db.Produto.findByPk(pu.produto_id);
         if (prod) {
           if (type === 'deduct') {
             prod.quantidade_estoque -= Number(pu.quantidade || 0);
@@ -33,7 +26,7 @@ const adjustStock = async (ag, type) => {
 };
 
 const buildAgendamentoDoc = async (body, excludeId = null) => {
-  const cliente = await Cliente.findByPk(body.cliente_id);
+  const cliente = await db.Cliente.findByPk(body.cliente_id);
   if (!cliente) throw new Error('Cliente inválido');
 
   let itens = [];
@@ -42,7 +35,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   let profsMap = new Map();
 
   for (const item of body.itens_selecionados) {
-    const s = await Servico.findByPk(item.servico_id);
+    const s = await db.Servico.findByPk(item.servico_id);
     if (s) {
       // Validação: colaborador principal e auxiliar não podem ser a mesma pessoa
       if (item.colaborador_id && item.auxiliar_id && item.colaborador_id === item.auxiliar_id) {
@@ -54,12 +47,12 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
         for (const pu of item.produtos_utilizados) {
           let custoUnitario = Number(pu.custo_unitario || 0);
           if (custoUnitario === 0) {
-            const prod = await Produto.findByPk(pu.produto_id);
+            const prod = await db.Produto.findByPk(pu.produto_id);
             custoUnitario = prod ? Number(prod.custo_unitario || 0) : 0;
           }
           let prodNome = pu.produto_nome || pu.produto_name || "";
           if (!prodNome && pu.produto_id) {
-            const prod = await Produto.findByPk(pu.produto_id);
+            const prod = await db.Produto.findByPk(pu.produto_id);
             prodNome = prod ? prod.nome : "";
           }
           resolvedProdutosUtilizados.push({
@@ -88,11 +81,11 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
       duracaoTotal += s.duracao_minutos;
 
       if (item.colaborador_id) {
-        const p = await Colaborador.findByPk(item.colaborador_id);
+        const p = await db.Colaborador.findByPk(item.colaborador_id);
         if (p) profsMap.set(p.id, { id: p.id, nome: p.nome, tipo: 'principal' });
       }
       if (item.auxiliar_id) {
-        const p = await Colaborador.findByPk(item.auxiliar_id);
+        const p = await db.Colaborador.findByPk(item.auxiliar_id);
         if (p) profsMap.set(p.id, { id: p.id, nome: p.nome, tipo: 'auxiliar' });
       }
     }
@@ -112,7 +105,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
     where.id = { [Op.ne]: excludeId };
   }
 
-  const existentes = await Agendamento.findAll({ where });
+  const existentes = await db.Agendamento.findAll({ where });
 
   // Apenas validar conflito em NOVOS agendamentos (sem excludeId) e se ignorar_conflito nao for verdadeiro
   if (!excludeId && !body.ignorar_conflito) {
@@ -130,7 +123,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
           const conflito = idsVerificar.some(id => profsNoExistente.includes(id));
 
           if (conflito) {
-            const profConflito = (await Colaborador.findByPk(idsVerificar.find(id => profsNoExistente.includes(id))))?.nome;
+            const profConflito = (await db.Colaborador.findByPk(idsVerificar.find(id => profsNoExistente.includes(id))))?.nome;
             throw new Error(`Conflito de horário: O profissional ${profConflito} já possui um agendamento entre ${agInicio.toLocaleTimeString()} e ${agFim.toLocaleTimeString()}`);
           }
         }
@@ -174,7 +167,7 @@ const listAgend = async (req, res) => {
   }
 
   try {
-    const agends = await Agendamento.findAll({
+    const agends = await db.Agendamento.findAll({
       where,
       order: [['data_hora', 'ASC']],
       limit: 2000
@@ -188,12 +181,12 @@ const listAgend = async (req, res) => {
 
 const getAgend = async (req, res) => {
   try {
-    const ag = await Agendamento.findByPk(req.params.aid);
+    const ag = await db.Agendamento.findByPk(req.params.aid);
     if (!ag || ag.deletado === 'S') return res.status(404).json({ detail: 'Não encontrado' });
 
     const { email, password } = req.query;
     if (email && password) {
-      const authUser = await User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
+      const authUser = await db.User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
       if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
         return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
       }
@@ -202,7 +195,7 @@ const getAgend = async (req, res) => {
       }
     }
 
-    const pagamentos = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
+    const pagamentos = await db.Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
     const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
 
     res.json({
@@ -218,8 +211,8 @@ const getAgend = async (req, res) => {
 const createAgend = async (req, res) => {
   try {
     const doc = await buildAgendamentoDoc(req.body);
-    const maxNum = await Agendamento.max('numero') || 0;
-    const ag = await Agendamento.create({
+    const maxNum = await db.Agendamento.max('numero') || 0;
+    const ag = await db.Agendamento.create({
       ...doc,
       id: uuidv4(),
       numero: maxNum + 1,
@@ -239,7 +232,7 @@ const createAgend = async (req, res) => {
 
 const updateAgend = async (req, res) => {
   try {
-    const ag = await Agendamento.findByPk(req.params.aid);
+    const ag = await db.Agendamento.findByPk(req.params.aid);
     if (!ag) return res.status(404).json({ detail: 'Não encontrado' });
 
     const wasConcluido = ag.status === 'concluido';
@@ -302,7 +295,7 @@ const updateAgend = async (req, res) => {
       if (!email || !password) {
         return res.status(400).json({ detail: 'Para alterar um agendamento concluído, é necessária a autorização de um administrador (usuário e senha).' });
       }
-      const authUser = await User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
+      const authUser = await db.User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
       if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
         return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
       }
@@ -319,7 +312,7 @@ const updateAgend = async (req, res) => {
     await ag.update(doc);
 
     if (wasConcluido) {
-      const updatedAg = await Agendamento.findByPk(req.params.aid);
+      const updatedAg = await db.Agendamento.findByPk(req.params.aid);
       await adjustStock(updatedAg, 'deduct');
     }
 
@@ -338,10 +331,10 @@ const deleteAgend = async (req, res) => {
       return res.status(403).json({ detail: 'Você não tem permissão para excluir agendamentos.' });
     }
 
-    const ag = await Agendamento.findByPk(req.params.aid);
+    const ag = await db.Agendamento.findByPk(req.params.aid);
     if (ag) {
       // Validar pagamentos vinculados
-      const countPagamentos = await Pagamento.count({
+      const countPagamentos = await db.Pagamento.count({
         where: {
           agendamento_id: req.params.aid,
           deletado: 'N'
@@ -361,7 +354,7 @@ const deleteAgend = async (req, res) => {
         deletado_por: req.user ? req.user.name : 'Sistema',
         deletado_em: new Date()
       });
-      await Pagamento.update(
+      await db.Pagamento.update(
         {
           deletado: 'S',
           deletado_por: req.user ? req.user.name : 'Sistema',
@@ -387,7 +380,7 @@ const setStatus = async (req, res) => {
   if (!valid.includes(status)) return res.status(400).json({ detail: 'Status inválido' });
 
   try {
-    const ag = await Agendamento.findByPk(req.params.aid);
+    const ag = await db.Agendamento.findByPk(req.params.aid);
     if (!ag) return res.status(404).json({ detail: 'Não encontrado' });
 
     if (status === 'concluido') {
@@ -396,7 +389,7 @@ const setStatus = async (req, res) => {
           return res.status(400).json({ detail: 'Não é possível concluir o atendimento sem definir o profissional que realizou cada serviço.' });
         }
       }
-      const pagamentos = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
+      const pagamentos = await db.Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
       const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
       if (totalPago < ag.valor_total - 0.01) {
         return res.status(400).json({ detail: 'Registre o pagamento total antes de finalizar' });
@@ -432,10 +425,10 @@ const addPagamentos = async (req, res) => {
   const { pagamentos, finalizar } = req.body;
 
   try {
-    const ag = await Agendamento.findByPk(req.params.aid);
+    const ag = await db.Agendamento.findByPk(req.params.aid);
     if (!ag) return res.status(404).json({ detail: 'Agendamento não encontrado' });
 
-    const existingPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
+    const existingPags = await db.Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
     const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
     const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
     let adjustedPagamentos = [...pagamentos];
@@ -454,7 +447,7 @@ const addPagamentos = async (req, res) => {
     }
 
     for (const p of adjustedPagamentos) {
-      await Pagamento.create({
+      await db.Pagamento.create({
         id: uuidv4(),
         agendamento_id: req.params.aid,
         valor: p.valor,
@@ -498,12 +491,12 @@ const updatePagamento = async (req, res) => {
     if (!password) {
       return res.status(400).json({ detail: 'Senha é obrigatória' });
     }
-    const user = await User.findByPk(req.user.id);
+    const user = await db.User.findByPk(req.user.id);
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       return res.status(401).json({ detail: 'Senha incorreta' });
     }
 
-    const pagamento = await Pagamento.findByPk(req.params.pid);
+    const pagamento = await db.Pagamento.findByPk(req.params.pid);
     if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
 
     pagamento.valor = Number(valor || 0);
@@ -511,10 +504,10 @@ const updatePagamento = async (req, res) => {
     pagamento.observacao = observacao || '';
     await pagamento.save();
 
-    const ag = await Agendamento.findByPk(req.params.aid);
+    const ag = await db.Agendamento.findByPk(req.params.aid);
     if (ag) {
       const oldStatus = ag.status;
-      const allPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
+      const allPags = await db.Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       ag.valor_pago = totalPago;
       if (totalPago >= ag.valor_total - 0.01) {
@@ -546,7 +539,7 @@ const deletePagamento = async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
     }
-    const authUser = await User.findOne({ where: { email: email.toLowerCase().trim() } });
+    const authUser = await db.User.findOne({ where: { email: email.toLowerCase().trim() } });
     if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
       return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
     }
@@ -554,7 +547,7 @@ const deletePagamento = async (req, res) => {
       return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
     }
 
-    const pagamento = await Pagamento.findByPk(req.params.pid);
+    const pagamento = await db.Pagamento.findByPk(req.params.pid);
     if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
 
     await pagamento.update({
@@ -563,10 +556,10 @@ const deletePagamento = async (req, res) => {
       deletado_em: new Date()
     });
 
-    const ag = await Agendamento.findByPk(req.params.aid);
+    const ag = await db.Agendamento.findByPk(req.params.aid);
     if (ag) {
       const oldStatus = ag.status;
-      const allPags = await Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
+      const allPags = await db.Pagamento.findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       ag.valor_pago = totalPago;
       if (totalPago >= ag.valor_total - 0.01) {
@@ -593,7 +586,7 @@ const deletePagamento = async (req, res) => {
 
 const patchObservacoes = async (req, res) => {
   try {
-    const ag = await Agendamento.findByPk(req.params.aid);
+    const ag = await db.Agendamento.findByPk(req.params.aid);
     if (!ag || ag.deletado === 'S') return res.status(404).json({ detail: 'Não encontrado' });
 
     const { observacoes } = req.body;
@@ -611,7 +604,7 @@ const aplicarDescontoAgendamento = async (req, res) => {
   const { descontoId } = req.body;
 
   try {
-    const ag = await Agendamento.findByPk(aid);
+    const ag = await db.Agendamento.findByPk(aid);
     if (!ag || ag.deletado === 'S') {
       return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
@@ -640,7 +633,7 @@ const aplicarDescontoAgendamento = async (req, res) => {
       return res.json({ ok: true, agendamento: ag });
     }
 
-    const desconto = await Desconto.findOne({ where: { id: descontoId, deletado: 'N', ativo: true } });
+    const desconto = await db.Desconto.findOne({ where: { id: descontoId, deletado: 'N', ativo: true } });
     if (!desconto) {
       return res.status(444).json({ detail: 'Desconto não encontrado ou inativo.' });
     }

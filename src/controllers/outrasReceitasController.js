@@ -1,12 +1,11 @@
-import OutrasReceitas from '../models/OutrasReceitas.js';
-
+import { db } from "../config/db.js";
 const getTodayDateString = () => {
   return new Date().toLocaleDateString('en-CA');
 };
 
 const listReceitas = async (req, res) => {
   try {
-    const receitas = await OutrasReceitas.findAll({
+    const receitas = await db.OutrasReceitas.findAll({
       where: { deletado: 'N' },
       order: [['data_vencimento', 'DESC']]
     });
@@ -54,7 +53,7 @@ const createReceita = async (req, res) => {
       req.body.recebido = false;
     }
 
-    const receita = await OutrasReceitas.create(req.body);
+    const receita = await db.OutrasReceitas.create(req.body);
     res.status(201).json(receita);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -63,7 +62,7 @@ const createReceita = async (req, res) => {
 
 const updateReceita = async (req, res) => {
   try {
-    const receita = await OutrasReceitas.findByPk(req.params.id);
+    const receita = await db.OutrasReceitas.findByPk(req.params.id);
     if (!receita) return res.status(404).json({ detail: 'Receita não encontrada' });
     
     // Security restriction: Restrict editing of already received receipts
@@ -126,7 +125,7 @@ const updateReceita = async (req, res) => {
 
 const deleteReceita = async (req, res) => {
   try {
-    const receita = await OutrasReceitas.findByPk(req.params.id);
+    const receita = await db.OutrasReceitas.findByPk(req.params.id);
     if (!receita) return res.status(404).json({ detail: 'Receita não encontrada' });
     
     // Restrict deletion of paid receipts
@@ -147,8 +146,6 @@ const deleteReceita = async (req, res) => {
 };
 
 export {
-  listReceitas,
-  createReceita,
-  updateReceita,
-  deleteReceita
+  createReceita, deleteReceita, listReceitas, updateReceita
 };
+

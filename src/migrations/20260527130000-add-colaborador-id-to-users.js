@@ -1,13 +1,10 @@
 export default {
   async up(queryInterface, Sequelize) {
-    const tableDesc = await queryInterface.describeTable('users');
+    await queryInterface.addColumn('users', 'colaborador_id', {
+      type: Sequelize.STRING(36),
+      allowNull: true
+    });
 
-    if (!tableDesc.colaborador_id) {
-      await queryInterface.addColumn('users', 'colaborador_id', {
-        type: Sequelize.STRING(36),
-        allowNull: true
-      });
-    }
   },
 
   async down(queryInterface, Sequelize) {

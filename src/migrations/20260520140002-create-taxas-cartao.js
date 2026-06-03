@@ -1,6 +1,7 @@
 export default {
   async up (queryInterface, Sequelize) {
-    await queryInterface.createTable('taxas_cartao', {
+     const currentSchema = queryInterface.sequelize.options.schema;
+    await queryInterface.createTable({schema: currentSchema, tableName: 'taxas_cartao'}, {
       forma_pagamento: {
         type: Sequelize.STRING(50),
         primaryKey: true,

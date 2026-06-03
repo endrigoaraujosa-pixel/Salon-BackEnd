@@ -1,12 +1,11 @@
 import pg from 'pg';
 export default {
   development: {
-    username: "root",
-    password: null,
-    database: "database_test",
+    username: "postgres",
+    password: "teste",
+    database: "postgres",
     host: "127.0.0.1",
-    dialect: "sqlite",
-    storage: "./teste.sqlite",
+    dialect: "postgres",
     timestamps: false,
   },
   test: {

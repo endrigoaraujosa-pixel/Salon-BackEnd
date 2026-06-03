@@ -1,14 +1,11 @@
 export default {
   async up(queryInterface, Sequelize) {
-    const tableInfo = await queryInterface.describeTable('taxas_cartao');
-    
-    if (!tableInfo.dias_recebimento) {
-      await queryInterface.addColumn('taxas_cartao', 'dias_recebimento', {
-        type: Sequelize.INTEGER,
-        allowNull: true,
-        defaultValue: 0
-      });
-    }
+
+    await queryInterface.addColumn('taxas_cartao', 'dias_recebimento', {
+      type: Sequelize.INTEGER,
+      allowNull: true,
+      defaultValue: 0
+    });
   },
 
   async down(queryInterface, Sequelize) {

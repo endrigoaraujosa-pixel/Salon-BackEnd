@@ -27,7 +27,7 @@ import { listDescontos, createDesconto, updateDesconto, deleteDesconto, validarD
 import { admin, protect, requirePermission } from './middleware/auth.js';
 import { connectDB } from './config/db.js';
 import { startReminderJob } from './jobs/whatsapp-reminder.job.js';
-import Desconto from './models/Desconto.js';
+import { tenantMiddleware } from './middleware/tenant.js';
 
 const app = express();
 
@@ -36,7 +36,8 @@ const allowedOrigins = [
   'https://www.salonstudio.com.br',
   'http://localhost:4000',
   'http://localhost:3000',
-  'http://127.0.0.1:4000'
+  'http://127.0.0.1:4000',
+  'http://salon.localhost.local:4000'
 ];
 
 app.use(cors({
@@ -51,11 +52,13 @@ app.use(cors({
     }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID'],
   credentials: true
 }));
 app.use(cookieParser());
 app.use(express.json());
+app.use(tenantMiddleware);
+
 
 // Routes
 const authRoutes = express.Router();
@@ -232,31 +235,18 @@ app.get('/api/auditoria/deletados', protect, getDeletados);
 app.post('/api/auditoria/restaurar', protect, restoreRecord);
 
 const PORT = process.env.PORT || 5000;
+app.listen(PORT, async () => {
+  console.log(`Server running on port ${PORT}`);
+  try {
+    await connectDB();
+    console.log('Database boot sequence successfully completed.');
+    
+    // Start background WhatsApp reminder processing job
+    // startReminderJob();
 
-// Inicializa a conexão com o banco de dados e sincroniza os modelos imediatamente
-try {
-  await connectDB();
-  await Desconto.sync({ alter: true });
-  const { default: VendaDiretaModel } = await import('./models/VendaDireta.js');
-  const { default: AgendamentoModel } = await import('./models/Agendamento.js');
-  await VendaDiretaModel.sync({ alter: true });
-  await AgendamentoModel.sync({ alter: true });
-  console.log('Database boot sequence successfully completed.');
-  
-  // Start background WhatsApp reminder processing job
-  startReminderJob();
-
-  // Initialize Local WhatsApp Web Client
-  initLocalClient();
-} catch (dbError) {
-  console.error('Critical: Database boot sequence failed:', dbError);
-}
-
-// Só inicia o listen se não estiver na Vercel (servidor serverless)
-if (!process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
-
-export default app;
+    // Initialize Local WhatsApp Web Client
+    // initLocalClient();
+  } catch (dbError) {
+    console.error('Critical: Database boot sequence failed:', dbError);
+  }
+});

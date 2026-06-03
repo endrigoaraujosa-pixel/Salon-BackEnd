@@ -1,11 +1,10 @@
-import Desconto from '../models/Desconto.js';
-import User from '../models/User.js';
 import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
+import { db } from '../config/db.js';
 
 export const listDescontos = async (req, res) => {
   try {
-    const list = await Desconto.findAll({
+    const list = await db.Desconto.findAll({
       where: { deletado: 'N' },
       order: [['createdAt', 'DESC']]
     });
@@ -25,7 +24,7 @@ export const createDesconto = async (req, res) => {
     const uppercaseCode = codigo.toUpperCase().replace(/\s+/g, "");
 
     // Check duplicate code
-    const existing = await Desconto.findOne({
+    const existing = await db.Desconto.findOne({
       where: {
         codigo: uppercaseCode,
         deletado: 'N'
@@ -40,7 +39,7 @@ export const createDesconto = async (req, res) => {
       return res.status(400).json({ detail: 'Insira um valor de desconto válido maior que zero.' });
     }
 
-    const newDiscount = await Desconto.create({
+    const newDiscount = await db.Desconto.create({
       codigo: uppercaseCode,
       descricao: descricao ? descricao.trim() : null,
       tipo: tipo || 'porcentagem',
@@ -63,7 +62,7 @@ export const updateDesconto = async (req, res) => {
   const { codigo, descricao, tipo, valor, ativo, itens_vinculados, requer_autorizacao, usuarios_autorizados, incide_comissao } = req.body;
 
   try {
-    const desconto = await Desconto.findOne({ where: { id, deletado: 'N' } });
+    const desconto = await db.Desconto.findOne({ where: { id, deletado: 'N' } });
     if (!desconto) {
       return res.status(444).json({ detail: 'Desconto não encontrado.' });
     }
@@ -72,7 +71,7 @@ export const updateDesconto = async (req, res) => {
 
     // Check duplicate code (if changed)
     if (uppercaseCode !== desconto.codigo) {
-      const existing = await Desconto.findOne({
+      const existing = await db.Desconto.findOne({
         where: {
           codigo: uppercaseCode,
           deletado: 'N',
@@ -111,7 +110,7 @@ export const deleteDesconto = async (req, res) => {
   const userName = req.user ? req.user.email : 'system';
 
   try {
-    const desconto = await Desconto.findOne({ where: { id, deletado: 'N' } });
+    const desconto = await db.Desconto.findOne({ where: { id, deletado: 'N' } });
     if (!desconto) {
       return res.status(404).json({ detail: 'Desconto não encontrado.' });
     }
@@ -131,13 +130,13 @@ export const validarDescontoAutorizacao = async (req, res) => {
   const { id, email, password } = req.body;
 
   try {
-    const desconto = await Desconto.findOne({ where: { id, deletado: 'N' } });
+    const desconto = await db.Desconto.findOne({ where: { id, deletado: 'N' } });
     if (!desconto) {
       return res.status(444).json({ detail: 'Desconto não encontrado.' });
     }
 
     // Find the authorizing user
-    const user = await User.findOne({
+    const user = await db.User.findOne({
       where: {
         email: email.toLowerCase().trim(),
         deletado: 'N'

@@ -1,4 +1,4 @@
-import Colaborador from '../models/Colaborador.js';
+import { db } from '../config/db.js';
 
 const listColab = async (req, res) => {
   try {
@@ -7,7 +7,7 @@ const listColab = async (req, res) => {
       ? undefined 
       : ['id', 'nome', 'cargo', 'ativo', 'deletado'];
 
-    const cols = await Colaborador.findAll({
+    const cols = await db.Colaborador.findAll({
       where: { deletado: 'N' },
       attributes,
       order: [['nome', 'ASC']]
@@ -20,7 +20,7 @@ const listColab = async (req, res) => {
 
 const createColab = async (req, res) => {
   try {
-    const colab = await Colaborador.create(req.body);
+    const colab = await db.Colaborador.create(req.body);
     res.status(201).json(colab);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -29,7 +29,7 @@ const createColab = async (req, res) => {
 
 const updateColab = async (req, res) => {
   try {
-    const colab = await Colaborador.findByPk(req.params.cid);
+    const colab = await db.Colaborador.findByPk(req.params.cid);
     if (!colab) return res.status(404).json({ detail: 'Colaborador não encontrado' });
     
     await colab.update(req.body);
@@ -41,7 +41,7 @@ const updateColab = async (req, res) => {
 
 const deleteColab = async (req, res) => {
   try {
-    const colab = await Colaborador.findByPk(req.params.cid);
+    const colab = await db.Colaborador.findByPk(req.params.cid);
     if (colab) {
       await colab.update({
         deletado: 'S',

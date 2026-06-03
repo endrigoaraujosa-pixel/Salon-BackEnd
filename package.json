@@ -7,7 +7,8 @@
     "start": "node src/index.js",
     "dev": "nodemon --ignore *.sqlite --ignore *.sqlite-journal src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "vercel-build": "node run_db_migration.js"
+    "vercel-build": "npx sequelize-cli db:migrate",
+    "migrate": "node scripts/migrate-all.js"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,7 @@
     "qrcode-terminal": "^0.12.0",
     "sequelize": "^6.37.8",
     "sqlite3": "^5.1.7",
+    "umzug": "^3.8.3",
     "uuid": "^9.0.1",
     "whatsapp-web.js": "^1.34.7"
   },

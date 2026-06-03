@@ -1,5 +1,4 @@
-import Despesa from '../models/Despesa.js';
-
+import { db } from "../config/db.js";
 const getTodayDateString = () => {
   // Return YYYY-MM-DD in local time
   return new Date().toLocaleDateString('en-CA');
@@ -7,7 +6,7 @@ const getTodayDateString = () => {
 
 const listDespesas = async (req, res) => {
   try {
-    const despesas = await Despesa.findAll({
+    const despesas = await db.Despesa.findAll({
       where: { deletado: 'N' },
       order: [['data_vencimento', 'DESC']]
     });
@@ -55,7 +54,7 @@ const createDespesa = async (req, res) => {
       req.body.pago = false;
     }
 
-    const despesa = await Despesa.create(req.body);
+    const despesa = await db.Despesa.create(req.body);
     res.status(201).json(despesa);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -64,7 +63,7 @@ const createDespesa = async (req, res) => {
 
 const updateDespesa = async (req, res) => {
   try {
-    const despesa = await Despesa.findByPk(req.params.id);
+    const despesa = await db.Despesa.findByPk(req.params.id);
     if (!despesa) return res.status(404).json({ detail: 'Despesa não encontrada' });
     
     // Security restriction: Restrict editing of already paid expenses
@@ -129,7 +128,7 @@ const updateDespesa = async (req, res) => {
 
 const deleteDespesa = async (req, res) => {
   try {
-    const despesa = await Despesa.findByPk(req.params.id);
+    const despesa = await db.Despesa.findByPk(req.params.id);
     if (!despesa) return res.status(404).json({ detail: 'Despesa não encontrada' });
     
     // Restrict deletion of paid expenses
@@ -150,8 +149,6 @@ const deleteDespesa = async (req, res) => {
 };
 
 export {
-  listDespesas,
-  createDespesa,
-  updateDespesa,
-  deleteDespesa
+  createDespesa, deleteDespesa, listDespesas, updateDespesa
 };
+

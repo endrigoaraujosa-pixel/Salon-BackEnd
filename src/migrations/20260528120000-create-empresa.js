@@ -1,8 +1,7 @@
 export default {
   async up(queryInterface, Sequelize) {
-    const tables = await queryInterface.showAllTables();
-    if (!tables.includes('empresa')) {
-      await queryInterface.createTable('empresa', {
+    const currentSchema = queryInterface.sequelize.options.schema;
+    await queryInterface.createTable({ schema: currentSchema, tableName: 'empresa' }, {
         id: {
           type: Sequelize.STRING(36),
           primaryKey: true,
@@ -66,8 +65,7 @@ export default {
           allowNull: false,
           defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
         }
-      });
-    }
+      });    
   },
 
   async down(queryInterface, Sequelize) {

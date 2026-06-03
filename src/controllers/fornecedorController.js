@@ -1,9 +1,8 @@
-import Fornecedor from '../models/Fornecedor.js';
-
+import { db } from "../config/db.js";
 const listFornecedores = async (req, res) => {
   try {
     const where = { deletado: 'N' };
-    const fornecedores = await Fornecedor.findAll({
+    const fornecedores = await db.Fornecedor.findAll({ 
       where,
       order: [['nome_razosocial', 'ASC']]
     });
@@ -18,7 +17,7 @@ const createFornecedor = async (req, res) => {
     if (!req.body.nome_razosocial || !req.body.nome_razosocial.trim()) {
       return res.status(400).json({ detail: 'Nome/Razão Social é obrigatório.' });
     }
-    const fornecedor = await Fornecedor.create(req.body);
+    const fornecedor = await db.Fornecedor.create(req.body);
     res.status(201).json(fornecedor);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -27,7 +26,7 @@ const createFornecedor = async (req, res) => {
 
 const updateFornecedor = async (req, res) => {
   try {
-    const fornecedor = await Fornecedor.findByPk(req.params.id);
+    const fornecedor = await db.Fornecedor.findByPk(req.params.id);
     if (!fornecedor || fornecedor.deletado === 'S') {
       return res.status(404).json({ detail: 'Fornecedor não encontrado.' });
     }
@@ -45,7 +44,7 @@ const updateFornecedor = async (req, res) => {
 
 const deleteFornecedor = async (req, res) => {
   try {
-    const fornecedor = await Fornecedor.findByPk(req.params.id);
+    const fornecedor = await db.Fornecedor.findByPk(req.params.id);
     if (fornecedor) {
       await fornecedor.update({
         deletado: 'S',
@@ -60,8 +59,6 @@ const deleteFornecedor = async (req, res) => {
 };
 
 export {
-  listFornecedores,
-  createFornecedor,
-  updateFornecedor,
-  deleteFornecedor
+  createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor
 };
+

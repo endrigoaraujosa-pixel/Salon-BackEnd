@@ -1,4 +1,4 @@
-import Categoria from '../models/Categoria.js';
+import { db } from '../config/db.js';
 
 const listCategorias = async (req, res) => {
   try {
@@ -12,7 +12,7 @@ const listCategorias = async (req, res) => {
       where.ativo = ativo;
     }
 
-    const categorias = await Categoria.findAll({
+    const categorias = await db.Categoria.findAll({
       where,
       order: [['nome', 'ASC']]
     });
@@ -24,7 +24,7 @@ const listCategorias = async (req, res) => {
 
 const createCategoria = async (req, res) => {
   try {
-    const categoria = await Categoria.create(req.body);
+    const categoria = await db.Categoria.create(req.body);
     res.status(201).json(categoria);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -33,7 +33,7 @@ const createCategoria = async (req, res) => {
 
 const updateCategoria = async (req, res) => {
   try {
-    const categoria = await Categoria.findByPk(req.params.id);
+    const categoria = await db.Categoria.findByPk(req.params.id);
     if (!categoria) return res.status(404).json({ detail: 'Categoria não encontrada' });
     
     await categoria.update(req.body);
@@ -45,7 +45,7 @@ const updateCategoria = async (req, res) => {
 
 const deleteCategoria = async (req, res) => {
   try {
-    const categoria = await Categoria.findByPk(req.params.id);
+    const categoria = await db.Categoria.findByPk(req.params.id);
     if (categoria) {
       await categoria.update({
         deletado: 'S',
@@ -65,3 +65,4 @@ export {
   updateCategoria,
   deleteCategoria
 };
+
