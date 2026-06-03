@@ -55,7 +55,7 @@ const getVenda = async (req, res) => {
 };
 
 const createVenda = async (req, res) => {
-  const { itens, colaborador_id, cliente_id } = req.body;
+  const { itens, colaborador_id, cliente_id, data_venda } = req.body;
 
   if (!colaborador_id) {
     return res.status(400).json({ detail: 'Informe o profissional responsável pela venda.' });
@@ -124,9 +124,33 @@ const createVenda = async (req, res) => {
     // Campos legados preenchidos com o primeiro item (retrocompatibilidade)
     const primeiroItem = itensProcessados[0];
 
+    let data_venda_db = new Date();
+    if (data_venda) {
+      const [year, month, day] = data_venda.split('-').map(Number);
+
+      // Validação: data informada não pode ser futura
+      const hoje = new Date();
+      const dataVendaDateOnly = new Date(year, month - 1, day);
+      const hojeDateOnly = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+      if (dataVendaDateOnly > hojeDateOnly) {
+        return res.status(400).json({ detail: 'A data da venda não pode ser uma data futura.' });
+      }
+
+      data_venda_db.setFullYear(year);
+      data_venda_db.setMonth(month - 1);
+      data_venda_db.setDate(day);
+    }
+
+    const created_by_id = req.user ? req.user.id : null;
+    const created_by_name = req.user ? req.user.name : 'Sistema';
+
     const venda = await VendaDireta.create({
       id: uuidv4(),
       numero_venda: maxNum + 1,
+      data_venda: data_venda_db,
+      data_lancamento: new Date(),
+      criado_por_id: created_by_id,
+      criado_por_nome: created_by_name,
       // Campos legados (retrocompatibilidade com relatórios e comissões antigas)
       produto_id: primeiroItem.produto_id,
       produto_nome: itensProcessados.length === 1
