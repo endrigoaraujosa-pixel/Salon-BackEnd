@@ -3,8 +3,7 @@ import { sequelize } from '../config/db.js';
 import { QueryTypes } from 'sequelize';
 
 export const tenantMiddleware = async (req, res, next) => {
-  const schemaHeader = req.headers['x-tenant-id'];
-  console.log("schemaHeader", schemaHeader);
+  const schemaHeader = req.headers['x-tenant-id'];  
   
   if (!schemaHeader) {
     return res.status(400).json({

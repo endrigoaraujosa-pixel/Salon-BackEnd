@@ -16,8 +16,7 @@ const protect = async (req, res, next) => {
     return res.status(401).json({ detail: 'Não autenticado' });
   }
 
-  try {
-    console.log(token);
+  try {    
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.schema(getTenantSchema()).findByPk(decoded.sub);
 
