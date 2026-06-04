@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import PerfilAcesso from '../models/PerfilAcesso.js';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const protect = async (req, res, next) => {
   let token;
@@ -16,14 +17,15 @@ const protect = async (req, res, next) => {
   }
 
   try {
+    console.log(token);
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findByPk(decoded.sub);
+    const user = await User.schema(getTenantSchema()).findByPk(decoded.sub);
 
     if (!user) {
       return res.status(401).json({ detail: 'Usuário não encontrado' });
     }
 
-    const perfil = user.perfil_acesso_id ? await PerfilAcesso.findByPk(user.perfil_acesso_id) : null;
+    const perfil = user.perfil_acesso_id ? await PerfilAcesso.schema(getTenantSchema()).findByPk(user.perfil_acesso_id) : null;
 
     req.user = {
       id: user.id,
@@ -44,6 +46,7 @@ const protect = async (req, res, next) => {
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ detail: 'Sessão expirada' });
     }
+    
     return res.status(401).json({ detail: 'Token inválido' });
   }
 };

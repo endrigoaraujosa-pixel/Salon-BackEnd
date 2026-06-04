@@ -1,5 +1,6 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const WhatsappLembrete = sequelize.define('WhatsappLembrete', {
   id: {
@@ -44,5 +45,10 @@ const WhatsappLembrete = sequelize.define('WhatsappLembrete', {
   createdAt: 'criado_em',
   updatedAt: 'atualizado_em'
 });
+
+export const getWhatsappLembreteModel = () => {
+  const tenant = getTenantSchema();
+  return WhatsappLembrete.schema(tenant);
+};
 
 export default WhatsappLembrete;

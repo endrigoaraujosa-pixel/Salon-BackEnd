@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { db } from '../config/db.js';
+import { getUserModel } from '../models/User.js';
+import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
 
 const listUsers = async (req, res) => {
   try {
@@ -11,7 +12,7 @@ const listUsers = async (req, res) => {
       whereClause.id = req.user.id;
     }
 
-    const users = await db.User.findAll({
+    const users = await getUserModel().findAll({
       where: whereClause,
       attributes: ['id', 'name', 'email', 'role', 'perfil_acesso_id', 'colaborador_id', 'ativo', 'pode_alterar_concluido', 'pode_excluir_agendamento', 'pode_excluir_pagamento', 'created_at'],
       order: [['name', 'ASC']]
@@ -32,7 +33,7 @@ const createUser = async (req, res) => {
       return res.status(400).json({ detail: 'Email e senha são obrigatórios' });
     }
     
-    const existing = await db.User.findOne({ where: { email: email.toLowerCase().trim() } });
+    const existing = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() } });
     if (existing) {
       return res.status(400).json({ detail: 'Este email já está cadastrado' });
     }
@@ -42,7 +43,7 @@ const createUser = async (req, res) => {
 
     let calculatedRole = role || 'funcionario';
     if (perfil_acesso_id) {
-      const p = await db.PerfilAcesso.findByPk(perfil_acesso_id);
+      const p = await getPerfilAcessoModel().findByPk(perfil_acesso_id);
       if (p) {
         if (p.nome === 'Administrador' || p.permissoes?.acoes?.is_admin) {
           calculatedRole = 'admin';
@@ -52,7 +53,7 @@ const createUser = async (req, res) => {
       }
     }
 
-    const user = await db.User.create({
+    const user = await getUserModel().create({
       id: uuidv4(),
       name,
       email: email.toLowerCase().trim(),
@@ -92,7 +93,7 @@ const updateUser = async (req, res) => {
       return res.status(403).json({ detail: 'Você não tem permissão para editar outros usuários.' });
     }
 
-    const user = await db.User.findByPk(req.params.id);
+    const user = await getUserModel().findByPk(req.params.id);
     if (!user) {
       return res.status(404).json({ detail: 'Usuário não encontrado' });
     }
@@ -121,7 +122,7 @@ const updateUser = async (req, res) => {
     }
 
     if (email && email.toLowerCase().trim() !== user.email) {
-      const existing = await db.User.findOne({ where: { email: email.toLowerCase().trim() } });
+      const existing = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() } });
       if (existing) {
         return res.status(400).json({ detail: 'Este email já está cadastrado' });
       }
@@ -133,7 +134,7 @@ const updateUser = async (req, res) => {
     if (perfil_acesso_id !== undefined) {
       user.perfil_acesso_id = perfil_acesso_id;
       if (perfil_acesso_id) {
-        const p = await db.PerfilAcesso.findByPk(perfil_acesso_id);
+        const p = await getPerfilAcessoModel().findByPk(perfil_acesso_id);
         if (p) {
           if (p.nome === 'Administrador' || p.permissoes?.acoes?.is_admin) {
             user.role = 'admin';
@@ -183,7 +184,7 @@ const deleteUser = async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ detail: 'Acesso restrito a administradores' });
     }
-    const user = await db.User.findByPk(req.params.id);
+    const user = await getUserModel().findByPk(req.params.id);
     if (user) {
       if (user.id === req.user.id) {
         return res.status(400).json({ detail: 'Você não pode excluir o próprio usuário conectado' });

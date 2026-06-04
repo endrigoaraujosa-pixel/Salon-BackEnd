@@ -1,5 +1,6 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const WhatsappConfig = sequelize.define('WhatsappConfig', {
   id: {
@@ -44,5 +45,11 @@ const WhatsappConfig = sequelize.define('WhatsappConfig', {
   createdAt: 'criado_em',
   updatedAt: 'atualizado_em'
 });
+
+export const getWhatsappConfigModel = () => {
+  const tenant = getTenantSchema();
+  return WhatsappConfig.schema(tenant);
+};
+
 
 export default WhatsappConfig;

@@ -1,4 +1,16 @@
-import { db } from '../config/db.js';
+
+import { getClienteModel } from '../models/Cliente.js';
+import { getColaboradorModel } from '../models/Colaborador.js';
+import { getProdutoModel } from '../models/Produto.js';
+import { getServicoModel } from '../models/Servico.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
+import { getUserModel } from '../models/User.js';
+import { getDescontoModel } from '../models/Desconto.js';
+import { getVendaDiretaModel } from '../models/VendaDireta.js';
+import { getDespesaModel } from '../models/Despesa.js';
+import { getOutrasReceitasModel } from '../models/OutrasReceitas.js';
+import { getCategoriaModel } from '../models/Categoria.js';
+import { getFornecedorModel } from '../models/Fornecedor.js';
 
 const getDeletados = async (req, res) => {
   const { modulo } = req.query;
@@ -8,41 +20,41 @@ const getDeletados = async (req, res) => {
 
     switch (modulo) {
       case 'cliente':
-        rawRecords = await db.Cliente.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getClienteModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'colaborador':
-        rawRecords = await db.Colaborador.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getColaboradorModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'servico':
-        rawRecords = await db.Servico.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getServicoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'produto':
-        rawRecords = await db.Produto.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getProdutoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'usuario':
-        rawRecords = await db.User.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getUserModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'agendamento':
-        rawRecords = await db.Agendamento.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getAgendamentoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'venda_direta':
       case 'venda':
-        rawRecords = await db.VendaDireta.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getVendaDiretaModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'despesa':
-        rawRecords = await db.Despesa.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getDespesaModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'receita':
-        rawRecords = await db.OutrasReceitas.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getOutrasReceitasModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'categoria':
-        rawRecords = await db.Categoria.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getCategoriaModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'fornecedor':
-        rawRecords = await db.Fornecedor.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getFornecedorModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'desconto':
-        rawRecords = await Desconto.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getDescontoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       default:
         return res.status(400).json({ detail: 'Módulo inválido para consulta de auditoria.' });
@@ -95,41 +107,41 @@ const restoreRecord = async (req, res) => {
     let model;
     switch (modulo) {
       case 'cliente':
-        model = db.Cliente;
+        model = getClienteModel();
         break;
       case 'colaborador':
-        model = db.Colaborador;
+        model = getColaboradorModel();
         break;
       case 'servico':
-        model = db.Servico;
+        model = getServicoModel();
         break;
       case 'produto':
-        model = db.Produto;
+        model = getProdutoModel();
         break;
       case 'usuario':
-        model = db.User;
+        model = getUserModel();
         break;
       case 'agendamento':
-        model = db.Agendamento;
+        model = getAgendamentoModel();
         break;
       case 'venda_direta':
       case 'venda':
-        model = db.VendaDireta;
+        model = getVendaDiretaModel();
         break;
       case 'despesa':
-        model = db.Despesa;
+        model = getDespesaModel();
         break;
       case 'receita':
-        model = db.OutrasReceitas;
+        model = getOutrasReceitasModel();
         break;
       case 'categoria':
-        model = db.Categoria;
+        model = getCategoriaModel();
         break;
       case 'fornecedor':
-        model = db.Fornecedor;
+        model = getFornecedorModel();
         break;
       case 'desconto':
-        model = Desconto;
+        model = getDescontoModel();
         break;
       default:
         return res.status(400).json({ detail: 'Módulo inválido para restauração.' });

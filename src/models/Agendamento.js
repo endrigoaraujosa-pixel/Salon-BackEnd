@@ -1,6 +1,7 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const Agendamento = sequelize.define('Agendamento', {
   id: {
@@ -92,5 +93,11 @@ const Agendamento = sequelize.define('Agendamento', {
 }, {
   tableName: 'agendamentos'
 });
+
+export const getAgendamentoModel = () => {
+  const tenant = getTenantSchema();
+
+  return Agendamento.schema(tenant);
+};
 
 export default Agendamento;

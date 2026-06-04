@@ -1,6 +1,7 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const PerfilAcesso = sequelize.define('PerfilAcesso', {
   id: {
@@ -49,5 +50,10 @@ const PerfilAcesso = sequelize.define('PerfilAcesso', {
   tableName: 'perfis_acesso',
   timestamps: true
 });
+
+export const getPerfilAcessoModel = () => {
+  const tenant = getTenantSchema();
+  return PerfilAcesso.schema(tenant);
+};
 
 export default PerfilAcesso;

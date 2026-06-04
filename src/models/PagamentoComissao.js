@@ -1,6 +1,7 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const PagamentoComissao = sequelize.define('PagamentoComissao', {
   id: {
@@ -41,5 +42,10 @@ const PagamentoComissao = sequelize.define('PagamentoComissao', {
   tableName: 'pagamentos_comissao',
   timestamps: false
 });
+
+export const getPagamentoComissaoModel = () => {
+  const tenant = getTenantSchema();
+  return PagamentoComissao.schema(tenant);
+};
 
 export default PagamentoComissao;

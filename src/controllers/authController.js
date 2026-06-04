@@ -1,12 +1,13 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { db } from '../config/db.js';
+import { getUserModel } from '../models/User.js';
+import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
 
 const login = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const user = await db.User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
+    const user = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
 
     if (!user || !(await bcrypt.compare(password, user.password_hash)) || !user.ativo) {
       return res.status(400).json({ detail: 'Email ou senha inválidos' });
@@ -40,7 +41,7 @@ const login = async (req, res) => {
       path: '/'
     });
 
-    const perfil = user.perfil_acesso_id ? await db.PerfilAcesso.findByPk(user.perfil_acesso_id) : null;
+    const perfil = user.perfil_acesso_id ? await getPerfilAcessoModel().findByPk(user.perfil_acesso_id) : null;
 
     res.json({
       token,
@@ -75,7 +76,7 @@ const refreshToken = async (req, res) => {
       process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh'
     );
 
-    const user = await db.User.findByPk(decoded.sub);
+    const user = await getUserModel().findByPk(decoded.sub);
 
     if (!user || !user.ativo) {
       return res.status(401).json({ detail: 'Usuário não encontrado ou inativo' });
@@ -109,7 +110,7 @@ const refreshToken = async (req, res) => {
       path: '/'
     });
 
-    const perfil = user.perfil_acesso_id ? await db.PerfilAcesso.findByPk(user.perfil_acesso_id) : null;
+    const perfil = user.perfil_acesso_id ? await getPerfilAcessoModel().findByPk(user.perfil_acesso_id) : null;
 
     res.json({
       token: newAccessToken,

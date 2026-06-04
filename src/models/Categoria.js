@@ -1,6 +1,7 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const Categoria = sequelize.define('Categoria', {
   id: {
@@ -41,5 +42,11 @@ const Categoria = sequelize.define('Categoria', {
 }, {
   tableName: 'categorias'
 });
+
+export const getCategoriaModel = () => {
+  const tenant = getTenantSchema();
+
+  return Categoria.schema(tenant);
+};
 
 export default Categoria;

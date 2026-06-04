@@ -1,5 +1,6 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const TaxaCartao = sequelize.define('TaxaCartao', {
   forma_pagamento: {
@@ -36,5 +37,10 @@ const TaxaCartao = sequelize.define('TaxaCartao', {
   tableName: 'taxas_cartao',
   timestamps: false
 });
+
+export const getTaxaCartaoModel = () => {
+  const tenant = getTenantSchema();
+  return TaxaCartao.schema(tenant);
+};
 
 export default TaxaCartao;

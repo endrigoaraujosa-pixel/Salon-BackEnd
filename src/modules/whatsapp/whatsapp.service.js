@@ -1,20 +1,21 @@
-import WhatsappConfig from '../../models/WhatsappConfig.js';
-import WhatsappLembrete from '../../models/WhatsappLembrete.js';
-import Agendamento from '../../models/Agendamento.js';
-import Cliente from '../../models/Cliente.js';
-import Colaborador from '../../models/Colaborador.js';
+import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
+import { getWhatsappLembreteModel } from '../../models/WhatsappLembrete.js';
+import { getAgendamentoModel } from '../../models/Agendamento.js';
+import { getClienteModel } from '../../models/Cliente.js';
+import { getColaboradorModel } from '../../models/Colaborador.js';
 import { sequelize } from '../../config/db.js';
 import whatsappProvider from './provider/whatsapp.provider.js';
 import { formatMessage, DEFAULT_TEMPLATE } from './templates/reminder.template.js';
 import { QueryTypes } from 'sequelize';
+import { getTenantSchema } from '../../config/tenantContext.js';
 
 /**
  * Obtém a configuração do WhatsApp, criando-a com valores padrão caso não exista.
  */
 export async function getConfig() {
-  let config = await WhatsappConfig.findOne();
+  let config = await getWhatsappConfigModel().findOne();
   if (!config) {
-    config = await WhatsappConfig.create({
+    config = await getWhatsappConfigModel().create({
       ativo: 0,
       lembrete_24h: 1,
       lembrete_2h: 1,
@@ -30,9 +31,9 @@ export async function getConfig() {
  * @param {object} data - Dados da configuração
  */
 export async function saveConfig(data) {
-  let config = await WhatsappConfig.findOne();
+  let config = await getWhatsappConfigModel().findOne();
   if (!config) {
-    config = await WhatsappConfig.create(data);
+    config = await getWhatsappConfigModel().create(data);
   } else {
     await config.update(data);
   }
@@ -45,7 +46,7 @@ export async function saveConfig(data) {
  */
 export async function getHistory(filters = {}) {
   const { status, startDate, endDate, cliente, numero } = filters;
-  
+
   let query = `
     SELECT 
       l.id,
@@ -99,7 +100,8 @@ export async function getHistory(filters = {}) {
 
   const results = await sequelize.query(query, {
     replacements,
-    type: QueryTypes.SELECT
+    type: QueryTypes.SELECT,
+    searchPath: getTenantSchema()
   });
 
   return results;
@@ -110,7 +112,7 @@ export async function getHistory(filters = {}) {
  * @param {number} reminderId - ID do lembrete falho
  */
 export async function resendReminder(reminderId) {
-  const reminder = await WhatsappLembrete.findByPk(reminderId);
+  const reminder = await getWhatsappLembreteModel().findByPk(reminderId);
   if (!reminder) {
     throw new Error("Lembrete não encontrado.");
   }
@@ -120,12 +122,12 @@ export async function resendReminder(reminderId) {
   }
 
   // Obter agendamento e cliente
-  const agendamento = await Agendamento.findByPk(reminder.agendamento_id);
+  const agendamento = await getAgendamentoModel().findByPk(reminder.agendamento_id);
   if (!agendamento) {
     throw new Error("Agendamento correspondente não encontrado.");
   }
 
-  const cliente = await Cliente.findByPk(agendamento.cliente_id);
+  const cliente = await getClienteModel().findByPk(agendamento.cliente_id);
   if (!cliente) {
     throw new Error("Cliente não encontrado.");
   }

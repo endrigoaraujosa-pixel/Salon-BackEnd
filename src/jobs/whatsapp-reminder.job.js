@@ -1,10 +1,12 @@
-import WhatsappLembrete from '../models/WhatsappLembrete.js';
-import WhatsappConfig from '../models/WhatsappConfig.js';
+import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
+import { getWhatsappConfigModel } from '../models/WhatsappConfig.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
 import { Op } from 'sequelize';
-import { sequelize, db } from '../config/db.js';
+import { sequelize } from '../config/db.js';
 import { tenantStorage } from '../config/tenantContext.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
+import { getClienteModel } from '../models/Cliente.js';
 
 
 /**
@@ -43,7 +45,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
   try {
     const now = new Date();
     // Buscar lembretes que estão Pendentes e que já deveriam ter sido enviados
-    const pendentes = await WhatsappLembrete.findAll({
+    const pendentes = await getWhatsappLembreteModel().findAll({
       where: {
         status: 'Pendente',
         data_programada: {
@@ -62,7 +64,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
     console.log(`[WhatsAppReminderJob] Encontrados ${pendentes.length} lembrete(s) para processar.`);
 
     // Consultar as configurações do WhatsApp para verificar se o envio está ativo
-    const config = await WhatsappConfig.findOne();
+    const config = await getWhatsappConfigModel().findOne();
     if (!config || Number(config.ativo) !== 1) {
       console.log('[WhatsAppReminderJob] Envio automático inativo nas configurações do sistema. Ignorando lote.');
       return;
@@ -76,7 +78,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
 
       try {
         // Obter agendamento associado
-        const ag = await db.Agendamento.findByPk(reminder.agendamento_id);
+        const ag = await getAgendamentoModel().findByPk(reminder.agendamento_id);
         if (!ag || ag.deletado === 'S') {
           console.log(`[WhatsAppReminderJob] Agendamento ID ${reminder.agendamento_id} foi deletado ou não existe. Lembrete Cancelado.`);
           reminder.status = 'Cancelado';
@@ -95,7 +97,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
         }
 
         // Obter cliente
-        const cliente = await db.Cliente.findByPk(ag.cliente_id);
+        const cliente = await getClienteModel().findByPk(ag.cliente_id);
         if (!cliente || cliente.deletado === 'S') {
           console.log(`[WhatsAppReminderJob] Cliente ID ${ag.cliente_id} deletado ou não encontrado.`);
           reminder.status = 'Falhou';
