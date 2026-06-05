@@ -1,0 +1,55 @@
+services:
+  salon-backend:
+    image: salonstudio/salon-backend:latest
+    container_name: salonstudio-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:-salonstudio-secret}      
+      BASE_DOMAIN: ${FRONTEND_DOMAIN}
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://evolution-api:8080}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+      PORT: 5000
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      DB_USENAME: ${DB_USENAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB: ${DB}
+    networks:
+      - salonstudio
+    labels:
+      - "traefik.enable=true"
+      # O Traefik agora escuta dinamicamente o subdomínio da API que você definir no Portainer
+      - "traefik.http.routers.api.rule=Host(`${API_DOMAIN}`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls=true"
+      - "traefik.http.routers.api.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.api-portal.rule=HostRegexp(`{subdomain:[a-z0-9]+}.${FRONTEND_DOMAIN}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.api-portal.entrypoints=websecure"
+      - "traefik.http.routers.api-portal.tls=true"
+      - "traefik.http.routers.api-portal.tls.certresolver=letsencryptresolver"
+      - "traefik.http.services.api.loadbalancer.server.port=3000"
+
+  salon-frontend:
+    image: salonstudio/salon-frontend:latest
+    container_name: salonstudio-frontend
+    restart: unless-stopped    
+    depends_on:
+      - salon-backend
+    networks:
+      - salonstudio
+    extra_hosts:
+      - "${API_DOMAIN}:host-gateway"
+    labels:
+      - "traefik.enable=true"
+      # O Traefik agora escuta dinamicamente o domínio do frontend (e subdomínios dos salões) que você definir no Portainer
+      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN}`) || HostRegexp(`{subdomain:[a-z0-9]+}.${FRONTEND_DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencryptresolver"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+
+networks:
+  salonstudio:
+    external: true
