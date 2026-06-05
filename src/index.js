@@ -232,22 +232,8 @@ app.get('/api/auditoria/deletados', protect, getDeletados);
 app.post('/api/auditoria/restaurar', protect, restoreRecord);
 
 const PORT = process.env.PORT || 5000;
-
-// Inicializa a conexão com o banco de dados e sincroniza os modelos imediatamente
 try {
-  await connectDB();
-  await Desconto.sync({ alter: true });
-  const { default: VendaDiretaModel } = await import('./models/VendaDireta.js');
-  const { default: AgendamentoModel } = await import('./models/Agendamento.js');
-  await VendaDiretaModel.sync({ alter: true });
-  await AgendamentoModel.sync({ alter: true });
-  console.log('Database boot sequence successfully completed.');
-  
-  // Start background WhatsApp reminder processing job
-  startReminderJob();
-
-  // Initialize Local WhatsApp Web Client
-  initLocalClient();
+  await connectDB();   
 } catch (dbError) {
   console.error('Critical: Database boot sequence failed:', dbError);
 }
