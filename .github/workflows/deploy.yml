@@ -23,5 +23,4 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
           
       - name: Build and Publish
-        run:  bash build.sh        
-    
+        run:  bash build.sh
