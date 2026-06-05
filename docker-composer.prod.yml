@@ -21,15 +21,15 @@ services:
     labels:
       - "traefik.enable=true"
       # O Traefik agora escuta dinamicamente o subdomínio da API que você definir no Portainer
-      - "traefik.http.routers.salonapi.rule=Host(`${API_DOMAIN}`)"
-      - "traefik.http.routers.salonapi.entrypoints=websecure"
-      - "traefik.http.routers.salonapi.tls=true"
-      - "traefik.http.routers.salonapi.tls.certresolver=letsencryptresolver"
-      - "traefik.http.routers.salonapi-portal.rule=HostRegexp(`{subdomain:[a-z0-9]+}.${FRONTEND_DOMAIN}`) && PathPrefix(`/api`)"
-      - "traefik.http.routers.salonapi-portal.entrypoints=websecure"
-      - "traefik.http.routers.salonapi-portal.tls=true"
-      - "traefik.http.routers.salonapi-portal.tls.certresolver=letsencryptresolver"
-      - "traefik.http.services.salonapi.loadbalancer.server.port=5000"
+      - "traefik.http.routers.salon-backend.rule=Host(`${API_DOMAIN}`)"
+      - "traefik.http.routers.salon-backend.entrypoints=websecure"
+      - "traefik.http.routers.salon-backend.tls=true"
+      - "traefik.http.routers.salon-backend.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.salon-backend-portal.rule=HostRegexp(`{subdomain:[a-z0-9]+}.${FRONTEND_DOMAIN}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.salon-backend-portal.entrypoints=websecure"
+      - "traefik.http.routers.salon-backend-portal.tls=true"
+      - "traefik.http.routers.salon-backend-portal.tls.certresolver=letsencryptresolver"
+      - "traefik.http.services.salon-backend.loadbalancer.server.port=5000"
 
   salon-frontend:
     image: salonstudio/salon-frontend:latest
@@ -44,11 +44,11 @@ services:
     labels:
       - "traefik.enable=true"
       # O Traefik agora escuta dinamicamente o domínio do frontend (e subdomínios dos salões) que você definir no Portainer
-      - "traefik.http.routers.salonfrontend.rule=Host(`${FRONTEND_DOMAIN}`) || HostRegexp(`{subdomain:[a-z0-9]+}.${FRONTEND_DOMAIN}`)"
-      - "traefik.http.routers.salonfrontend.entrypoints=websecure"
-      - "traefik.http.routers.salonfrontend.tls=true"
-      - "traefik.http.routers.salonfrontend.tls.certresolver=letsencryptresolver"
-      - "traefik.http.services.salonfrontend.loadbalancer.server.port=80"    
+      - "traefik.http.routers.salon-frontend.rule=Host(`${FRONTEND_DOMAIN}`) || HostRegexp(`{subdomain:[a-z0-9]+}.${FRONTEND_DOMAIN}`)"
+      - "traefik.http.routers.salon-frontend.entrypoints=websecure"
+      - "traefik.http.routers.salon-frontend.tls=true"
+      - "traefik.http.routers.salon-frontend.tls.certresolver=letsencryptresolver"
+      - "traefik.http.services.salon-frontend.loadbalancer.server.port=80"    
 
 networks:
   salonstudio:
