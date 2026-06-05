@@ -24,11 +24,7 @@ services:
       - "traefik.http.routers.salon-backend.rule=Host(`${API_DOMAIN}`)"
       - "traefik.http.routers.salon-backend.entrypoints=websecure"
       - "traefik.http.routers.salon-backend.tls=true"
-      - "traefik.http.routers.salon-backend.tls.certresolver=letsencryptresolver"
-      - "traefik.http.routers.salon-backend-portal.rule=HostRegexp(`{subdomain:[a-z0-9]+}.${FRONTEND_DOMAIN}`) && PathPrefix(`/api`)"
-      - "traefik.http.routers.salon-backend-portal.entrypoints=websecure"
-      - "traefik.http.routers.salon-backend-portal.tls=true"
-      - "traefik.http.routers.salon-backend-portal.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.salon-backend.tls.certresolver=letsencryptresolver"     
       - "traefik.http.services.salon-backend.loadbalancer.server.port=5000"
 
   salon-frontend:
