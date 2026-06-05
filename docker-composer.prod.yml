@@ -39,8 +39,8 @@ services:
       - salon-backend
     networks:
       - salonstudio
-    extra_hosts:
-      - "${API_DOMAIN}:host-gateway"
+    # extra_hosts:
+    #   - "${API_DOMAIN}:host-gateway"
     labels:
       - "traefik.enable=true"
       # O Traefik agora escuta dinamicamente o domínio do frontend (e subdomínios dos salões) que você definir no Portainer
@@ -49,6 +49,8 @@ services:
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.tls.certresolver=letsencryptresolver"
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+    ports:
+      - "3000:80"
 
 networks:
   salonstudio:
