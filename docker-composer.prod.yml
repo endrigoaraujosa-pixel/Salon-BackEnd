@@ -1,7 +1,6 @@
 services:
   salon-backend:
     image: salonstudio/salon-backend:latest
-    container_name: salonstudio-backend
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -29,7 +28,6 @@ services:
 
   salon-frontend:
     image: salonstudio/salon-frontend:latest
-    container_name: salonstudio-frontend
     restart: unless-stopped    
     depends_on:
       - salon-backend
