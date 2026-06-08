@@ -43,8 +43,8 @@ const allowedOrigins = [
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    const isAllowed = allowedOrigins.includes(origin) || 
-                      /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+):4000$/.test(origin);
+    const isAllowed = allowedOrigins.includes(origin) ||
+      /^https:\/\/([a-zA-Z0-9-]+\.)*salonstudio\.com\.br$/.test(origin);
     if (isAllowed) {
       callback(null, true);
     } else {
