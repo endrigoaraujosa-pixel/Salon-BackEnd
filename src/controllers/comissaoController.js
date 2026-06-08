@@ -36,9 +36,9 @@ const listComissoes = async (req, res) => {
   }
 
   try {
-    const colaboradores = await getColaboradorModel.findAll({ where: { deletado: 'N' } });
-    const produtos = await getProdutoModel.findAll({ where: { deletado: 'N' } });
-    const servicos = await getServicoModel.findAll({ where: { deletado: 'N' } });
+    const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
+    const produtos = await getProdutoModel().findAll({ where: { deletado: 'N' } });
+    const servicos = await getServicoModel().findAll({ where: { deletado: 'N' } });
     
     let filteredColaboradores = colaboradores;
     if (req.user && req.user.role !== 'admin') {
@@ -53,7 +53,7 @@ const listComissoes = async (req, res) => {
     }
     
     // Buscar agendamentos concluídos no período
-    const agendamentos = await getAgendamentoModel.findAll({
+    const agendamentos = await getAgendamentoModel().findAll({
       where: {
         status: 'concluido',
         deletado: 'N',
@@ -64,7 +64,7 @@ const listComissoes = async (req, res) => {
     });
 
     // Buscar vendas diretas pagas no período
-    const vendas = await getVendaDiretaModel.findAll({
+    const vendas = await getVendaDiretaModel().findAll({
       where: {
         status: 'pago',
         deletado: 'N',
@@ -74,7 +74,7 @@ const listComissoes = async (req, res) => {
       }
     });
 
-    const pagamentosComissao = await getPagamentoComissaoModel.findAll({ where: { periodo, deletado: 'N' } });
+    const pagamentosComissao = await getPagamentoComissaoModel().findAll({ where: { periodo, deletado: 'N' } });
 
     const comissoesList = [];
     let totalComissoes = 0;
