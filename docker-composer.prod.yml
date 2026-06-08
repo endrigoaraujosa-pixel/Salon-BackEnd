@@ -5,7 +5,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET:-salonstudio-secret}
-      BASE_DOMAIN: ${FRONTEND_DOMAIN}
+      BASE_DOMAIN: ${BASE_DOMAIN}
       EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://evolution-api:8080}
       EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
       PORT: 5000
@@ -39,7 +39,7 @@ services:
     labels:
       - "traefik.enable=true"
       # O Traefik agora escuta dinamicamente o domínio do frontend (e subdomínios dos salões) que você definir no Portainer
-      - "traefik.http.routers.salon-frontend.rule=Host(`${FRONTEND_DOMAIN}`) || HostRegexp(`^.+\\.${FRONTEND_DOMAIN}`)"
+      - "traefik.http.routers.salon-frontend.rule=Host(`${BASE_DOMAIN}`) || HostRegexp(`^.+\\.${FRONTEND_DOMAIN}`)"
       - "traefik.http.routers.salon-frontend.entrypoints=websecure"
       - "traefik.http.routers.salon-frontend.tls=true"
       - "traefik.http.routers.salon-frontend.tls.certresolver=letsencryptresolver"
