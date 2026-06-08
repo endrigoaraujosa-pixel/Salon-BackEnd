@@ -45,6 +45,21 @@ services:
       - "traefik.http.routers.salon-frontend.tls.certresolver=letsencryptresolver"
       - "traefik.http.services.salon-frontend.loadbalancer.server.port=80"
 
+  salon-postgre:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USENAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB}
+    networks:
+      - salonstudio
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      
 networks:
   salonstudio:
     external: true
+
+volumes:
+  postgres_data:
