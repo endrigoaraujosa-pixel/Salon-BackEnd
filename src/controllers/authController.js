@@ -1,20 +1,16 @@
-import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import User from '../models/User.js';
-import PerfilAcesso from '../models/PerfilAcesso.js';
+import jwt from 'jsonwebtoken';
+import { getUserModel } from '../models/User.js';
+import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
 
 const login = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const user = await User.findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
+    const user = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      return res.status(401).json({ detail: 'Email ou senha inválidos' });
-    }
-
-    if (!user.ativo) {
-      return res.status(401).json({ detail: 'Usuário inativo' });
+    if (!user || !(await bcrypt.compare(password, user.password_hash)) || !user.ativo) {
+      return res.status(400).json({ detail: 'Email ou senha inválidos' });
     }
 
     const token = jwt.sign(
@@ -33,7 +29,7 @@ const login = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 15 * 60 * 1000,
+      maxAge: 30 * 60 * 1000,
       path: '/'
     });
 
@@ -41,11 +37,11 @@ const login = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
+      maxAge: 24 * 60 * 60 * 1000,
       path: '/'
     });
 
-    const perfil = user.perfil_acesso_id ? await PerfilAcesso.findByPk(user.perfil_acesso_id) : null;
+    const perfil = user.perfil_acesso_id ? await getPerfilAcessoModel().findByPk(user.perfil_acesso_id) : null;
 
     res.json({
       token,
@@ -80,7 +76,7 @@ const refreshToken = async (req, res) => {
       process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh'
     );
 
-    const user = await User.findByPk(decoded.sub);
+    const user = await getUserModel().findByPk(decoded.sub);
 
     if (!user || !user.ativo) {
       return res.status(401).json({ detail: 'Usuário não encontrado ou inativo' });
@@ -114,7 +110,7 @@ const refreshToken = async (req, res) => {
       path: '/'
     });
 
-    const perfil = user.perfil_acesso_id ? await PerfilAcesso.findByPk(user.perfil_acesso_id) : null;
+    const perfil = user.perfil_acesso_id ? await getPerfilAcessoModel().findByPk(user.perfil_acesso_id) : null;
 
     res.json({
       token: newAccessToken,
@@ -153,3 +149,4 @@ const me = async (req, res) => {
 };
 
 export { login, logout, me, refreshToken };
+

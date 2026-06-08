@@ -1,8 +1,7 @@
-import Produto from '../models/Produto.js';
-
+import { getProdutoModel } from "../models/Produto.js";
 const listProd = async (req, res) => {
   try {
-    const prods = await Produto.findAll({
+    const prods = await getProdutoModel().findAll({
       where: { deletado: 'N' },
       order: [['nome', 'ASC']]
     });
@@ -24,7 +23,7 @@ const createProd = async (req, res) => {
     if (req.body.estoque_minimo !== undefined) {
       req.body.estoque_minimo = Number(Number(req.body.estoque_minimo || 0).toFixed(3));
     }
-    const prod = await Produto.create(req.body);
+    const prod = await getProdutoModel().create(req.body);
     res.status(201).json(prod);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -37,9 +36,9 @@ const updateProd = async (req, res) => {
     if (categoria_id !== undefined && !categoria_id) {
       return res.status(400).json({ detail: 'A categoria é obrigatória' });
     }
-    const prod = await Produto.findByPk(req.params.pid);
+    const prod = await getProdutoModel().findByPk(req.params.pid);
     if (!prod) return res.status(404).json({ detail: 'Produto não encontrado' });
-    
+
     if (req.body.quantidade_estoque !== undefined) {
       req.body.quantidade_estoque = Number(Number(req.body.quantidade_estoque || 0).toFixed(3));
     }
@@ -55,7 +54,7 @@ const updateProd = async (req, res) => {
 
 const deleteProd = async (req, res) => {
   try {
-    const prod = await Produto.findByPk(req.params.pid);
+    const prod = await getProdutoModel().findByPk(req.params.pid);
     if (prod) {
       await prod.update({
         deletado: 'S',

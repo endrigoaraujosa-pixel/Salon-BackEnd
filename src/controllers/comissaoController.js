@@ -1,10 +1,10 @@
-import Colaborador from '../models/Colaborador.js';
-import Agendamento from '../models/Agendamento.js';
-import VendaDireta from '../models/VendaDireta.js';
-import Produto from '../models/Produto.js';
-import PagamentoComissao from '../models/PagamentoComissao.js';
-import Servico from '../models/Servico.js';
 import { Op } from 'sequelize';
+import { getColaboradorModel } from '../models/Colaborador.js';
+import { getProdutoModel } from '../models/Produto.js';
+import { getServicoModel } from '../models/Servico.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
+import { getVendaDiretaModel } from '../models/VendaDireta.js';
+import { getPagamentoComissaoModel } from '../models/PagamentoComissao.js';
 
 const normalizeName = (name) => {
   if (!name) return '';
@@ -36,9 +36,9 @@ const listComissoes = async (req, res) => {
   }
 
   try {
-    const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
-    const produtos = await Produto.findAll({ where: { deletado: 'N' } });
-    const servicos = await Servico.findAll({ where: { deletado: 'N' } });
+    const colaboradores = await getColaboradorModel.findAll({ where: { deletado: 'N' } });
+    const produtos = await getProdutoModel.findAll({ where: { deletado: 'N' } });
+    const servicos = await getServicoModel.findAll({ where: { deletado: 'N' } });
     
     let filteredColaboradores = colaboradores;
     if (req.user && req.user.role !== 'admin') {
@@ -53,7 +53,7 @@ const listComissoes = async (req, res) => {
     }
     
     // Buscar agendamentos concluídos no período
-    const agendamentos = await Agendamento.findAll({
+    const agendamentos = await getAgendamentoModel.findAll({
       where: {
         status: 'concluido',
         deletado: 'N',
@@ -64,7 +64,7 @@ const listComissoes = async (req, res) => {
     });
 
     // Buscar vendas diretas pagas no período
-    const vendas = await VendaDireta.findAll({
+    const vendas = await getVendaDiretaModel.findAll({
       where: {
         status: 'pago',
         deletado: 'N',
@@ -74,7 +74,7 @@ const listComissoes = async (req, res) => {
       }
     });
 
-    const pagamentosComissao = await PagamentoComissao.findAll({ where: { periodo, deletado: 'N' } });
+    const pagamentosComissao = await getPagamentoComissaoModel.findAll({ where: { periodo, deletado: 'N' } });
 
     const comissoesList = [];
     let totalComissoes = 0;
@@ -446,7 +446,7 @@ const pagarComissao = async (req, res) => {
 
   try {
     // 1. Marcar comissões de serviços como pagas no JSON dos agendamentos concluídos do período
-    const agendamentos = await Agendamento.findAll({
+    const agendamentos = await getAgendamentoModel().findAll({
       where: {
         status: 'concluido',
         deletado: 'N',
@@ -491,7 +491,7 @@ const pagarComissao = async (req, res) => {
     }
 
     // 2. Marcar comissões de vendas como pagas no período
-    await VendaDireta.update(
+    await getVendaDiretaModel().update(
       { comissao_paga: true },
       {
         where: {
@@ -506,7 +506,7 @@ const pagarComissao = async (req, res) => {
     );
 
     // 3. Registrar o log do pagamento
-    await PagamentoComissao.create({
+    await getPagamentoComissaoModel().create({
       colaborador_id,
       periodo: p,
       valor: valor || 0
@@ -536,7 +536,7 @@ const desfazerPagamento = async (req, res) => {
 
   try {
     // 1. Desmarcar comissões de serviços no período
-    const agendamentos = await Agendamento.findAll({
+    const agendamentos = await getAgendamentoModel().findAll({
       where: {
         status: 'concluido',
         deletado: 'N',
@@ -581,7 +581,7 @@ const desfazerPagamento = async (req, res) => {
     }
 
     // 2. Desmarcar comissões de vendas no período
-    await VendaDireta.update(
+    await getVendaDiretaModel().update(
       { comissao_paga: false },
       {
         where: {
@@ -596,7 +596,7 @@ const desfazerPagamento = async (req, res) => {
     );
 
     // 3. Deletar registro do pagamento comissão
-    await PagamentoComissao.update(
+    await getPagamentoComissaoModel().update(
       {
         deletado: 'S',
         deletado_por: req.user ? req.user.name : 'Sistema',

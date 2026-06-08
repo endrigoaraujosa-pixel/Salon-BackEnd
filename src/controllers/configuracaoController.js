@@ -1,15 +1,15 @@
-import TaxaCartao from '../models/TaxaCartao.js';
-import Empresa from '../models/Empresa.js';
+import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
+import { getEmpresaModel } from '../models/Empresa.js';
 
 const getTaxas = async (req, res) => {
   try {
-    let taxas = await TaxaCartao.findAll();
+    let taxas = await getTaxaCartaoModel().findAll();
     if (taxas.length === 0) {
-      await TaxaCartao.bulkCreate([
-        { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true, dias_recebimento: 30 },
-        { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true, dias_recebimento: 1 }
+      await getTaxaCartaoModel().bulkCreate([
+        { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true },
+        { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true }
       ]);
-      taxas = await TaxaCartao.findAll();
+      taxas = await getTaxaCartaoModel().findAll();
     }
     res.json(taxas);
   } catch (error) {
@@ -24,7 +24,7 @@ const saveTaxa = async (req, res) => {
       return res.status(400).json({ detail: 'Forma de pagamento é obrigatória' });
     }
 
-    const [taxa, created] = await TaxaCartao.findOrCreate({
+    const [taxa, created] = await getTaxaCartaoModel().findOrCreate({
       where: { forma_pagamento },
       defaults: { 
         percentual: percentual || 0, 
@@ -48,9 +48,9 @@ const saveTaxa = async (req, res) => {
 
 const getEmpresa = async (req, res) => {
   try {
-    let empresa = await Empresa.findOne();
+    let empresa = await getEmpresaModel().findOne();
     if (!empresa) {
-      empresa = await Empresa.create({
+      empresa = await getEmpresaModel().create({
         razao_social: '',
         nome_fantasia: '',
         cnpj: '',
@@ -73,9 +73,9 @@ const getEmpresa = async (req, res) => {
 
 const saveEmpresa = async (req, res) => {
   try {
-    let empresa = await Empresa.findOne();
+    let empresa = await getEmpresaModel().findOne();
     if (!empresa) {
-      empresa = await Empresa.create(req.body);
+      empresa = await getEmpresaModel().create(req.body);
     } else {
       await empresa.update(req.body);
     }
@@ -86,3 +86,4 @@ const saveEmpresa = async (req, res) => {
 };
 
 export { getTaxas, saveTaxa, getEmpresa, saveEmpresa };
+

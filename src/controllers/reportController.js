@@ -1,15 +1,15 @@
-import Agendamento from '../models/Agendamento.js';
-import Pagamento from '../models/Pagamento.js';
-import Cliente from '../models/Cliente.js';
-import Colaborador from '../models/Colaborador.js';
-import Produto from '../models/Produto.js';
-import Despesa from '../models/Despesa.js';
-import TaxaCartao from '../models/TaxaCartao.js';
-import VendaDireta from '../models/VendaDireta.js';
-import OutrasReceitas from '../models/OutrasReceitas.js';
-import Categoria from '../models/Categoria.js';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/db.js';
+import { getColaboradorModel } from '../models/Colaborador.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
+import { getClienteModel } from '../models/Cliente.js';
+import { getVendaDiretaModel } from '../models/VendaDireta.js';
+import { getOutrasReceitasModel } from '../models/OutrasReceitas.js';
+import { getProdutoModel } from '../models/Produto.js';
+import { getPagamentoModel } from '../models/Pagamento.js';
+import { getCategoriaModel } from '../models/Categoria.js';
+import { getDespesaModel } from '../models/Despesa.js';
+import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
 
 const normalizeName = (name) => {
   if (!name) return '';
@@ -25,7 +25,7 @@ const dashboard = async (req, res) => {
   try {
     const { data_inicio, data_fim, colaborador_id } = req.query;
 
-    const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' }, order: [['nome', 'ASC']] });
+    const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' }, order: [['nome', 'ASC']] });
 
     let userMappedColabId = null;
     if (req.user) {
@@ -52,7 +52,7 @@ const dashboard = async (req, res) => {
     let totalClientes = 0;
     if (colabId) {
       // Find agendamentos belonging to this professional to identify their unique clients
-      const colabAgs = await Agendamento.findAll({
+      const colabAgs = await getAgendamentoModel().findAll({
         attributes: ['itens', 'cliente_nome'],
         where: { deletado: 'N' }
       });
@@ -66,10 +66,10 @@ const dashboard = async (req, res) => {
       });
       totalClientes = clientNames.size;
     } else {
-      totalClientes = await Cliente.count({ where: { deletado: 'N' } });
+      totalClientes = await getClienteModel().count({ where: { deletado: 'N' } });
     }
 
-    const totalColaboradores = colabId ? 1 : await Colaborador.count({ where: { ativo: true, deletado: 'N' } });
+    const totalColaboradores = colabId ? 1 : await getColaboradorModel().count({ where: { ativo: true, deletado: 'N' } });
     
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -83,7 +83,7 @@ const dashboard = async (req, res) => {
     let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-${String(lastDay).padStart(2, '0')}T23:59:59`;
     
     // For agendamentos_hoje / no período
-    const allAgsPeriod = await Agendamento.findAll({
+    const allAgsPeriod = await getAgendamentoModel().findAll({
       attributes: ['id', 'itens'],
       where: {
         data_hora: { [Op.between]: [data_inicio ? dataInicioMes : todayStart, data_fim ? dataFimMes : todayEnd] },
@@ -101,7 +101,7 @@ const dashboard = async (req, res) => {
     } else {
       agHoje = allAgsPeriod.length;
     }
-    const concluidosAgs = await Agendamento.findAll({
+    const concluidosAgs = await getAgendamentoModel().findAll({
       attributes: ['id', 'itens', 'valor_pago', 'valor_total'],
       where: {
         status: 'concluido',
@@ -116,7 +116,7 @@ const dashboard = async (req, res) => {
     if (isAdmin) {
       const receitaServicos = concluidosAgs.reduce((acc, a) => acc + (a.valor_pago || a.valor_total || 0), 0);
 
-      const vendas = await VendaDireta.findAll({
+      const vendas = await getVendaDiretaModel().findAll({
         where: {
           status: 'pago',
           data_venda: { [Op.between]: [dataInicioMes, dataFimMes] },
@@ -127,7 +127,7 @@ const dashboard = async (req, res) => {
 
       const inicioMesDate = dataInicioMes.split('T')[0];
       const fimMesDate = dataFimMes.split('T')[0];
-      const oReceitas = await OutrasReceitas.findAll({
+      const oReceitas = await getOutrasReceitasModel().findAll({
         where: {
           deletado: 'N',
           [Op.or]: [
@@ -152,7 +152,7 @@ const dashboard = async (req, res) => {
     const concluidos = filteredConcluidos.length;
     
     const ticketMedio = concluidos ? (faturamentoMes / concluidos) : 0;
-    const estoqueBaixo = await Produto.count({
+    const estoqueBaixo = await getProdutoModel().count({
       where: {
         ativo: true,
         quantidade_estoque: { [Op.lte]: sequelize.col('estoque_minimo') }
@@ -213,7 +213,7 @@ const dashboardDetail = async (req, res) => {
     try {
       const isAdmin = req.user && req.user.role === 'admin';
 
-      const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
+      const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
 
       let userMappedColabId = null;
       if (req.user) {
@@ -243,7 +243,7 @@ const dashboardDetail = async (req, res) => {
       }
 
       // Load completed appointments
-      const ags = await Agendamento.findAll({
+      const ags = await getAgendamentoModel().findAll({
         where: {
           status: 'concluido',
           data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
@@ -253,7 +253,7 @@ const dashboardDetail = async (req, res) => {
       });
 
       // Load paid sales
-      const vendas = await VendaDireta.findAll({
+      const vendas = await getVendaDiretaModel().findAll({
         where: {
           status: 'pago',
           data_venda: { [Op.between]: [dataInicioMes, dataFimMes] },
@@ -265,7 +265,7 @@ const dashboardDetail = async (req, res) => {
       // Load other revenues
       const inicioMesDate = dataInicioMes.split('T')[0];
       const fimMesDate = dataFimMes.split('T')[0];
-      const oReceitas = await OutrasReceitas.findAll({
+      const oReceitas = await getOutrasReceitasModel().findAll({
         where: {
           deletado: 'N',
           [Op.or]: [
@@ -289,7 +289,7 @@ const dashboardDetail = async (req, res) => {
 
       let payments = [];
       if (orClauses.length > 0) {
-        payments = await Pagamento.findAll({
+        payments = await getPagamentoModel().findAll({
           where: {
             deletado: 'N',
             [Op.or]: orClauses
@@ -390,7 +390,7 @@ const dashboardDetail = async (req, res) => {
         where.status = 'concluido';
       }
 
-      const ags = await Agendamento.findAll({
+      const ags = await getAgendamentoModel().findAll({
         where,
         order: [['data_hora', 'DESC']]
       });
@@ -408,13 +408,13 @@ const dashboardDetail = async (req, res) => {
     }
 
     if (metric === 'clientes') {
-      const clientes = await Cliente.findAll({
+      const clientes = await getClienteModel().findAll({
         where: { deletado: 'N' },
         order: [['nome', 'ASC']]
       });
 
       if (colabId) {
-        const colabAgs = await Agendamento.findAll({
+        const colabAgs = await getAgendamentoModel().findAll({
           attributes: ['itens', 'cliente_nome'],
           where: { deletado: 'N' }
         });
@@ -434,7 +434,7 @@ const dashboardDetail = async (req, res) => {
     }
 
     if (metric === 'estoque') {
-      const produtos = await Produto.findAll({
+      const produtos = await getProdutoModel().findAll({
         where: {
           ativo: true,
           quantidade_estoque: { [Op.lte]: sequelize.col('estoque_minimo') }
@@ -445,7 +445,7 @@ const dashboardDetail = async (req, res) => {
     }
 
     if (metric === 'top_servico') {
-      const ags = await Agendamento.findAll({
+      const ags = await getAgendamentoModel().findAll({
         where: {
           status: 'concluido',
           data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
@@ -499,7 +499,7 @@ const relatorioDre = async (req, res) => {
 
   try {
     // Resolve dynamic categories mapping
-    const categories = await Categoria.findAll({ where: { deletado: 'N' } });
+    const categories = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
     const categoryMap = {}; // id -> name
     const categoryMapByName = {}; // name -> id
     categories.forEach(c => {
@@ -546,7 +546,7 @@ const relatorioDre = async (req, res) => {
       agsWhere.status = 'concluido';
     }
 
-    let ags = await Agendamento.findAll({ where: agsWhere });
+    let ags = await getAgendamentoModel().findAll({ where: agsWhere });
 
     // Category filter for Agendamento services
     if (targetCatId || targetCatName) {
@@ -593,11 +593,11 @@ const relatorioDre = async (req, res) => {
       vendasWhere.status = 'pago';
     }
 
-    let vendas = await VendaDireta.findAll({ where: vendasWhere });
+    let vendas = await getVendaDiretaModel().findAll({ where: vendasWhere });
 
     // Fetch and filter by product category in memory if requested
     const productIds = [...new Set(vendas.map(v => v.produto_id))];
-    const products = productIds.length > 0 ? await Produto.findAll({ where: { id: { [Op.in]: productIds } } }) : [];
+    const products = productIds.length > 0 ? await getProdutoModel().findAll({ where: { id: { [Op.in]: productIds } } }) : [];
     const productsMap = new Map(products.map(p => [p.id, p]));
 
     if (targetCatId || targetCatName) {
@@ -662,7 +662,7 @@ const relatorioDre = async (req, res) => {
       oReceitasWhere.categoria = targetCatName;
     }
 
-    const oReceitas = await OutrasReceitas.findAll({ where: oReceitasWhere });
+    const oReceitas = await getOutrasReceitasModel().findAll({ where: oReceitasWhere });
     const outrasReceitas = oReceitas.reduce((acc, r) => acc + (r.valor || 0), 0);
 
     const receitaBruta = receitaServicos + receitaVendas + outrasReceitas;
@@ -706,7 +706,7 @@ const relatorioDre = async (req, res) => {
       despesasWhere.categoria = targetCatName;
     }
 
-    const despesas = await Despesa.findAll({ where: despesasWhere });
+    const despesas = await getDespesaModel().findAll({ where: despesasWhere });
     const despesasFixas = despesas.filter(d => d.tipo === 'fixo').reduce((acc, d) => acc + (d.valor || 0), 0);
     const despesasVariaveis = despesas.filter(d => d.tipo === 'variavel').reduce((acc, d) => acc + (d.valor || 0), 0);
 
@@ -727,20 +727,20 @@ const relatorioDre = async (req, res) => {
     // ---------------------------------------------
     // 5. TRANSACTION FEES (TAXAS DE CARTÃO)
     // ---------------------------------------------
-    let rates = await TaxaCartao.findAll();
+    let rates = await getTaxaCartaoModel().findAll();
     if (rates.length === 0) {
-      await TaxaCartao.bulkCreate([
+      await getTaxaCartaoModel().bulkCreate([
         { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true },
         { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true }
       ]);
-      rates = await TaxaCartao.findAll();
+      rates = await getTaxaCartaoModel().findAll();
     }
     const creditoRate = rates.find(r => r.forma_pagamento === 'cartao_credito' && r.ativo)?.percentual || 0;
     const debitoRate = rates.find(r => r.forma_pagamento === 'cartao_debito' && r.ativo)?.percentual || 0;
     const creditoDias = rates.find(r => r.forma_pagamento === 'cartao_credito')?.dias_recebimento || 0;
     const debitoDias = rates.find(r => r.forma_pagamento === 'cartao_debito')?.dias_recebimento || 0;
 
-    const payments = await Pagamento.findAll({
+    const payments = await getPagamentoModel().findAll({
       where: {
         data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
         deletado: 'N'
@@ -844,7 +844,7 @@ const relatorioDre = async (req, res) => {
 const relatorioCaixa = async (req, res) => {
   const { data_inicio, data_fim, colaborador_id } = req.query;
   try {
-    const pagsAg = await Pagamento.findAll({
+    const pagsAg = await getPagamentoModel().findAll({
       where: {
         data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
         deletado: 'N'
@@ -855,11 +855,11 @@ const relatorioCaixa = async (req, res) => {
     const vendaDiretaIds = [...new Set(pagsAg.map(p => p.venda_direta_id).filter(Boolean))];
 
     const agendamentos = agendamentoIds.length > 0 
-      ? await Agendamento.findAll({ where: { id: { [Op.in]: agendamentoIds }, deletado: 'N' } })
+      ? await getAgendamentoModel().findAll({ where: { id: { [Op.in]: agendamentoIds }, deletado: 'N' } })
       : [];
       
     const vendas = vendaDiretaIds.length > 0
-      ? await VendaDireta.findAll({ where: { id: { [Op.in]: vendaDiretaIds }, deletado: 'N' } })
+      ? await getVendaDiretaModel().findAll({ where: { id: { [Op.in]: vendaDiretaIds }, deletado: 'N' } })
       : [];
 
     const agMap = new Map(agendamentos.map(a => [a.id, a]));
@@ -981,11 +981,11 @@ const relatorioProdutos = async (req, res) => {
     }
 
     // Buscamos todas as vendas diretas no período/filtros básicos
-    const vendas = await VendaDireta.findAll({ where, order: [['data_venda', 'DESC']] });
+    const vendas = await getVendaDiretaModel().findAll({ where, order: [['data_venda', 'DESC']] });
 
     // Precisamos buscar os produtos para filtrar por categoria e obter custo unitário
     const produtosIds = [...new Set(vendas.map(v => v.produto_id))];
-    const produtosList = await Produto.findAll({
+    const produtosList = await getProdutoModel().findAll({
       where: {
         id: { [Op.in]: produtosIds }
       }
@@ -994,7 +994,7 @@ const relatorioProdutos = async (req, res) => {
 
     // Precisamos buscar os pagamentos associados a essas vendas
     const vendasIds = vendas.map(v => v.id);
-    const pagamentosList = await Pagamento.findAll({
+    const pagamentosList = await getPagamentoModel().findAll({
       where: {
         venda_direta_id: { [Op.in]: vendasIds },
         deletado: 'N'
@@ -1123,15 +1123,15 @@ const relatorioServicos = async (req, res) => {
     }
 
     // Buscamos os agendamentos no período/filtros básicos
-    const agendamentos = await Agendamento.findAll({ where, order: [['data_hora', 'DESC']] });
+    const agendamentos = await getAgendamentoModel().findAll({ where, order: [['data_hora', 'DESC']] });
 
     // Colaboradores para mapear nomes
-    const colaboradores = await Colaborador.findAll({ where: { deletado: 'N' } });
+    const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
     const colabMap = new Map(colaboradores.map(c => [c.id, c.nome]));
 
     // Pagamentos associados a estes agendamentos
     const agendsIds = agendamentos.map(a => a.id);
-    const pagamentosList = await Pagamento.findAll({
+    const pagamentosList = await getPagamentoModel().findAll({
       where: {
         agendamento_id: { [Op.in]: agendsIds },
         deletado: 'N'
@@ -1246,4 +1246,5 @@ const relatorioServicos = async (req, res) => {
   }
 };
 
-export { dashboard, dashboardDetail, relatorioDre, relatorioCaixa, relatorioProdutos, relatorioServicos };
+export { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos };
+

@@ -3,10 +3,9 @@ import 'dotenv/config';
 import config from './config.mjs'
 
 const sequelize = new Sequelize(config[process.env.NODE_ENV || 'development']);
-
 const connectDB = async () => {
   try {
-    await sequelize.authenticate();    
+    await sequelize.authenticate();
   } catch (error) {
     console.error('Unable to connect to the database:', error);
     process.exit(1);
@@ -14,3 +13,4 @@ const connectDB = async () => {
 };
 
 export { sequelize, connectDB };
+

@@ -1,13 +1,12 @@
-import VendaDireta from '../models/VendaDireta.js';
-import Produto from '../models/Produto.js';
-import Colaborador from '../models/Colaborador.js';
-import Cliente from '../models/Cliente.js';
-import Pagamento from '../models/Pagamento.js';
-import User from '../models/User.js';
-import Desconto from '../models/Desconto.js';
 import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
 import { Op } from 'sequelize';
+import { v4 as uuidv4 } from 'uuid';
+import { getVendaDiretaModel } from '../models/VendaDireta.js';
+import { getPagamentoModel } from '../models/Pagamento.js';
+import { getClienteModel } from '../models/Cliente.js';
+import { getColaboradorModel } from '../models/Colaborador.js';
+import { getProdutoModel } from '../models/Produto.js';
+import { getDescontoModel } from '../models/Desconto.js';
 
 const listVendas = async (req, res) => {
   const { data_inicio, data_fim, cliente_id, status } = req.query;
@@ -26,7 +25,7 @@ const listVendas = async (req, res) => {
       where.status = status;
     }
     console.log('[DEBUG listVendas] sequelize where:', where);
-    const vendas = await VendaDireta.findAll({
+    const vendas = await getVendaDiretaModel().findAll({
       where,
       order: [['data_venda', 'DESC']]
     });
@@ -38,10 +37,10 @@ const listVendas = async (req, res) => {
 
 const getVenda = async (req, res) => {
   try {
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (!venda || venda.deletado === 'S') return res.status(404).json({ detail: 'Venda não encontrada' });
 
-    const pagamentos = await Pagamento.findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
+    const pagamentos = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
     const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
 
     res.json({
@@ -110,16 +109,16 @@ const createVenda = async (req, res) => {
     // O estoque só é deduzido quando o pagamento for registrado.
 
     let colaborador_nome = null;
-    const colab = await Colaborador.findByPk(colaborador_id);
+    const colab = await getColaboradorModel().findByPk(colaborador_id);
     if (colab) colaborador_nome = colab.nome;
 
     let cliente_nome = null;
     if (cliente_id) {
-      const cli = await Cliente.findByPk(cliente_id);
+      const cli = await getClienteModel().findByPk(cliente_id);
       if (cli) cliente_nome = cli.nome;
     }
 
-    const maxNum = await VendaDireta.max('numero_venda') || 0;
+    const maxNum = await getVendaDiretaModel().max('numero_venda') || 0;
 
     // Campos legados preenchidos com o primeiro item (retrocompatibilidade)
     const primeiroItem = itensProcessados[0];
@@ -144,7 +143,7 @@ const createVenda = async (req, res) => {
     const created_by_id = req.user ? req.user.id : null;
     const created_by_name = req.user ? req.user.name : 'Sistema';
 
-    const venda = await VendaDireta.create({
+    const venda = await getVendaDiretaModel().create({
       id: uuidv4(),
       numero_venda: maxNum + 1,
       data_venda: data_venda_db,
@@ -176,13 +175,13 @@ const createVenda = async (req, res) => {
 
 const deleteVenda = async (req, res) => {
   try {
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (!venda || venda.deletado === 'S') {
       return res.status(404).json({ detail: 'Venda não encontrada' });
     }
 
     // Validar se existem pagamentos vinculados ativos
-    const countPagamentos = await Pagamento.count({
+    const countPagamentos = await getPagamentoModel().count({
       where: {
         venda_direta_id: req.params.id,
         deletado: 'N'
@@ -212,10 +211,10 @@ const addPagamentos = async (req, res) => {
   const { pagamentos, finalizar } = req.body;
 
   try {
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (!venda) return res.status(404).json({ detail: 'Venda não encontrada' });
 
-    const existingPags = await Pagamento.findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
+    const existingPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
     const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
     const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
     let adjustedPagamentos = [...pagamentos];
@@ -234,7 +233,7 @@ const addPagamentos = async (req, res) => {
     }
 
     for (const p of adjustedPagamentos) {
-      await Pagamento.create({
+      await getPagamentoModel().create({
         id: uuidv4(),
         venda_direta_id: req.params.id,
         valor: p.valor,
@@ -258,7 +257,7 @@ const addPagamentos = async (req, res) => {
         ? venda.itens
         : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
       for (const item of itensVenda) {
-        const produto = await Produto.findByPk(item.produto_id);
+        const produto = await getProdutoModel().findByPk(item.produto_id);
         if (produto) {
           produto.quantidade_estoque = Math.max(0, Number((produto.quantidade_estoque - Number(item.quantidade)).toFixed(3)));
           await produto.save();
@@ -276,7 +275,7 @@ const updatePagamento = async (req, res) => {
   const { valor, forma_pagamento, observacao } = req.body;
 
   try {
-    const pagamento = await Pagamento.findByPk(req.params.pid);
+    const pagamento = await getPagamentoModel().findByPk(req.params.pid);
     if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
 
     pagamento.valor = valor;
@@ -285,10 +284,10 @@ const updatePagamento = async (req, res) => {
     await pagamento.save();
 
     // Recompute venda total paid and handle stock adjustments on status transition
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (venda) {
       const eraStatusAnteriorPago = venda.status === 'pago';
-      const allPags = await Pagamento.findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
+      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       venda.valor_pago = totalPago;
       const ficouPago = totalPago >= venda.valor_total - 0.01;
@@ -305,7 +304,7 @@ const updatePagamento = async (req, res) => {
           ? venda.itens
           : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
         for (const item of itensVenda) {
-          const produto = await Produto.findByPk(item.produto_id);
+          const produto = await getProdutoModel().findByPk(item.produto_id);
           if (produto) {
             produto.quantidade_estoque = Number((produto.quantidade_estoque + Number(item.quantidade)).toFixed(3));
             await produto.save();
@@ -318,7 +317,7 @@ const updatePagamento = async (req, res) => {
           ? venda.itens
           : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
         for (const item of itensVenda) {
-          const produto = await Produto.findByPk(item.produto_id);
+          const produto = await getProdutoModel().findByPk(item.produto_id);
           if (produto) {
             produto.quantidade_estoque = Math.max(0, Number((produto.quantidade_estoque - Number(item.quantidade)).toFixed(3)));
             await produto.save();
@@ -340,7 +339,7 @@ const deletePagamento = async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
     }
-    const authUser = await User.findOne({ where: { email: email.toLowerCase().trim() } });
+    const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() } });
     if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
       return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
     }
@@ -348,7 +347,7 @@ const deletePagamento = async (req, res) => {
       return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
     }
 
-    const pagamento = await Pagamento.findByPk(req.params.pid);
+    const pagamento = await getPagamentoModel().findByPk(req.params.pid);
     if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
     await pagamento.update({
       deletado: 'S',
@@ -357,10 +356,10 @@ const deletePagamento = async (req, res) => {
     });
 
     // Recompute venda total paid and handle stock restoration if no longer paid
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (venda) {
       const eraStatusAnteriorPago = venda.status === 'pago';
-      const allPags = await Pagamento.findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
+      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       venda.valor_pago = totalPago;
       const ficouPago = totalPago >= venda.valor_total - 0.01;
@@ -377,7 +376,7 @@ const deletePagamento = async (req, res) => {
           ? venda.itens
           : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
         for (const item of itensVenda) {
-          const produto = await Produto.findByPk(item.produto_id);
+          const produto = await getProdutoModel().findByPk(item.produto_id);
           if (produto) {
             produto.quantidade_estoque = Number((produto.quantidade_estoque + Number(item.quantidade)).toFixed(3));
             await produto.save();
@@ -400,7 +399,7 @@ const deletePagamento = async (req, res) => {
  * Verifica se a venda está bloqueada para edição (possui pagamento ativo).
  */
 const _isVendaBloqueada = async (vendaId) => {
-  const count = await Pagamento.count({
+  const count = await getPagamentoModel().count({
     where: { venda_direta_id: vendaId, deletado: 'N' }
   });
   return count > 0;
@@ -422,8 +421,8 @@ const _recalcularVenda = async (venda) => {
       itens.length === 1
         ? primeiro.produto_nome
         : itens.length > 1
-        ? `${primeiro.produto_nome} (+${itens.length - 1})`
-        : venda.produto_nome,
+          ? `${primeiro.produto_nome} (+${itens.length - 1})`
+          : venda.produto_nome,
     quantidade: itens.reduce((acc, i) => acc + Number(i.quantidade || 0), 0)
   });
 };
@@ -434,7 +433,7 @@ const _recalcularVenda = async (venda) => {
  */
 const getCarrinho = async (req, res) => {
   try {
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (!venda || venda.deletado === 'S')
       return res.status(404).json({ detail: 'Venda não encontrada' });
 
@@ -443,16 +442,16 @@ const getCarrinho = async (req, res) => {
       Array.isArray(venda.itens) && venda.itens.length > 0
         ? venda.itens
         : [{
-            produto_id: venda.produto_id,
-            produto_nome: venda.produto_nome,
-            quantidade: venda.quantidade,
-            preco_unitario:
-              venda.quantidade > 0
-                ? venda.valor_total / venda.quantidade
-                : venda.valor_total,
-            subtotal: venda.valor_total,
-            comissao_pct: 0
-          }];
+          produto_id: venda.produto_id,
+          produto_nome: venda.produto_nome,
+          quantidade: venda.quantidade,
+          preco_unitario:
+            venda.quantidade > 0
+              ? venda.valor_total / venda.quantidade
+              : venda.valor_total,
+          subtotal: venda.valor_total,
+          comissao_pct: 0
+        }];
 
     res.json({
       venda_id: venda.id,
@@ -480,7 +479,7 @@ const addItemCarrinho = async (req, res) => {
   const { produto_id, quantidade, preco_unitario } = req.body;
 
   try {
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (!venda || venda.deletado === 'S')
       return res.status(404).json({ detail: 'Venda não encontrada' });
 
@@ -490,7 +489,7 @@ const addItemCarrinho = async (req, res) => {
           'Não é permitido alterar o carrinho de uma venda que já possui pagamento vinculado.'
       });
 
-    const produto = await Produto.findByPk(produto_id);
+    const produto = await getProdutoModel().findByPk(produto_id);
     if (!produto)
       return res.status(400).json({ detail: 'Produto não encontrado.' });
 
@@ -546,7 +545,7 @@ const updateItemCarrinho = async (req, res) => {
   const itemIndex = parseInt(req.params.itemIndex, 10);
 
   try {
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (!venda || venda.deletado === 'S')
       return res.status(404).json({ detail: 'Venda não encontrada' });
 
@@ -565,7 +564,7 @@ const updateItemCarrinho = async (req, res) => {
       return res.status(400).json({ detail: 'Quantidade inválida.' });
 
     const item = itens[itemIndex];
-    const produto = await Produto.findByPk(item.produto_id);
+    const produto = await getProdutoModel().findByPk(item.produto_id);
     if (!produto)
       return res.status(400).json({ detail: 'Produto do item não encontrado.' });
 
@@ -608,7 +607,7 @@ const removeItemCarrinho = async (req, res) => {
   const itemIndex = parseInt(req.params.itemIndex, 10);
 
   try {
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (!venda || venda.deletado === 'S')
       return res.status(404).json({ detail: 'Venda não encontrada' });
 
@@ -645,7 +644,7 @@ const updateCliente = async (req, res) => {
   const { cliente_id } = req.body;
 
   try {
-    const venda = await VendaDireta.findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id);
     if (!venda || venda.deletado === 'S')
       return res.status(404).json({ detail: 'Venda não encontrada' });
 
@@ -657,7 +656,7 @@ const updateCliente = async (req, res) => {
 
     let cliente_nome = null;
     if (cliente_id) {
-      const cli = await Cliente.findByPk(cliente_id);
+      const cli = await getClienteModel().findByPk(cliente_id);
       if (!cli) {
         return res.status(400).json({ detail: 'Cliente não encontrado' });
       }
@@ -684,7 +683,7 @@ const aplicarDescontoVenda = async (req, res) => {
   const { descontoId } = req.body;
 
   try {
-    const venda = await VendaDireta.findByPk(id);
+    const venda = await getVendaDiretaModel().findByPk(id);
     if (!venda || venda.deletado === 'S') {
       return res.status(404).json({ detail: 'Venda não encontrada' });
     }
@@ -697,13 +696,13 @@ const aplicarDescontoVenda = async (req, res) => {
     let itens = Array.isArray(venda.itens) && venda.itens.length > 0
       ? [...venda.itens]
       : [{
-          produto_id: venda.produto_id,
-          produto_nome: venda.produto_nome,
-          quantidade: venda.quantidade,
-          preco_unitario: venda.quantidade > 0 ? venda.valor_total / venda.quantidade : venda.valor_total,
-          subtotal: venda.valor_total,
-          comissao_pct: 0
-        }];
+        produto_id: venda.produto_id,
+        produto_nome: venda.produto_nome,
+        quantidade: venda.quantidade,
+        preco_unitario: venda.quantidade > 0 ? venda.valor_total / venda.quantidade : venda.valor_total,
+        subtotal: venda.valor_total,
+        comissao_pct: 0
+      }];
 
     // Se descontoId for nulo/vazio, estamos limpando o desconto (reverter para original)
     if (!descontoId) {
@@ -721,7 +720,7 @@ const aplicarDescontoVenda = async (req, res) => {
       venda.changed('itens', true);
       const valor_total = itens.reduce((acc, i) => acc + Number(i.subtotal || 0), 0);
       const primeiro = itens[0] || {};
-      
+
       await venda.update({
         itens,
         valor_total,
@@ -734,7 +733,7 @@ const aplicarDescontoVenda = async (req, res) => {
       return res.json({ ok: true, venda });
     }
 
-    const desconto = await Desconto.findOne({ where: { id: descontoId, deletado: 'N', ativo: true } });
+    const desconto = await getDescontoModel().findOne({ where: { id: descontoId, deletado: 'N', ativo: true } });
     if (!desconto) {
       return res.status(444).json({ detail: 'Desconto não encontrado ou inativo.' });
     }
@@ -746,7 +745,7 @@ const aplicarDescontoVenda = async (req, res) => {
         vinculados = typeof desconto.itens_vinculados === "string"
           ? JSON.parse(desconto.itens_vinculados)
           : desconto.itens_vinculados;
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const isRestrictedToItems = (vinculados.products && vinculados.products.length > 0) || (vinculados.services && vinculados.services.length > 0);
@@ -824,17 +823,7 @@ const aplicarDescontoVenda = async (req, res) => {
 };
 
 export {
-  listVendas,
-  getVenda,
-  createVenda,
-  deleteVenda,
-  addPagamentos,
-  updatePagamento,
-  deletePagamento,
-  getCarrinho,
-  addItemCarrinho,
-  updateItemCarrinho,
-  removeItemCarrinho,
-  updateCliente,
-  aplicarDescontoVenda
+  addItemCarrinho, addPagamentos, aplicarDescontoVenda, createVenda, deletePagamento, deleteVenda, getCarrinho, getVenda, listVendas, removeItemCarrinho,
+  updateCliente, updateItemCarrinho, updatePagamento
 };
+

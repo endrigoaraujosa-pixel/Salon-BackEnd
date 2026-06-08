@@ -1,7 +1,7 @@
 export default {
   async up(queryInterface, Sequelize) {
-    // 1. Create perfis_acesso table
-    await queryInterface.createTable('perfis_acesso', {
+    const currentSchema = queryInterface.sequelize.options.schema;
+    await queryInterface.createTable({ schema: currentSchema, tableName: 'perfis_acesso' }, {
       id: {
         type: Sequelize.STRING(36),
         primaryKey: true,
@@ -16,7 +16,7 @@ export default {
         allowNull: true
       },
       permissoes: {
-        type: Sequelize.TEXT, // Stores JSON string of permissions
+        type: Sequelize.TEXT,
         allowNull: false
       },
       ativo: {
@@ -103,7 +103,7 @@ export default {
       }
     });
 
-    await queryInterface.bulkInsert('perfis_acesso', [
+    await queryInterface.bulkInsert({schema: currentSchema, tableName: 'perfis_acesso'}, [
       {
         id: adminId,
         nome: 'Administrador',
@@ -127,22 +127,22 @@ export default {
     ]);
 
     // 3. Add column perfil_acesso_id to users table
-    await queryInterface.addColumn('users', 'perfil_acesso_id', {
+    await queryInterface.addColumn({schema: currentSchema, tableName: 'users'}, 'perfil_acesso_id', {
       type: Sequelize.STRING(36),
       allowNull: true,
       references: {
-        model: 'perfis_acesso',
+        model: {schema: currentSchema, tableName: 'perfis_acesso'},
         key: 'id'
       }
     });
 
     // 4. Update existing users with correct perfil relationship
-    await queryInterface.bulkUpdate('users', 
+    await queryInterface.bulkUpdate({schema: currentSchema, tableName: 'users'}, 
       { perfil_acesso_id: adminId }, 
       { role: 'admin' }
     );
 
-    await queryInterface.bulkUpdate('users', 
+    await queryInterface.bulkUpdate({schema: currentSchema, tableName: 'users'}, 
       { perfil_acesso_id: funcId }, 
       { role: 'funcionario' }
     );

@@ -1,5 +1,4 @@
-import Despesa from '../models/Despesa.js';
-
+import { getDespesaModel } from "../models/Despesa.js";
 const getTodayDateString = () => {
   // Return YYYY-MM-DD in local time
   return new Date().toLocaleDateString('en-CA');
@@ -7,13 +6,13 @@ const getTodayDateString = () => {
 
 const listDespesas = async (req, res) => {
   try {
-    const despesas = await Despesa.findAll({
+    const despesas = await getDespesaModel().findAll({
       where: { deletado: 'N' },
       order: [['data_vencimento', 'DESC']]
     });
-    
+
     const today = getTodayDateString();
-    
+
     // Dynamically calculate "Vencido" status for overdue, unpaid, non-cancelled expenses
     const updatedDespesas = despesas.map(d => {
       const plain = d.get({ plain: true });
@@ -22,7 +21,7 @@ const listDespesas = async (req, res) => {
       }
       return plain;
     });
-    
+
     res.json(updatedDespesas);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -38,7 +37,7 @@ const createDespesa = async (req, res) => {
     if (!req.body.descricao || !String(req.body.descricao).trim()) {
       return res.status(400).json({ detail: 'Descrição é obrigatória' });
     }
-    
+
     // Set default status based on payment field
     if (req.body.pago === true || req.body.status === 'Pago') {
       req.body.pago = true;
@@ -55,7 +54,7 @@ const createDespesa = async (req, res) => {
       req.body.pago = false;
     }
 
-    const despesa = await Despesa.create(req.body);
+    const despesa = await getDespesaModel().create(req.body);
     res.status(201).json(despesa);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -64,14 +63,14 @@ const createDespesa = async (req, res) => {
 
 const updateDespesa = async (req, res) => {
   try {
-    const despesa = await Despesa.findByPk(req.params.id);
+    const despesa = await getDespesaModel().findByPk(req.params.id);
     if (!despesa) return res.status(404).json({ detail: 'Despesa não encontrada' });
-    
+
     // Security restriction: Restrict editing of already paid expenses
     // Allow updating if they are explicitly undoing the payment (setting pago to false or status to Aberto)
     const wasPaid = despesa.pago || despesa.status === 'Pago';
     const isUndoingPayment = req.body.pago === false || req.body.status === 'Aberto';
-    
+
     if (wasPaid && !isUndoingPayment) {
       // If there are other modifications besides toggling payment details, block them
       // Let's check if the fields are actually changing from original values
@@ -85,12 +84,12 @@ const updateDespesa = async (req, res) => {
         }
         return false;
       });
-      
+
       if (hasCoreChanges) {
         return res.status(400).json({ detail: 'Não é possível editar os dados de uma despesa já paga. Desmarque como paga primeiro.' });
       }
     }
-    
+
     if (req.body.valor !== undefined) {
       const valorStr = String(req.body.valor).replace(",", ".");
       req.body.valor = parseFloat(valorStr) || 0;
@@ -119,7 +118,7 @@ const updateDespesa = async (req, res) => {
         req.body.data_pagamento = '';
       }
     }
-    
+
     await despesa.update(req.body);
     res.json(despesa);
   } catch (error) {
@@ -129,20 +128,20 @@ const updateDespesa = async (req, res) => {
 
 const deleteDespesa = async (req, res) => {
   try {
-    const despesa = await Despesa.findByPk(req.params.id);
+    const despesa = await getDespesaModel().findByPk(req.params.id);
     if (!despesa) return res.status(404).json({ detail: 'Despesa não encontrada' });
-    
+
     // Restrict deletion of paid expenses
     if (despesa.pago || despesa.status === 'Pago') {
       return res.status(400).json({ detail: 'Não é possível excluir uma despesa que já foi paga. Desmarque como paga primeiro.' });
     }
-    
+
     await despesa.update({
       deletado: 'S',
       deletado_por: req.user ? req.user.name : 'Sistema',
       deletado_em: new Date()
     });
-    
+
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -150,8 +149,6 @@ const deleteDespesa = async (req, res) => {
 };
 
 export {
-  listDespesas,
-  createDespesa,
-  updateDespesa,
-  deleteDespesa
+  createDespesa, deleteDespesa, listDespesas, updateDespesa
 };
+

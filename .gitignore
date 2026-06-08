@@ -33,9 +33,8 @@ Thumbs.db
 # Coverage directory used by tools like istanbul
 coverage/
 
-sequelize.sqlite
-teste.sqlite
-database.sqlite
+*.sqlite
+
 
 # WhatsApp Web session credentials and cache
 .wwebjs_auth/

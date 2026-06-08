@@ -1,6 +1,7 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const OutrasReceitas = sequelize.define('OutrasReceitas', {
   id: {
@@ -82,5 +83,10 @@ const OutrasReceitas = sequelize.define('OutrasReceitas', {
   tableName: 'outras_receitas',
   timestamps: false
 });
+
+export const getOutrasReceitasModel = () => {
+  const tenant = getTenantSchema();
+  return OutrasReceitas.schema(tenant);
+};
 
 export default OutrasReceitas;

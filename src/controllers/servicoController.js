@@ -1,11 +1,11 @@
-import Servico from '../models/Servico.js';
-import Agendamento from '../models/Agendamento.js';
-import Pagamento from '../models/Pagamento.js';
+import { getServicoModel } from '../models/Servico.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
+
 import { Op } from 'sequelize';
 
 const listServ = async (req, res) => {
   try {
-    const servs = await Servico.findAll({
+    const servs = await getServicoModel().findAll({
       where: { deletado: 'N' },
       order: [['nome', 'ASC']]
     });
@@ -22,7 +22,7 @@ const createServ = async (req, res) => {
       return res.status(400).json({ detail: 'A categoria é obrigatória' });
     }
     console.log("createServ payload received:", JSON.stringify(req.body, null, 2));
-    const serv = await Servico.create(req.body);
+    const serv = await getServicoModel().create(req.body);
     console.log("createServ success, saved record:", JSON.stringify(serv.toJSON(), null, 2));
     res.status(201).json(serv);
   } catch (error) {
@@ -38,9 +38,9 @@ const updateServ = async (req, res) => {
       return res.status(400).json({ detail: 'A categoria é obrigatória' });
     }
     console.log("updateServ sid:", req.params.sid, "payload received:", JSON.stringify(req.body, null, 2));
-    const serv = await Servico.findByPk(req.params.sid);
+    const serv = await getServicoModel().findByPk(req.params.sid);
     if (!serv) return res.status(404).json({ detail: 'Serviço não encontrado' });
-    
+
     await serv.update(req.body);
     console.log("updateServ success, updated record:", JSON.stringify(serv.toJSON(), null, 2));
     res.json(serv);
@@ -55,7 +55,7 @@ const deleteServ = async (req, res) => {
     const { params, user } = req;
 
     // Verificar se o serviço possui agendamento em aberto, confirmado ou em andamento
-    const activeAgendamentos = await Agendamento.findAll({
+    const activeAgendamentos = await getAgendamentoModel().findAll({
       attributes: ['id', 'itens'],
       where: {
         deletado: 'N',
@@ -78,7 +78,7 @@ const deleteServ = async (req, res) => {
       return res.status(400).json({ detail: "Não é permitido excluir um serviço que possui agendamentos em aberto, confirmados ou em andamento." });
     }
 
-    const serv = await Servico.findByPk(params.sid);
+    const serv = await getServicoModel().findByPk(params.sid);
     if (serv) {
       await serv.update({
         deletado: 'S',
@@ -92,4 +92,5 @@ const deleteServ = async (req, res) => {
   }
 };
 
-export { listServ, createServ, updateServ, deleteServ };
+export { createServ, deleteServ, listServ, updateServ };
+

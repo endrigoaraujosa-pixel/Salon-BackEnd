@@ -1,6 +1,7 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const Colaborador = sequelize.define('Colaborador', {
   id: {
@@ -60,5 +61,10 @@ const Colaborador = sequelize.define('Colaborador', {
 }, {
   tableName: 'colaboradores'
 });
+
+export const getColaboradorModel = () => {
+  const tenant = getTenantSchema();
+  return Colaborador.schema(tenant);
+};
 
 export default Colaborador;

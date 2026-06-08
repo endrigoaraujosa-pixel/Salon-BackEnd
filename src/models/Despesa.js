@@ -1,6 +1,7 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const Despesa = sequelize.define('Despesa', {
   id: {
@@ -84,5 +85,10 @@ const Despesa = sequelize.define('Despesa', {
   tableName: 'despesas',
   timestamps: false
 });
+
+export const getDespesaModel = () => {
+  const tenant = getTenantSchema();
+  return Despesa.schema(tenant);
+};
 
 export default Despesa;

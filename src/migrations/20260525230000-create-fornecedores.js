@@ -1,9 +1,7 @@
 export default {
   async up(queryInterface, Sequelize) {
-    // Check if table already exists (in case it was synced automatically)
-    const tables = await queryInterface.showAllTables();
-    if (!tables.includes('fornecedores')) {
-      await queryInterface.createTable('fornecedores', {
+    const currentSchema = queryInterface.sequelize.options.schema;
+    await queryInterface.createTable({ schema: currentSchema, tableName: 'fornecedores' }, {
         id: {
           type: Sequelize.STRING(36),
           primaryKey: true,
@@ -60,8 +58,7 @@ export default {
           allowNull: false,
           defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
         }
-      });
-    }
+      });  
   },
 
   async down(queryInterface, Sequelize) {

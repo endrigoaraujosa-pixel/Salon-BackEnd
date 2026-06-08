@@ -1,6 +1,7 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const Fornecedor = sequelize.define('Fornecedor', {
   id: {
@@ -52,5 +53,10 @@ const Fornecedor = sequelize.define('Fornecedor', {
 }, {
   tableName: 'fornecedores'
 });
+
+export const getFornecedorModel = () => {
+  const tenant = getTenantSchema();
+  return Fornecedor.schema(tenant);
+};
 
 export default Fornecedor;

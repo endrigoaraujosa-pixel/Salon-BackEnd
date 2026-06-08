@@ -1,10 +1,9 @@
-import PerfilAcesso from '../models/PerfilAcesso.js';
-import User from '../models/User.js';
-
+import { getPerfilAcessoModel } from "../models/PerfilAcesso.js";
+import { getUserModel } from "../models/User.js";
 // List all profiles
 const listarPerfis = async (req, res) => {
   try {
-    const perfis = await PerfilAcesso.findAll({
+    const perfis = await getPerfilAcessoModel().findAll({
       where: { deletado: 'N' },
       order: [['nome', 'ASC']]
     });
@@ -17,7 +16,7 @@ const listarPerfis = async (req, res) => {
 // Retrieve a single profile
 const obterPerfil = async (req, res) => {
   try {
-    const perfil = await PerfilAcesso.findByPk(req.params.id);
+    const perfil = await getPerfilAcessoModel().findByPk(req.params.id);
     if (!perfil || perfil.deletado === 'S') {
       return res.status(404).json({ detail: 'Perfil de acesso não encontrado.' });
     }
@@ -38,7 +37,7 @@ const criarPerfil = async (req, res) => {
       return res.status(400).json({ detail: 'As permissões são obrigatórias.' });
     }
 
-    const novoPerfil = await PerfilAcesso.create({
+    const novoPerfil = await getPerfilAcessoModel().create({
       nome: nome.trim(),
       descricao: descricao || '',
       permissoes,
@@ -54,7 +53,7 @@ const criarPerfil = async (req, res) => {
 const atualizarPerfil = async (req, res) => {
   try {
     const { nome, descricao, permissoes, ativo } = req.body;
-    const perfil = await PerfilAcesso.findByPk(req.params.id);
+    const perfil = await getPerfilAcessoModel().findByPk(req.params.id);
     if (!perfil || perfil.deletado === 'S') {
       return res.status(404).json({ detail: 'Perfil de acesso não encontrado.' });
     }
@@ -80,18 +79,18 @@ const atualizarPerfil = async (req, res) => {
 // Soft delete a profile
 const deletarPerfil = async (req, res) => {
   try {
-    const perfil = await PerfilAcesso.findByPk(req.params.id);
+    const perfil = await getPerfilAcessoModel().findByPk(req.params.id);
     if (!perfil || perfil.deletado === 'S') {
       return res.status(404).json({ detail: 'Perfil de acesso não encontrado.' });
     }
 
     // Check if any user is currently linked to this profile
-    const userCount = await User.count({
+    const userCount = await getUserModel().count({
       where: { perfil_acesso_id: perfil.id, deletado: 'N' }
     });
     if (userCount > 0) {
-      return res.status(400).json({ 
-        detail: 'Este perfil não pode ser excluído pois está vinculado a um ou mais usuários ativos.' 
+      return res.status(400).json({
+        detail: 'Este perfil não pode ser excluído pois está vinculado a um ou mais usuários ativos.'
       });
     }
 
@@ -112,9 +111,7 @@ const deletarPerfil = async (req, res) => {
 };
 
 export {
-  listarPerfis,
-  obterPerfil,
-  criarPerfil,
-  atualizarPerfil,
-  deletarPerfil
+  atualizarPerfil, criarPerfil, deletarPerfil, listarPerfis,
+  obterPerfil
 };
+

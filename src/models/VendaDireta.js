@@ -1,6 +1,7 @@
 import { DataTypes } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const VendaDireta = sequelize.define('VendaDireta', {
   id: {
@@ -98,5 +99,10 @@ const VendaDireta = sequelize.define('VendaDireta', {
   tableName: 'vendas_diretas',
   timestamps: false
 });
+
+export const getVendaDiretaModel = () => {
+  const tenant = getTenantSchema();
+  return VendaDireta.schema(tenant);
+};
 
 export default VendaDireta;

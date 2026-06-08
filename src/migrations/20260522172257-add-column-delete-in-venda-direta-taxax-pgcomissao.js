@@ -8,7 +8,6 @@ export default {
 
     // Add soft delete columns to all tables
     for (const table of tables) {
-      const tableDesc = await queryInterface.describeTable(table);
       await queryInterface.addColumn(table, 'deletado', {
         type: Sequelize.STRING(1),
         defaultValue: 'N',

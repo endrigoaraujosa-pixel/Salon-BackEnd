@@ -1,15 +1,16 @@
-import Cliente from '../models/Cliente.js';
-import Colaborador from '../models/Colaborador.js';
-import Servico from '../models/Servico.js';
-import Produto from '../models/Produto.js';
-import User from '../models/User.js';
-import Agendamento from '../models/Agendamento.js';
-import VendaDireta from '../models/VendaDireta.js';
-import Despesa from '../models/Despesa.js';
-import OutrasReceitas from '../models/OutrasReceitas.js';
-import Categoria from '../models/Categoria.js';
-import Fornecedor from '../models/Fornecedor.js';
-import Desconto from '../models/Desconto.js';
+
+import { getClienteModel } from '../models/Cliente.js';
+import { getColaboradorModel } from '../models/Colaborador.js';
+import { getProdutoModel } from '../models/Produto.js';
+import { getServicoModel } from '../models/Servico.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
+import { getUserModel } from '../models/User.js';
+import { getDescontoModel } from '../models/Desconto.js';
+import { getVendaDiretaModel } from '../models/VendaDireta.js';
+import { getDespesaModel } from '../models/Despesa.js';
+import { getOutrasReceitasModel } from '../models/OutrasReceitas.js';
+import { getCategoriaModel } from '../models/Categoria.js';
+import { getFornecedorModel } from '../models/Fornecedor.js';
 
 const getDeletados = async (req, res) => {
   const { modulo } = req.query;
@@ -19,41 +20,41 @@ const getDeletados = async (req, res) => {
 
     switch (modulo) {
       case 'cliente':
-        rawRecords = await Cliente.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getClienteModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'colaborador':
-        rawRecords = await Colaborador.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getColaboradorModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'servico':
-        rawRecords = await Servico.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getServicoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'produto':
-        rawRecords = await Produto.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getProdutoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'usuario':
-        rawRecords = await User.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getUserModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'agendamento':
-        rawRecords = await Agendamento.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getAgendamentoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'venda_direta':
       case 'venda':
-        rawRecords = await VendaDireta.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getVendaDiretaModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'despesa':
-        rawRecords = await Despesa.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getDespesaModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'receita':
-        rawRecords = await OutrasReceitas.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getOutrasReceitasModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'categoria':
-        rawRecords = await Categoria.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getCategoriaModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'fornecedor':
-        rawRecords = await Fornecedor.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getFornecedorModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       case 'desconto':
-        rawRecords = await Desconto.findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        rawRecords = await getDescontoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
       default:
         return res.status(400).json({ detail: 'Módulo inválido para consulta de auditoria.' });
@@ -106,41 +107,41 @@ const restoreRecord = async (req, res) => {
     let model;
     switch (modulo) {
       case 'cliente':
-        model = Cliente;
+        model = getClienteModel();
         break;
       case 'colaborador':
-        model = Colaborador;
+        model = getColaboradorModel();
         break;
       case 'servico':
-        model = Servico;
+        model = getServicoModel();
         break;
       case 'produto':
-        model = Produto;
+        model = getProdutoModel();
         break;
       case 'usuario':
-        model = User;
+        model = getUserModel();
         break;
       case 'agendamento':
-        model = Agendamento;
+        model = getAgendamentoModel();
         break;
       case 'venda_direta':
       case 'venda':
-        model = VendaDireta;
+        model = getVendaDiretaModel();
         break;
       case 'despesa':
-        model = Despesa;
+        model = getDespesaModel();
         break;
       case 'receita':
-        model = OutrasReceitas;
+        model = getOutrasReceitasModel();
         break;
       case 'categoria':
-        model = Categoria;
+        model = getCategoriaModel();
         break;
       case 'fornecedor':
-        model = Fornecedor;
+        model = getFornecedorModel();
         break;
       case 'desconto':
-        model = Desconto;
+        model = getDescontoModel();
         break;
       default:
         return res.status(400).json({ detail: 'Módulo inválido para restauração.' });
@@ -168,3 +169,4 @@ const restoreRecord = async (req, res) => {
 };
 
 export { getDeletados, restoreRecord };
+

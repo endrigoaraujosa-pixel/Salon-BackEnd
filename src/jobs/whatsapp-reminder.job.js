@@ -1,10 +1,13 @@
-import WhatsappLembrete from '../models/WhatsappLembrete.js';
-import Agendamento from '../models/Agendamento.js';
-import Cliente from '../models/Cliente.js';
-import WhatsappConfig from '../models/WhatsappConfig.js';
+import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
+import { getWhatsappConfigModel } from '../models/WhatsappConfig.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
 import { Op } from 'sequelize';
+import { sequelize } from '../config/db.js';
+import { tenantStorage } from '../config/tenantContext.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
+import { getClienteModel } from '../models/Cliente.js';
+
 
 /**
  * Auxiliar para formatar data e hora de forma neutra de fuso horário.
@@ -35,13 +38,14 @@ function parseDateString(dateInput) {
 /**
  * Busca e envia todos os lembretes pendentes que estão na hora programada de envio.
  */
-export async function processReminders() {
-  console.log(`[WhatsAppReminderJob] Processando lembretes pendentes às ${new Date().toISOString()}`);
+export async function runSingleTenantProcessReminders(schema = 'default') {
+  console.log(`[WhatsAppReminderJob] Processando lembretes pendentes [Schema: ${schema}] às ${new Date().toISOString()}`);
+
 
   try {
     const now = new Date();
     // Buscar lembretes que estão Pendentes e que já deveriam ter sido enviados
-    const pendentes = await WhatsappLembrete.findAll({
+    const pendentes = await getWhatsappLembreteModel().findAll({
       where: {
         status: 'Pendente',
         data_programada: {
@@ -60,7 +64,7 @@ export async function processReminders() {
     console.log(`[WhatsAppReminderJob] Encontrados ${pendentes.length} lembrete(s) para processar.`);
 
     // Consultar as configurações do WhatsApp para verificar se o envio está ativo
-    const config = await WhatsappConfig.findOne();
+    const config = await getWhatsappConfigModel().findOne();
     if (!config || Number(config.ativo) !== 1) {
       console.log('[WhatsAppReminderJob] Envio automático inativo nas configurações do sistema. Ignorando lote.');
       return;
@@ -74,7 +78,7 @@ export async function processReminders() {
 
       try {
         // Obter agendamento associado
-        const ag = await Agendamento.findByPk(reminder.agendamento_id);
+        const ag = await getAgendamentoModel().findByPk(reminder.agendamento_id);
         if (!ag || ag.deletado === 'S') {
           console.log(`[WhatsAppReminderJob] Agendamento ID ${reminder.agendamento_id} foi deletado ou não existe. Lembrete Cancelado.`);
           reminder.status = 'Cancelado';
@@ -93,7 +97,7 @@ export async function processReminders() {
         }
 
         // Obter cliente
-        const cliente = await Cliente.findByPk(ag.cliente_id);
+        const cliente = await getClienteModel().findByPk(ag.cliente_id);
         if (!cliente || cliente.deletado === 'S') {
           console.log(`[WhatsAppReminderJob] Cliente ID ${ag.cliente_id} deletado ou não encontrado.`);
           reminder.status = 'Falhou';
@@ -159,7 +163,43 @@ export async function processReminders() {
       }
     }
   } catch (error) {
-    console.error('[WhatsAppReminderJob] Erro geral na execução do processReminders:', error);
+    console.error('[WhatsAppReminderJob] Erro geral na execução do runSingleTenantProcessReminders:', error);
+  }
+}
+
+/**
+ * Busca e envia todos os lembretes pendentes iterando sobre todos os schemas ativos do PostgreSQL.
+ * Caso o dialeto não seja PostgreSQL (ex: SQLite), roda no contexto padrão.
+ */
+export async function processReminders() {
+  const isPostgres = sequelize.options.dialect === 'postgres';
+
+  if (!isPostgres) {
+    // SQLite/development ou outros dialetos
+    await runSingleTenantProcessReminders('default');
+    return;
+  }
+
+  // PostgreSQL: Iterar sobre todos os schemas ativos do banco
+  try {
+    const results = await sequelize.query(`
+      SELECT schema_name 
+      FROM information_schema.schemata 
+      WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast') 
+        AND schema_name NOT LIKE 'pg_temp_%' 
+        AND schema_name NOT LIKE 'pg_toast_temp_%';
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    const schemas = results.map(row => row.schema_name);
+
+    for (const schema of schemas) {
+      // Executa de forma isolada usando o AsyncLocalStorage
+      await tenantStorage.run(schema, async () => {
+        await runSingleTenantProcessReminders(schema);
+      });
+    }
+  } catch (error) {
+    console.error('[WhatsAppReminderJob] Erro ao processar lembretes nos schemas:', error);
   }
 }
 
@@ -173,3 +213,4 @@ export function startReminderJob() {
   // Agendamento periódico
   setInterval(processReminders, 60000);
 }
+

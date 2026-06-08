@@ -1,6 +1,7 @@
 export default {
   async up (queryInterface, Sequelize) {
-    await queryInterface.createTable('vendas_diretas', {
+     const currentSchema = queryInterface.sequelize.options.schema;
+    await queryInterface.createTable({schema: currentSchema, tableName: 'vendas_diretas'}, {
       id: {
         type: Sequelize.STRING(36),
         primaryKey: true,

@@ -1,13 +1,13 @@
 import { sequelize } from '../config/db.js';
-import Produto from '../models/Produto.js';
-import EntradaEstoque from '../models/EntradaEstoque.js';
-import EntradaEstoqueItem from '../models/EntradaEstoqueItem.js';
-import MovimentacaoEstoque from '../models/MovimentacaoEstoque.js';
+import { getEntradaEstoqueModel } from '../models/EntradaEstoque.js';
+import { getEntradaEstoqueItemModel } from '../models/EntradaEstoqueItem.js';
+import { getMovimentacaoEstoqueModel } from '../models/MovimentacaoEstoque.js';
+import { getProdutoModel } from '../models/Produto.js';
 
 // List all stock entries
 const listEntradas = async (req, res) => {
   try {
-    const entradas = await EntradaEstoque.findAll({
+    const entradas = await getEntradaEstoqueModel().findAll({
       order: [['data_entrada', 'DESC'], ['createdAt', 'DESC']]
     });
     res.json(entradas);
@@ -20,11 +20,11 @@ const listEntradas = async (req, res) => {
 const getEntradaDetail = async (req, res) => {
   try {
     const { id } = req.params;
-    const entrada = await EntradaEstoque.findByPk(id);
+    const entrada = await getEntradaEstoqueModel().findByPk(id);
     if (!entrada) {
       return res.status(404).json({ detail: 'Entrada de estoque não encontrada.' });
     }
-    const itens = await EntradaEstoqueItem.findAll({
+    const itens = await getEntradaEstoqueItemModel().findAll({
       where: { entrada_estoque_id: id }
     });
     res.json({
@@ -68,7 +68,7 @@ const registrarEntrada = async (req, res) => {
       duplicateQuery.fornecedor_nome = fornecedor_nome.trim();
     }
 
-    const existingDuplicate = await EntradaEstoque.findOne({
+    const existingDuplicate = await getEntradaEstoqueModel().findOne({
       where: duplicateQuery,
       transaction
     });
@@ -83,7 +83,7 @@ const registrarEntrada = async (req, res) => {
     const processedItens = [];
 
     // Create the stock entry record (Sequelize will auto-generate UUID for id)
-    const entrada = await EntradaEstoque.create({
+    const entrada = await getEntradaEstoqueModel().create({
       fornecedor_id,
       fornecedor_nome,
       data_entrada,
@@ -97,7 +97,7 @@ const registrarEntrada = async (req, res) => {
       const { produto_id, quantidade, valor_custo } = item;
 
       if (!produto_id || quantidade === undefined || valor_custo === undefined) {
-        await transaction.rollback();
+        await transaction.rollback(); 
         return res.status(400).json({ detail: 'Dados de item incompletos. Informe Produto, Quantidade e Custo.' });
       }
 
@@ -106,7 +106,7 @@ const registrarEntrada = async (req, res) => {
       const subtotal = Number((qte * custo).toFixed(2));
       valorTotal += subtotal;
 
-      const product = await Produto.findByPk(produto_id, { transaction });
+      const product = await getProdutoModel().findByPk(produto_id, { transaction });
       if (!product || product.deletado === 'S') {
         await transaction.rollback();
         return res.status(404).json({ detail: `Produto ID ${produto_id} não encontrado ou inativo.` });
@@ -123,7 +123,7 @@ const registrarEntrada = async (req, res) => {
       }, { transaction });
 
       // Save item details
-      const itemRecord = await EntradaEstoqueItem.create({
+      const itemRecord = await getEntradaEstoqueItemModel().create({
         entrada_estoque_id: entrada.id,
         produto_id,
         produto_nome: product.nome,
@@ -135,7 +135,7 @@ const registrarEntrada = async (req, res) => {
       processedItens.push(itemRecord);
 
       // Log the movement for traceability
-      await MovimentacaoEstoque.create({
+      await getMovimentacaoEstoqueModel().create({
         produto_id,
         produto_nome: product.nome,
         tipo: 'entrada',
@@ -171,7 +171,7 @@ const registrarEntrada = async (req, res) => {
   }
 };
 
-// Register physical inventory / adjustment
+// Register physical inventory / adjustment 
 const registrarAjusteInventario = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
@@ -182,7 +182,7 @@ const registrarAjusteInventario = async (req, res) => {
       return res.status(400).json({ detail: 'Produto e quantidade contada são obrigatórios.' });
     }
 
-    const product = await Produto.findByPk(produto_id, { transaction });
+    const product = await getProdutoModel().findByPk(produto_id, { transaction });
     if (!product || product.deletado === 'S') {
       await transaction.rollback();
       return res.status(404).json({ detail: 'Produto não encontrado ou inativo.' });
@@ -198,7 +198,7 @@ const registrarAjusteInventario = async (req, res) => {
     }, { transaction });
 
     // Log the adjustment movement for full traceability
-    const movement = await MovimentacaoEstoque.create({
+    const movement = await getMovimentacaoEstoqueModel().create({
       produto_id,
       produto_nome: product.nome,
       tipo: 'ajuste',
@@ -226,7 +226,7 @@ const registrarAjusteInventario = async (req, res) => {
 // List all stock movements (traceability history)
 const listMovimentacoes = async (req, res) => {
   try {
-    const movements = await MovimentacaoEstoque.findAll({
+    const movements = await getMovimentacaoEstoqueModel().findAll({
       order: [['createdAt', 'DESC']]
     });
     res.json(movements);
@@ -236,9 +236,6 @@ const listMovimentacoes = async (req, res) => {
 };
 
 export {
-  listEntradas,
-  getEntradaDetail,
-  registrarEntrada,
-  registrarAjusteInventario,
-  listMovimentacoes
+  getEntradaDetail, listEntradas, listMovimentacoes, registrarAjusteInventario, registrarEntrada
 };
+

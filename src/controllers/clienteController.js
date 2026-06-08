@@ -1,11 +1,11 @@
-import Cliente from '../models/Cliente.js';
-import Agendamento from '../models/Agendamento.js';
-import VendaDireta from '../models/VendaDireta.js';
 import { Op } from 'sequelize';
+import { getClienteModel } from '../models/Cliente.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
+import { getVendaDiretaModel } from '../models/VendaDireta.js';
 
 const listClientes = async (req, res) => {
   try {
-    const clientes = await Cliente.findAll({
+    const clientes = await getClienteModel().findAll({
       where: { deletado: 'N' },
       order: [['nome', 'ASC']]
     });
@@ -17,7 +17,7 @@ const listClientes = async (req, res) => {
 
 const createCliente = async (req, res) => {
   try {
-    const cliente = await Cliente.create(req.body);
+    const cliente = await getClienteModel().create(req.body);
     res.status(201).json(cliente);
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -26,9 +26,9 @@ const createCliente = async (req, res) => {
 
 const updateCliente = async (req, res) => {
   try {
-    const cliente = await Cliente.findByPk(req.params.cid);
+    const cliente = await getClienteModel().findByPk(req.params.cid);
     if (!cliente) return res.status(404).json({ detail: 'Cliente não encontrado' });
-    
+
     await cliente.update(req.body);
     res.json(cliente);
   } catch (error) {
@@ -38,7 +38,7 @@ const updateCliente = async (req, res) => {
 
 const deleteCliente = async (req, res) => {
   try {
-    const cliente = await Cliente.findByPk(req.params.cid);
+    const cliente = await getClienteModel().findByPk(req.params.cid);
     if (cliente) {
       await cliente.update({
         deletado: 'S',
@@ -54,16 +54,16 @@ const deleteCliente = async (req, res) => {
 
 const historicoCliente = async (req, res) => {
   try {
-    const cliente = await Cliente.findByPk(req.params.cid);
+    const cliente = await getClienteModel().findByPk(req.params.cid);
     if (!cliente) return res.status(404).json({ detail: 'Cliente não encontrado' });
 
-    const agendamentos = await Agendamento.findAll({
+    const agendamentos = await getAgendamentoModel().findAll({
       where: { cliente_id: req.params.cid, deletado: 'N' },
       order: [['data_hora', 'DESC']],
       limit: 100
     });
 
-    const vendas = await VendaDireta.findAll({
+    const vendas = await getVendaDiretaModel().findAll({
       where: { cliente_id: req.params.cid, deletado: 'N' },
       order: [['data_venda', 'DESC']],
       limit: 100
@@ -89,7 +89,7 @@ const rankingClientes = async (req, res) => {
   try {
     const { startDate, endDate, limit = 10, type = 'consumo' } = req.query;
     
-    const clientes = await Cliente.findAll({
+    const clientes = await getClienteModel().findAll({
       where: { deletado: 'N' }
     });
 
@@ -108,21 +108,24 @@ const rankingClientes = async (req, res) => {
       vendaWhere.data_venda = dateRange;
     }
 
-    const agendamentos = await Agendamento.findAll({
+    const AgendamentoModel = getAgendamentoModel();
+    const VendaDiretaModel = getVendaDiretaModel();
+
+    const agendamentos = await AgendamentoModel.findAll({
       attributes: [
         'cliente_id',
-        [Agendamento.sequelize.fn('SUM', Agendamento.sequelize.col('valor_total')), 'total_gasto'],
-        [Agendamento.sequelize.fn('COUNT', Agendamento.sequelize.col('id')), 'total_visitas']
+        [AgendamentoModel.sequelize.fn('SUM', AgendamentoModel.sequelize.col('valor_total')), 'total_gasto'],
+        [AgendamentoModel.sequelize.fn('COUNT', AgendamentoModel.sequelize.col('id')), 'total_visitas']
       ],
       where: agendWhere,
       group: ['cliente_id'],
       raw: true
     });
 
-    const vendas = await VendaDireta.findAll({
+    const vendas = await VendaDiretaModel.findAll({
       attributes: [
         'cliente_id',
-        [VendaDireta.sequelize.fn('SUM', VendaDireta.sequelize.col('valor_total')), 'total_gasto']
+        [VendaDiretaModel.sequelize.fn('SUM', VendaDiretaModel.sequelize.col('valor_total')), 'total_gasto']
       ],
       where: vendaWhere,
       group: ['cliente_id'],

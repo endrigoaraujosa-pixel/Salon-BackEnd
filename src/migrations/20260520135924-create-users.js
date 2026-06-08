@@ -1,6 +1,7 @@
 export default {
-  async up (queryInterface, Sequelize) {
-    await queryInterface.createTable('users', {
+  async up(queryInterface, Sequelize) {
+    const currentSchema = queryInterface.sequelize.options.schema;
+    await queryInterface.createTable({ schema: currentSchema, tableName: 'users' }, {
       id: {
         type: Sequelize.STRING(36),
         primaryKey: true,
@@ -56,7 +57,7 @@ export default {
     });
   },
 
-  async down (queryInterface, Sequelize) {
+  async down({ context: queryInterface, Sequelize }) {
     await queryInterface.dropTable('users');
   }
 };
