@@ -39,7 +39,7 @@ services:
     labels:
       - "traefik.enable=true"
       # O Traefik agora escuta dinamicamente o domínio do frontend (e subdomínios dos salões) que você definir no Portainer
-      - "traefik.http.routers.salon-frontend.rule=Host(`${BASE_DOMAIN}`) || HostRegexp(`^.+\\.${FRONTEND_DOMAIN}`)"
+      - "traefik.http.routers.salon-frontend.rule=Host(`${BASE_DOMAIN}`) || Host(`keilafrutuoso.${BASE_DOMAIN}`) || HostRegexp(`^.+\\.${FRONTEND_DOMAIN}`)"
       - "traefik.http.routers.salon-frontend.entrypoints=websecure"
       - "traefik.http.routers.salon-frontend.tls=true"
       - "traefik.http.routers.salon-frontend.tls.certresolver=letsencryptresolver"
