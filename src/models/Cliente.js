@@ -33,6 +33,10 @@ const Cliente = sequelize.define('Cliente', {
     type: DataTypes.TEXT,
     defaultValue: ''
   },
+  foto: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

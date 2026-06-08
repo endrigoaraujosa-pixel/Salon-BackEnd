@@ -5,7 +5,7 @@ const listColab = async (req, res) => {
     const isAdmin = req.user && req.user.role === 'admin';
     const attributes = isAdmin 
       ? undefined 
-      : ['id', 'nome', 'cargo', 'ativo', 'deletado'];
+      : ['id', 'nome', 'cargo', 'ativo', 'deletado', 'foto'];
 
     const cols = await getColaboradorModel().findAll({
       where: { deletado: 'N' },

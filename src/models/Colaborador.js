@@ -41,6 +41,10 @@ const Colaborador = sequelize.define('Colaborador', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  foto: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

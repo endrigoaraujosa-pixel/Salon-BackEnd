@@ -1,7 +1,7 @@
-import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
 
-export default {
+module.exports = {
   async up(queryInterface, Sequelize) {
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash('admin', salt);
@@ -23,6 +23,6 @@ export default {
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.bulkDelete('users', { email: 'admin@salon.com' }, {});
+    await queryInterface.bulkDelete({ schema: 'company_salon', tableName: 'users' }, { email: 'admin@salon.com' }, {});
   }
 };
