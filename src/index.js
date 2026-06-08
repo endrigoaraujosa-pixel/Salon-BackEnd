@@ -37,14 +37,15 @@ const allowedOrigins = [
   'http://localhost:4000',
   'http://localhost:3000',
   'http://127.0.0.1:4000',
-  'http://salon.localhost.local:4000'
 ];
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
+    console.log(origin);
+    
     const isAllowed = allowedOrigins.includes(origin) ||
-      /^https:\/\/([a-zA-Z0-9-]+\.)*salonstudio\.com\.br$/.test(origin);
+      /^(https:\/\/([a-zA-Z0-9-]+\.)*salonstudio\.com\.br|http:\/\/([a-zA-Z0-9-]+)\.localhost(?::\d+)?)$/.test(origin)
     if (isAllowed) {
       callback(null, true);
     } else {
