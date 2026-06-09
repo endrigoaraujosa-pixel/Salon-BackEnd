@@ -49,27 +49,10 @@ const dashboard = async (req, res) => {
       colabId = userMappedColabId;
     }
 
-    let totalClientes = 0;
-    if (colabId) {
-      // Find agendamentos belonging to this professional to identify their unique clients
-      const colabAgs = await getAgendamentoModel().findAll({
-        attributes: ['itens', 'cliente_nome'],
-        where: { deletado: 'N' }
-      });
-      const clientNames = new Set();
-      colabAgs.forEach(ag => {
-        let itens = [];
-        try { itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens; } catch(e) {}
-        if (Array.isArray(itens) && itens.some(item => item.colaborador_id === colabId || item.auxiliar_id === colabId)) {
-          if (ag.cliente_nome) clientNames.add(ag.cliente_nome.toLowerCase().trim());
-        }
-      });
-      totalClientes = clientNames.size;
-    } else {
-      totalClientes = await getClienteModel().count({ where: { deletado: 'N' } });
-    }
+    // Total de clientes sempre reflete o total geral do sistema (independente do filtro de colaborador)
+    const totalClientes = await getClienteModel().count({ where: { deletado: 'N' } });
 
-    const totalColaboradores = colabId ? 1 : await getColaboradorModel().count({ where: { ativo: true, deletado: 'N' } });
+    const totalColaboradores = await getColaboradorModel().count({ where: { ativo: true, deletado: 'N' } });
     
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
