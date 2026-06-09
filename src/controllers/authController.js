@@ -3,6 +3,13 @@ import jwt from 'jsonwebtoken';
 import { getUserModel } from '../models/User.js';
 import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
 
+const isMobileRequest = (req) => {
+  const userAgent = req.headers['user-agent'] || '';
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+  const isMobileHeader = req.headers['x-is-mobile'] === 'true';
+  return isMobileUA || isMobileHeader;
+};
+
 const login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -12,6 +19,8 @@ const login = async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password_hash)) || !user.ativo) {
       return res.status(400).json({ detail: 'Email ou senha inválidos' });
     }
+
+    const isMobile = isMobileRequest(req);
 
     const token = jwt.sign(
       { sub: user.id, email: user.email },
@@ -82,23 +91,27 @@ const refreshToken = async (req, res) => {
       return res.status(401).json({ detail: 'Usuário não encontrado ou inativo' });
     }
 
+    const isMobile = isMobileRequest(req);
+    const tokenExpiry = isMobile ? '30m' : '15m';
+    const cookieMaxAge = isMobile ? 30 * 60 * 1000 : 15 * 60 * 1000;
+
     const newAccessToken = jwt.sign(
       { sub: user.id, email: user.email },
       process.env.JWT_SECRET,
-      { expiresIn: '15m' }
+      { expiresIn: tokenExpiry }
     );
 
     const newRefreshToken = jwt.sign(
       { sub: user.id },
       process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh',
-      { expiresIn: '1h' }
+      { expiresIn: isMobile ? '24h' : '1h' }
     );
 
     res.cookie('access_token', newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 15 * 60 * 1000,
+      maxAge: cookieMaxAge,
       path: '/'
     });
 
@@ -106,7 +119,7 @@ const refreshToken = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
+      maxAge: isMobile ? 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000,
       path: '/'
     });
 
