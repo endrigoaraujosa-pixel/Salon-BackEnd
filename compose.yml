@@ -3,7 +3,7 @@
 services:
 
   db:
-    image: postgres:17-alpine
+    image: postgres:17
     # set shared memory limit when using docker compose
     shm_size: 128mb
     # or set shared memory limit when deploy via swarm stack

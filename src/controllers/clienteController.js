@@ -17,6 +17,19 @@ const listClientes = async (req, res) => {
 
 const createCliente = async (req, res) => {
   try {
+    const { telefone } = req.body;
+    if (telefone) {
+      const cleanInput = telefone.replace(/\D/g, "");
+      if (cleanInput.length > 0) {
+        const clientes = await getClienteModel().findAll({
+          where: { deletado: 'N' }
+        });
+        const duplicate = clientes.find(c => (c.telefone || "").replace(/\D/g, "") === cleanInput);
+        if (duplicate) {
+          return res.status(400).json({ detail: `Já existe um cliente ativo (${duplicate.nome}) cadastrado com este número de telefone.` });
+        }
+      }
+    }
     const cliente = await getClienteModel().create(req.body);
     res.status(201).json(cliente);
   } catch (error) {
@@ -28,6 +41,20 @@ const updateCliente = async (req, res) => {
   try {
     const cliente = await getClienteModel().findByPk(req.params.cid);
     if (!cliente) return res.status(404).json({ detail: 'Cliente não encontrado' });
+
+    const { telefone } = req.body;
+    if (telefone) {
+      const cleanInput = telefone.replace(/\D/g, "");
+      if (cleanInput.length > 0) {
+        const clientes = await getClienteModel().findAll({
+          where: { deletado: 'N', id: { [Op.ne]: req.params.cid } }
+        });
+        const duplicate = clientes.find(c => (c.telefone || "").replace(/\D/g, "") === cleanInput);
+        if (duplicate) {
+          return res.status(400).json({ detail: `Já existe outro cliente ativo (${duplicate.nome}) cadastrado com este número de telefone.` });
+        }
+      }
+    }
 
     await cliente.update(req.body);
     res.json(cliente);

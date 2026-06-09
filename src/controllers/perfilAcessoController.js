@@ -95,7 +95,7 @@ const deletarPerfil = async (req, res) => {
     }
 
     // Base default profiles cannot be deleted to avoid crashing the system
-    if (perfil.id === 'admin-profile-uuid-0000000000000000000' || perfil.id === 'func-profile-uuid-0000000000000000000') {
+    if (perfil.id === 'admin-profile-uuid-00000000000000000' || perfil.id === 'func-profile-uuid-000000000000000000') {
       return res.status(400).json({ detail: 'Os perfis base do sistema não podem ser excluídos.' });
     }
 
