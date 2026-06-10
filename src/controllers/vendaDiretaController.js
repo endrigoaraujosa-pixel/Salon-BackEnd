@@ -88,11 +88,17 @@ const createVenda = async (req, res) => {
         return res.status(400).json({ detail: `Produto não encontrado: ${item.produto_id}` });
       }
       const qtd = Number(item.quantidade);
-      if (produto.quantidade_estoque < qtd) {
-        await transaction.rollback();
-        return res.status(400).json({
-          detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${produto.quantidade_estoque}`
-        });
+      const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+      const neededStock = qtyPerUnit > 0 ? (qtd * qtyPerUnit) : qtd;
+      if (produto.quantidade_estoque < neededStock) {
+        if (!req.body.forcar_venda) {
+          const dispQty = qtyPerUnit > 0 ? (produto.quantidade_estoque / qtyPerUnit) : produto.quantidade_estoque;
+          await transaction.rollback();
+          return res.status(400).json({
+            code: 'ESTOQUE_INSUFICIENTE',
+            detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${Number(dispQty.toFixed(3))}`
+          });
+        }
       }
 
       const preco_unitario = Number(item.preco_unitario || produto.preco_venda);
@@ -279,7 +285,9 @@ const addPagamentos = async (req, res) => {
       for (const item of itensVenda) {
         const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
         if (produto) {
-          produto.quantidade_estoque = Math.max(0, Number((produto.quantidade_estoque - Number(item.quantidade)).toFixed(3)));
+          const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+          const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+          produto.quantidade_estoque = Number((produto.quantidade_estoque - stockAdjustment).toFixed(3));
           await produto.save({ transaction });
         }
       }
@@ -332,7 +340,9 @@ const updatePagamento = async (req, res) => {
         for (const item of itensVenda) {
           const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
           if (produto) {
-            produto.quantidade_estoque = Number((produto.quantidade_estoque + Number(item.quantidade)).toFixed(3));
+            const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+            const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+            produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
             await produto.save({ transaction });
           }
         }
@@ -345,7 +355,9 @@ const updatePagamento = async (req, res) => {
         for (const item of itensVenda) {
           const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
           if (produto) {
-            produto.quantidade_estoque = Math.max(0, Number((produto.quantidade_estoque - Number(item.quantidade)).toFixed(3)));
+            const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+            const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+            produto.quantidade_estoque = Number((produto.quantidade_estoque - stockAdjustment).toFixed(3));
             await produto.save({ transaction });
           }
         }
@@ -414,7 +426,9 @@ const deletePagamento = async (req, res) => {
         for (const item of itensVenda) {
           const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
           if (produto) {
-            produto.quantidade_estoque = Number((produto.quantidade_estoque + Number(item.quantidade)).toFixed(3));
+            const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+            const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+            produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
             await produto.save({ transaction });
           }
         }
@@ -561,12 +575,19 @@ const addItemCarrinho = async (req, res) => {
       .filter(i => i.produto_id === produto_id)
       .reduce((acc, i) => acc + Number(i.quantidade), 0);
 
-    const estoqueDisponivel = produto.quantidade_estoque - qtdJaNoCarrinho;
-    if (estoqueDisponivel < qtd) {
-      await transaction.rollback();
-      return res.status(400).json({
-        detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${estoqueDisponivel}`
-      });
+    const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+    const neededStock = qtyPerUnit > 0 ? (qtd * qtyPerUnit) : qtd;
+    const stockJaNoCarrinho = qtyPerUnit > 0 ? (qtdJaNoCarrinho * qtyPerUnit) : qtdJaNoCarrinho;
+    const estoqueDisponivel = produto.quantidade_estoque - stockJaNoCarrinho;
+    if (estoqueDisponivel < neededStock) {
+      if (!req.body.forcar_venda) {
+        const dispQty = qtyPerUnit > 0 ? (estoqueDisponivel / qtyPerUnit) : estoqueDisponivel;
+        await transaction.rollback();
+        return res.status(400).json({
+          code: 'ESTOQUE_INSUFICIENTE',
+          detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${Number(dispQty.toFixed(3))}`
+        });
+      }
     }
 
     const precoUnit = Number(preco_unitario || produto.preco_venda);
@@ -647,12 +668,19 @@ const updateItemCarrinho = async (req, res) => {
       .filter((_, i) => i !== itemIndex && itens[i].produto_id === item.produto_id)
       .reduce((acc, i) => acc + Number(i.quantidade), 0);
 
-    const estoqueDisponivel = produto.quantidade_estoque - qtdOutrosItens;
-    if (estoqueDisponivel < qtd) {
-      await transaction.rollback();
-      return res.status(400).json({
-        detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${estoqueDisponivel}`
-      });
+    const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+    const neededStock = qtyPerUnit > 0 ? (qtd * qtyPerUnit) : qtd;
+    const stockOutrosItens = qtyPerUnit > 0 ? (qtdOutrosItens * qtyPerUnit) : qtdOutrosItens;
+    const estoqueDisponivel = produto.quantidade_estoque - stockOutrosItens;
+    if (estoqueDisponivel < neededStock) {
+      if (!req.body.forcar_venda) {
+        const dispQty = qtyPerUnit > 0 ? (estoqueDisponivel / qtyPerUnit) : estoqueDisponivel;
+        await transaction.rollback();
+        return res.status(400).json({
+          code: 'ESTOQUE_INSUFICIENTE',
+          detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${Number(dispQty.toFixed(3))}`
+        });
+      }
     }
 
     itens[itemIndex] = {

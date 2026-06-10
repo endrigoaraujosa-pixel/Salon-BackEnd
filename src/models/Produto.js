@@ -61,6 +61,10 @@ const Produto = sequelize.define('Produto', {
     type: DataTypes.DECIMAL(10, 4),
     defaultValue: 0
   },
+  estoque_convertido: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

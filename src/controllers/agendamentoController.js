@@ -12,7 +12,7 @@ import { getUserModel } from '../models/User.js';
 import { getDescontoModel } from '../models/Desconto.js';
 import { sequelize } from '../config/db.js';
 
-const adjustStock = async (ag, type, options = {}) => {
+export const adjustStock = async (ag, type, options = {}) => {
   const transaction = options.transaction;
   try {
     for (const item of ag.itens || []) {
@@ -21,13 +21,12 @@ const adjustStock = async (ag, type, options = {}) => {
         const prod = await getProdutoModel().findByPk(pu.produto_id, { transaction });
         if (prod) {
           const qty = Number(pu.quantidade || 0);
-          const qtyPerUnit = Number(pu.quantidade_por_unidade || prod.quantidade_por_unidade || 0);
-          const stockAdjustment = qtyPerUnit > 0 ? (qty / qtyPerUnit) : qty;
+          const stockAdjustment = qty;
 
           if (type === 'deduct') {
-            prod.quantidade_estoque -= stockAdjustment;
+            prod.quantidade_estoque = Number((prod.quantidade_estoque - stockAdjustment).toFixed(3));
           } else if (type === 'restore') {
-            prod.quantidade_estoque += stockAdjustment;
+            prod.quantidade_estoque = Number((prod.quantidade_estoque + stockAdjustment).toFixed(3));
           }
           await prod.save({ transaction });
         }
