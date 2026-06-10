@@ -195,9 +195,18 @@ const normalizeName = (name) => {
 };
 
 const listAgend = async (req, res) => {
-  const { data, mes, data_inicio, data_fim } = req.query;
+  const { data, mes, data_inicio, data_fim, numero } = req.query;
   const where = { deletado: 'N' };
-  if (data) {
+
+  if (numero && String(numero).trim() !== '') {
+    const rawNum = String(numero).trim();
+    const cleanNum = rawNum.replace(/^0+/, '');
+    const searchVal = cleanNum || '0';
+    where.numero = sequelize.where(
+      sequelize.cast(sequelize.col('numero'), 'varchar'),
+      { [Op.like]: `%${searchVal}%` }
+    );
+  } else if (data) {
     where.data_hora = { [Op.between]: [`${data}T00:00:00`, `${data}T23:59:59`] };
   } else if (mes) {
     const [year, month] = mes.split('-').map(Number);
