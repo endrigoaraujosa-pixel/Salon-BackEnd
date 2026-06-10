@@ -71,7 +71,7 @@ services:
     networks:
       - salonstudio
     environment:
-      - SERVER_URL=salonevolution.${BASE_DOMAIN}
+      - SERVER_URL=https://salonevolution.${BASE_DOMAIN}
       - DEL_INSTANCE=false
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
