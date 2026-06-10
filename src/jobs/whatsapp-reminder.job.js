@@ -187,7 +187,8 @@ export async function processReminders() {
       FROM information_schema.schemata 
       WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast') 
         AND schema_name NOT LIKE 'pg_temp_%' 
-        AND schema_name NOT LIKE 'pg_toast_temp_%';
+        AND schema_name NOT LIKE 'pg_toast_temp_%'
+        AND schema_name LIKE 'company_%';
     `, { type: sequelize.QueryTypes.SELECT });
 
     const schemas = results.map(row => row.schema_name);

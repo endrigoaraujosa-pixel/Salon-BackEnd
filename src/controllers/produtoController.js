@@ -23,6 +23,9 @@ const createProd = async (req, res) => {
     if (req.body.estoque_minimo !== undefined) {
       req.body.estoque_minimo = Number(Number(req.body.estoque_minimo || 0).toFixed(3));
     }
+    if (req.body.quantidade_por_unidade !== undefined) {
+      req.body.quantidade_por_unidade = Number(Number(req.body.quantidade_por_unidade || 0).toFixed(4));
+    }
     const prod = await getProdutoModel().create(req.body);
     res.status(201).json(prod);
   } catch (error) {
@@ -44,6 +47,9 @@ const updateProd = async (req, res) => {
     }
     if (req.body.estoque_minimo !== undefined) {
       req.body.estoque_minimo = Number(Number(req.body.estoque_minimo || 0).toFixed(3));
+    }
+    if (req.body.quantidade_por_unidade !== undefined) {
+      req.body.quantidade_por_unidade = Number(Number(req.body.quantidade_por_unidade || 0).toFixed(4));
     }
     await prod.update(req.body);
     res.json(prod);

@@ -119,8 +119,8 @@ agendRoutes.post('/:aid/aplicar-desconto', protect, requirePermission('agenda', 
 app.use('/api/agendamentos', agendRoutes);
 
 // Dashboard and Relatorios Routes
-app.get('/api/dashboard', protect, dashboard);
-app.get('/api/dashboard/detail', protect, dashboardDetail);
+app.get('/api/dashboard', protect, requirePermission('dashboard'), dashboard);
+app.get('/api/dashboard/detail', protect, requirePermission('dashboard'), dashboardDetail);
 app.get('/api/relatorios/dre', protect, admin, relatorioDre);
 app.get('/api/relatorios/caixa', protect, admin, relatorioCaixa);
 app.get('/api/relatorios/produtos', protect, admin, relatorioProdutos);

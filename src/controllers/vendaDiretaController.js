@@ -7,6 +7,8 @@ import { getClienteModel } from '../models/Cliente.js';
 import { getColaboradorModel } from '../models/Colaborador.js';
 import { getProdutoModel } from '../models/Produto.js';
 import { getDescontoModel } from '../models/Desconto.js';
+import { getUserModel } from '../models/User.js';
+import { sequelize } from '../config/db.js';
 
 const listVendas = async (req, res) => {
   const { data_inicio, data_fim, cliente_id, status } = req.query;
@@ -73,18 +75,21 @@ const createVenda = async (req, res) => {
     return res.status(400).json({ detail: 'Adicione ao menos um produto ao carrinho.' });
   }
 
+  const transaction = await sequelize.transaction();
   try {
     // Buscar e validar todos os produtos do carrinho
     const itensProcessados = [];
     let valor_total = 0;
 
     for (const item of carrinho) {
-      const produto = await Produto.findByPk(item.produto_id);
+      const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
       if (!produto) {
+        await transaction.rollback();
         return res.status(400).json({ detail: `Produto não encontrado: ${item.produto_id}` });
       }
       const qtd = Number(item.quantidade);
       if (produto.quantidade_estoque < qtd) {
+        await transaction.rollback();
         return res.status(400).json({
           detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${produto.quantidade_estoque}`
         });
@@ -99,7 +104,8 @@ const createVenda = async (req, res) => {
         quantidade: qtd,
         preco_unitario,
         subtotal,
-        comissao_pct: Number(produto.comissao || 0)
+        comissao_pct: Number(produto.comissao || 0),
+        custo_unitario: Number(produto.custo_unitario || 0)
       });
 
       valor_total += subtotal;
@@ -109,16 +115,16 @@ const createVenda = async (req, res) => {
     // O estoque só é deduzido quando o pagamento for registrado.
 
     let colaborador_nome = null;
-    const colab = await getColaboradorModel().findByPk(colaborador_id);
+    const colab = await getColaboradorModel().findByPk(colaborador_id, { transaction });
     if (colab) colaborador_nome = colab.nome;
 
     let cliente_nome = null;
     if (cliente_id) {
-      const cli = await getClienteModel().findByPk(cliente_id);
+      const cli = await getClienteModel().findByPk(cliente_id, { transaction });
       if (cli) cliente_nome = cli.nome;
     }
 
-    const maxNum = await getVendaDiretaModel().max('numero_venda') || 0;
+    const maxNum = await getVendaDiretaModel().max('numero_venda', { transaction }) || 0;
 
     // Campos legados preenchidos com o primeiro item (retrocompatibilidade)
     const primeiroItem = itensProcessados[0];
@@ -132,6 +138,7 @@ const createVenda = async (req, res) => {
       const dataVendaDateOnly = new Date(year, month - 1, day);
       const hojeDateOnly = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
       if (dataVendaDateOnly > hojeDateOnly) {
+        await transaction.rollback();
         return res.status(400).json({ detail: 'A data da venda não pode ser uma data futura.' });
       }
 
@@ -165,18 +172,22 @@ const createVenda = async (req, res) => {
       valor_total,
       valor_pago: 0,
       status: 'pendente'
-    });
+    }, { transaction });
 
+    await transaction.commit();
     res.status(201).json(venda);
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
 
 const deleteVenda = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
-    const venda = await getVendaDiretaModel().findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
     if (!venda || venda.deletado === 'S') {
+      await transaction.rollback();
       return res.status(404).json({ detail: 'Venda não encontrada' });
     }
 
@@ -185,12 +196,14 @@ const deleteVenda = async (req, res) => {
       where: {
         venda_direta_id: req.params.id,
         deletado: 'N'
-      }
+      },
+      transaction
     });
 
     const temPagamentos = countPagamentos > 0 || (venda.valor_pago && venda.valor_pago > 0) || venda.status === 'pago';
 
     if (temPagamentos) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Não é permitido excluir uma venda que possui pagamentos registrados.' });
     }
 
@@ -199,22 +212,28 @@ const deleteVenda = async (req, res) => {
       deletado: 'S',
       deletado_por: req.user ? req.user.name : 'Sistema',
       deletado_em: new Date()
-    });
+    }, { transaction });
 
+    await transaction.commit();
     res.json({ ok: true });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
 
 const addPagamentos = async (req, res) => {
   const { pagamentos, finalizar } = req.body;
+  const transaction = await sequelize.transaction();
 
   try {
-    const venda = await getVendaDiretaModel().findByPk(req.params.id);
-    if (!venda) return res.status(404).json({ detail: 'Venda não encontrada' });
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
+    if (!venda) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Venda não encontrada' });
+    }
 
-    const existingPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
+    const existingPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
     const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
     const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
     let adjustedPagamentos = [...pagamentos];
@@ -228,6 +247,7 @@ const addPagamentos = async (req, res) => {
         adjustedPagamentos[idxDinheiro].observacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (adjustedPagamentos[idxDinheiro].observacao ? ` - ${adjustedPagamentos[idxDinheiro].observacao}` : '');
         novoTotal = venda.valor_total;
       } else {
+        await transaction.rollback();
         return res.status(400).json({ detail: 'Valor excede o total devido' });
       }
     }
@@ -240,7 +260,7 @@ const addPagamentos = async (req, res) => {
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
         data_hora: new Date()
-      });
+      }, { transaction });
     }
 
     const eraStatusAnteriorPago = venda.status === 'pago';
@@ -249,7 +269,7 @@ const addPagamentos = async (req, res) => {
     if (ficouPago) {
       venda.status = 'pago';
     }
-    await venda.save();
+    await venda.save({ transaction });
 
     // Deduzir estoque apenas na primeira vez que a venda fica paga
     if (ficouPago && !eraStatusAnteriorPago) {
@@ -257,37 +277,43 @@ const addPagamentos = async (req, res) => {
         ? venda.itens
         : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
       for (const item of itensVenda) {
-        const produto = await getProdutoModel().findByPk(item.produto_id);
+        const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
         if (produto) {
           produto.quantidade_estoque = Math.max(0, Number((produto.quantidade_estoque - Number(item.quantidade)).toFixed(3)));
-          await produto.save();
+          await produto.save({ transaction });
         }
       }
     }
 
+    await transaction.commit();
     res.json({ ok: true, total_pago: novoTotal, saldo: venda.valor_total - novoTotal });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
 
 const updatePagamento = async (req, res) => {
   const { valor, forma_pagamento, observacao } = req.body;
+  const transaction = await sequelize.transaction();
 
   try {
-    const pagamento = await getPagamentoModel().findByPk(req.params.pid);
-    if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
+    const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
+    if (!pagamento) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Pagamento não encontrado' });
+    }
 
     pagamento.valor = valor;
     pagamento.forma_pagamento = forma_pagamento;
     pagamento.observacao = observacao || '';
-    await pagamento.save();
+    await pagamento.save({ transaction });
 
     // Recompute venda total paid and handle stock adjustments on status transition
-    const venda = await getVendaDiretaModel().findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
     if (venda) {
       const eraStatusAnteriorPago = venda.status === 'pago';
-      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
+      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       venda.valor_pago = totalPago;
       const ficouPago = totalPago >= venda.valor_total - 0.01;
@@ -296,7 +322,7 @@ const updatePagamento = async (req, res) => {
       } else {
         venda.status = 'pendente';
       }
-      await venda.save();
+      await venda.save({ transaction });
 
       // Devolver estoque se a venda deixou de ser paga (ficou pendente)
       if (eraStatusAnteriorPago && !ficouPago) {
@@ -304,10 +330,10 @@ const updatePagamento = async (req, res) => {
           ? venda.itens
           : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
         for (const item of itensVenda) {
-          const produto = await getProdutoModel().findByPk(item.produto_id);
+          const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
           if (produto) {
             produto.quantidade_estoque = Number((produto.quantidade_estoque + Number(item.quantidade)).toFixed(3));
-            await produto.save();
+            await produto.save({ transaction });
           }
         }
       }
@@ -317,49 +343,59 @@ const updatePagamento = async (req, res) => {
           ? venda.itens
           : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
         for (const item of itensVenda) {
-          const produto = await getProdutoModel().findByPk(item.produto_id);
+          const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
           if (produto) {
             produto.quantidade_estoque = Math.max(0, Number((produto.quantidade_estoque - Number(item.quantidade)).toFixed(3)));
-            await produto.save();
+            await produto.save({ transaction });
           }
         }
       }
     }
 
+    await transaction.commit();
     res.json({ ok: true });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
 
 const deletePagamento = async (req, res) => {
-  const { email, password } = req.query;
+  const email = req.body.auth_email || req.body.email || req.headers['x-auth-email'] || req.query.email;
+  const password = req.body.auth_password || req.body.password || req.headers['x-auth-password'] || req.query.password;
 
+  const transaction = await sequelize.transaction();
   try {
     if (!email || !password) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
     }
-    const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() } });
+    const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
     if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+      await transaction.rollback();
       return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
     }
     if (!authUser.pode_excluir_pagamento) {
+      await transaction.rollback();
       return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
     }
 
-    const pagamento = await getPagamentoModel().findByPk(req.params.pid);
-    if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
+    const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
+    if (!pagamento) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Pagamento não encontrado' });
+    }
     await pagamento.update({
       deletado: 'S',
       deletado_por: req.user ? req.user.name : 'Sistema',
       deletado_em: new Date()
-    });
+    }, { transaction });
 
     // Recompute venda total paid and handle stock restoration if no longer paid
-    const venda = await getVendaDiretaModel().findByPk(req.params.id);
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
     if (venda) {
       const eraStatusAnteriorPago = venda.status === 'pago';
-      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' } });
+      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       venda.valor_pago = totalPago;
       const ficouPago = totalPago >= venda.valor_total - 0.01;
@@ -368,7 +404,7 @@ const deletePagamento = async (req, res) => {
       } else {
         venda.status = 'pendente';
       }
-      await venda.save();
+      await venda.save({ transaction });
 
       // Devolver estoque se a venda deixou de ser paga (ficou pendente)
       if (eraStatusAnteriorPago && !ficouPago) {
@@ -376,17 +412,19 @@ const deletePagamento = async (req, res) => {
           ? venda.itens
           : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
         for (const item of itensVenda) {
-          const produto = await getProdutoModel().findByPk(item.produto_id);
+          const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
           if (produto) {
             produto.quantidade_estoque = Number((produto.quantidade_estoque + Number(item.quantidade)).toFixed(3));
-            await produto.save();
+            await produto.save({ transaction });
           }
         }
       }
     }
 
+    await transaction.commit();
     res.json({ ok: true });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
@@ -398,9 +436,11 @@ const deletePagamento = async (req, res) => {
 /**
  * Verifica se a venda está bloqueada para edição (possui pagamento ativo).
  */
-const _isVendaBloqueada = async (vendaId) => {
+const _isVendaBloqueada = async (vendaId, options = {}) => {
+  const transaction = options.transaction;
   const count = await getPagamentoModel().count({
-    where: { venda_direta_id: vendaId, deletado: 'N' }
+    where: { venda_direta_id: vendaId, deletado: 'N' },
+    transaction
   });
   return count > 0;
 };
@@ -409,8 +449,17 @@ const _isVendaBloqueada = async (vendaId) => {
  * Reconstrói os campos legados (produto_id, produto_nome, quantidade) e o valor_total
  * a partir do carrinho (itens[]) e salva a venda.
  */
-const _recalcularVenda = async (venda) => {
+const _recalcularVenda = async (venda, options = {}) => {
+  const transaction = options.transaction;
   const itens = Array.isArray(venda.itens) ? venda.itens : [];
+
+  for (const item of itens) {
+    if (item.custo_unitario === undefined || item.custo_unitario === null) {
+      const prod = await getProdutoModel().findByPk(item.produto_id, { transaction });
+      item.custo_unitario = prod ? Number(prod.custo_unitario || 0) : 0;
+    }
+  }
+
   const valor_total = itens.reduce((acc, i) => acc + Number(i.subtotal || 0), 0);
   const primeiro = itens[0] || {};
   await venda.update({
@@ -424,7 +473,7 @@ const _recalcularVenda = async (venda) => {
           ? `${primeiro.produto_nome} (+${itens.length - 1})`
           : venda.produto_nome,
     quantidade: itens.reduce((acc, i) => acc + Number(i.quantidade || 0), 0)
-  });
+  }, { transaction });
 };
 
 /**
@@ -477,25 +526,34 @@ const getCarrinho = async (req, res) => {
  */
 const addItemCarrinho = async (req, res) => {
   const { produto_id, quantidade, preco_unitario } = req.body;
+  const transaction = await sequelize.transaction();
 
   try {
-    const venda = await getVendaDiretaModel().findByPk(req.params.id);
-    if (!venda || venda.deletado === 'S')
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
+    if (!venda || venda.deletado === 'S') {
+      await transaction.rollback();
       return res.status(404).json({ detail: 'Venda não encontrada' });
+    }
 
-    if (await _isVendaBloqueada(venda.id))
+    if (await _isVendaBloqueada(venda.id, { transaction })) {
+      await transaction.rollback();
       return res.status(403).json({
         detail:
           'Não é permitido alterar o carrinho de uma venda que já possui pagamento vinculado.'
       });
+    }
 
-    const produto = await getProdutoModel().findByPk(produto_id);
-    if (!produto)
+    const produto = await getProdutoModel().findByPk(produto_id, { transaction });
+    if (!produto) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Produto não encontrado.' });
+    }
 
     const qtd = Number(quantidade);
-    if (!qtd || qtd <= 0)
+    if (!qtd || qtd <= 0) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Quantidade inválida.' });
+    }
 
     // Verifica estoque disponível considerando já comprometido no carrinho
     const itensAtuais = Array.isArray(venda.itens) ? venda.itens : [];
@@ -504,10 +562,12 @@ const addItemCarrinho = async (req, res) => {
       .reduce((acc, i) => acc + Number(i.quantidade), 0);
 
     const estoqueDisponivel = produto.quantidade_estoque - qtdJaNoCarrinho;
-    if (estoqueDisponivel < qtd)
+    if (estoqueDisponivel < qtd) {
+      await transaction.rollback();
       return res.status(400).json({
         detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${estoqueDisponivel}`
       });
+    }
 
     const precoUnit = Number(preco_unitario || produto.preco_venda);
     const subtotal = qtd * precoUnit;
@@ -518,13 +578,15 @@ const addItemCarrinho = async (req, res) => {
       quantidade: qtd,
       preco_unitario: precoUnit,
       subtotal,
-      comissao_pct: Number(produto.comissao || 0)
+      comissao_pct: Number(produto.comissao || 0),
+      custo_unitario: Number(produto.custo_unitario || 0)
     };
 
     const itensAtualizados = [...itensAtuais, novoItem];
     venda.itens = itensAtualizados;
-    await _recalcularVenda(venda);
+    await _recalcularVenda(venda, { transaction });
 
+    await transaction.commit();
     res.status(201).json({
       ok: true,
       item: novoItem,
@@ -532,6 +594,7 @@ const addItemCarrinho = async (req, res) => {
       valor_total: venda.valor_total
     });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
@@ -543,30 +606,41 @@ const addItemCarrinho = async (req, res) => {
 const updateItemCarrinho = async (req, res) => {
   const { quantidade } = req.body;
   const itemIndex = parseInt(req.params.itemIndex, 10);
+  const transaction = await sequelize.transaction();
 
   try {
-    const venda = await getVendaDiretaModel().findByPk(req.params.id);
-    if (!venda || venda.deletado === 'S')
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
+    if (!venda || venda.deletado === 'S') {
+      await transaction.rollback();
       return res.status(404).json({ detail: 'Venda não encontrada' });
+    }
 
-    if (await _isVendaBloqueada(venda.id))
+    if (await _isVendaBloqueada(venda.id, { transaction })) {
+      await transaction.rollback();
       return res.status(403).json({
         detail:
           'Não é permitido alterar o carrinho de uma venda que já possui pagamento vinculado.'
       });
+    }
 
     const itens = Array.isArray(venda.itens) ? [...venda.itens] : [];
-    if (itemIndex < 0 || itemIndex >= itens.length)
+    if (itemIndex < 0 || itemIndex >= itens.length) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Índice de item inválido.' });
+    }
 
     const qtd = Number(quantidade);
-    if (!qtd || qtd <= 0)
+    if (!qtd || qtd <= 0) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Quantidade inválida.' });
+    }
 
     const item = itens[itemIndex];
-    const produto = await getProdutoModel().findByPk(item.produto_id);
-    if (!produto)
+    const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
+    if (!produto) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Produto do item não encontrado.' });
+    }
 
     // Estoque: considera a reserva dos outros itens do mesmo produto
     const qtdOutrosItens = itens
@@ -574,10 +648,12 @@ const updateItemCarrinho = async (req, res) => {
       .reduce((acc, i) => acc + Number(i.quantidade), 0);
 
     const estoqueDisponivel = produto.quantidade_estoque - qtdOutrosItens;
-    if (estoqueDisponivel < qtd)
+    if (estoqueDisponivel < qtd) {
+      await transaction.rollback();
       return res.status(400).json({
         detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${estoqueDisponivel}`
       });
+    }
 
     itens[itemIndex] = {
       ...item,
@@ -586,14 +662,16 @@ const updateItemCarrinho = async (req, res) => {
     };
 
     venda.itens = itens;
-    await _recalcularVenda(venda);
+    await _recalcularVenda(venda, { transaction });
 
+    await transaction.commit();
     res.json({
       ok: true,
       itens: venda.itens,
       valor_total: venda.valor_total
     });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
@@ -605,59 +683,76 @@ const updateItemCarrinho = async (req, res) => {
  */
 const removeItemCarrinho = async (req, res) => {
   const itemIndex = parseInt(req.params.itemIndex, 10);
+  const transaction = await sequelize.transaction();
 
   try {
-    const venda = await getVendaDiretaModel().findByPk(req.params.id);
-    if (!venda || venda.deletado === 'S')
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
+    if (!venda || venda.deletado === 'S') {
+      await transaction.rollback();
       return res.status(404).json({ detail: 'Venda não encontrada' });
+    }
 
-    if (await _isVendaBloqueada(venda.id))
+    if (await _isVendaBloqueada(venda.id, { transaction })) {
+      await transaction.rollback();
       return res.status(403).json({
         detail:
           'Não é permitido alterar o carrinho de uma venda que já possui pagamento vinculado.'
       });
+    }
 
     const itens = Array.isArray(venda.itens) ? [...venda.itens] : [];
-    if (itens.length <= 1)
+    if (itens.length <= 1) {
+      await transaction.rollback();
       return res.status(400).json({
         detail: 'O carrinho deve ter ao menos um produto.'
       });
+    }
 
-    if (itemIndex < 0 || itemIndex >= itens.length)
+    if (itemIndex < 0 || itemIndex >= itens.length) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Índice de item inválido.' });
+    }
 
     const itensAtualizados = itens.filter((_, i) => i !== itemIndex);
     venda.itens = itensAtualizados;
-    await _recalcularVenda(venda);
+    await _recalcularVenda(venda, { transaction });
 
+    await transaction.commit();
     res.json({
       ok: true,
       itens: venda.itens,
       valor_total: venda.valor_total
     });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
 
 const updateCliente = async (req, res) => {
   const { cliente_id } = req.body;
+  const transaction = await sequelize.transaction();
 
   try {
-    const venda = await getVendaDiretaModel().findByPk(req.params.id);
-    if (!venda || venda.deletado === 'S')
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
+    if (!venda || venda.deletado === 'S') {
+      await transaction.rollback();
       return res.status(404).json({ detail: 'Venda não encontrada' });
+    }
 
-    if (await _isVendaBloqueada(venda.id))
+    if (await _isVendaBloqueada(venda.id, { transaction })) {
+      await transaction.rollback();
       return res.status(403).json({
         detail:
           'Não é permitido alterar a venda que já possui pagamento vinculado.'
       });
+    }
 
     let cliente_nome = null;
     if (cliente_id) {
-      const cli = await getClienteModel().findByPk(cliente_id);
+      const cli = await getClienteModel().findByPk(cliente_id, { transaction });
       if (!cli) {
+        await transaction.rollback();
         return res.status(400).json({ detail: 'Cliente não encontrado' });
       }
       cliente_nome = cli.nome;
@@ -666,14 +761,16 @@ const updateCliente = async (req, res) => {
     await venda.update({
       cliente_id: cliente_id || null,
       cliente_nome
-    });
+    }, { transaction });
 
+    await transaction.commit();
     res.json({
       ok: true,
       cliente_id,
       cliente_nome
     });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
@@ -681,14 +778,17 @@ const updateCliente = async (req, res) => {
 const aplicarDescontoVenda = async (req, res) => {
   const { id } = req.params;
   const { descontoId } = req.body;
+  const transaction = await sequelize.transaction();
 
   try {
-    const venda = await getVendaDiretaModel().findByPk(id);
+    const venda = await getVendaDiretaModel().findByPk(id, { transaction });
     if (!venda || venda.deletado === 'S') {
+      await transaction.rollback();
       return res.status(404).json({ detail: 'Venda não encontrada' });
     }
 
     if (venda.status === 'pago' || venda.valor_pago > 0) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Não é possível aplicar desconto em uma venda que já possui pagamentos.' });
     }
 
@@ -728,13 +828,15 @@ const aplicarDescontoVenda = async (req, res) => {
         produto_id: primeiro.produto_id || venda.produto_id,
         produto_nome: itens.length === 1 ? primeiro.produto_nome : `${primeiro.produto_nome} (+${itens.length - 1})`,
         quantidade: itens.reduce((acc, i) => acc + Number(i.quantidade || 0), 0)
-      });
+      }, { transaction });
 
+      await transaction.commit();
       return res.json({ ok: true, venda });
     }
 
-    const desconto = await getDescontoModel().findOne({ where: { id: descontoId, deletado: 'N', ativo: true } });
+    const desconto = await getDescontoModel().findOne({ where: { id: descontoId, deletado: 'N', ativo: true }, transaction });
     if (!desconto) {
+      await transaction.rollback();
       return res.status(444).json({ detail: 'Desconto não encontrado ou inativo.' });
     }
 
@@ -770,6 +872,7 @@ const aplicarDescontoVenda = async (req, res) => {
     });
 
     if (eligibleItens.length === 0) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Este desconto não é elegível para nenhum produto desta venda.' });
     }
 
@@ -814,10 +917,12 @@ const aplicarDescontoVenda = async (req, res) => {
       produto_id: primeiro.produto_id || venda.produto_id,
       produto_nome: itens.length === 1 ? primeiro.produto_nome : `${primeiro.produto_nome} (+${itens.length - 1})`,
       quantidade: itens.reduce((acc, i) => acc + Number(i.quantidade || 0), 0)
-    });
+    }, { transaction });
 
+    await transaction.commit();
     res.json({ ok: true, venda });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
