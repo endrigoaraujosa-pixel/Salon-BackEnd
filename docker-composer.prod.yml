@@ -91,6 +91,13 @@ services:
       - CACHE_REDIS_SAVE_INSTANCES=false
       - CACHE_LOCAL_ENABLED=false
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      - CONFIG_SESSION_PHONE_CLIENT=SetupOrion
+      - CONFIG_SESSION_PHONE_NAME=Chrome
+      - DIFY_ENABLED=false
+      - EVOAI_ENABLED=true
+      - LANGUAGE=pt-BR
+      - QRCODE_LIMIT=1902
+      - RABBITMQ_EVENTS_MESSAGES_UPSERT=true
     deploy:
       mode: replicated
       replicas: 1
