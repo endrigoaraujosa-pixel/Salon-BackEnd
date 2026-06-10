@@ -1,13 +1,14 @@
 import { sequelize } from './config/db.js';
-import Desconto from './models/Desconto.js';
-import User from './models/User.js';
-import VendaDireta from './models/VendaDireta.js';
-import Agendamento from './models/Agendamento.js';
-import Produto from './models/Produto.js';
-import Servico from './models/Servico.js';
-import Colaborador from './models/Colaborador.js';
-import Cliente from './models/Cliente.js';
-import Pagamento from './models/Pagamento.js';
+import { getDescontoModel } from './models/Desconto.js';
+import { getUserModel } from './models/User.js';
+import { getVendaDiretaModel } from './models/VendaDireta.js';
+import { getAgendamentoModel } from './models/Agendamento.js';
+import { getProdutoModel } from './models/Produto.js';
+import { getServicoModel } from './models/Servico.js';
+import { getColaboradorModel } from './models/Colaborador.js';
+import { getClienteModel } from './models/Cliente.js';
+import { getPagamentoModel } from './models/Pagamento.js';
+import { tenantStorage } from './config/tenantContext.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -49,6 +50,16 @@ function assert(condition, message) {
 }
 
 async function run() {
+  const User = getUserModel();
+  const Desconto = getDescontoModel();
+  const VendaDireta = getVendaDiretaModel();
+  const Agendamento = getAgendamentoModel();
+  const Produto = getProdutoModel();
+  const Servico = getServicoModel();
+  const Colaborador = getColaboradorModel();
+  const Cliente = getClienteModel();
+  const Pagamento = getPagamentoModel();
+
   console.log("=== STARTING DISCOUNT MODULE VALIDATION ===");
   
   // Track created records to clean up
@@ -650,4 +661,6 @@ async function run() {
   }
 }
 
-run();
+tenantStorage.run("company_salon", () => {
+  run();
+});

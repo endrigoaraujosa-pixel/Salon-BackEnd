@@ -25,6 +25,10 @@ const Produto = sequelize.define('Produto', {
     type: DataTypes.STRING(50),
     defaultValue: 'un'
   },
+  unidade_medida_insumo: {
+    type: DataTypes.STRING(10),
+    defaultValue: 'un'
+  },
   quantidade_estoque: {
     type: DataTypes.FLOAT,
     defaultValue: 0
@@ -48,6 +52,10 @@ const Produto = sequelize.define('Produto', {
   ativo: {
     type: DataTypes.BOOLEAN,
     defaultValue: true
+  },
+  quantidade_por_unidade: {
+    type: DataTypes.DECIMAL(15, 4),
+    defaultValue: 0
   },
   comissao: {
     type: DataTypes.DECIMAL(10, 4),

@@ -10,20 +10,26 @@ import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getPagamentoModel } from '../models/Pagamento.js';
 import { getUserModel } from '../models/User.js';
 import { getDescontoModel } from '../models/Desconto.js';
+import { sequelize } from '../config/db.js';
 
-const adjustStock = async (ag, type) => {
+const adjustStock = async (ag, type, options = {}) => {
+  const transaction = options.transaction;
   try {
     for (const item of ag.itens || []) {
       const utilized = item.produtos_utilizados || [];
       for (const pu of utilized) {
-        const prod = await getProdutoModel().findByPk(pu.produto_id);
+        const prod = await getProdutoModel().findByPk(pu.produto_id, { transaction });
         if (prod) {
+          const qty = Number(pu.quantidade || 0);
+          const qtyPerUnit = Number(pu.quantidade_por_unidade || prod.quantidade_por_unidade || 0);
+          const stockAdjustment = qtyPerUnit > 0 ? (qty / qtyPerUnit) : qty;
+
           if (type === 'deduct') {
-            prod.quantidade_estoque -= Number(pu.quantidade || 0);
+            prod.quantidade_estoque -= stockAdjustment;
           } else if (type === 'restore') {
-            prod.quantidade_estoque += Number(pu.quantidade || 0);
+            prod.quantidade_estoque += stockAdjustment;
           }
-          await prod.save();
+          await prod.save({ transaction });
         }
       }
     }
@@ -53,20 +59,46 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
       if (Array.isArray(item.produtos_utilizados)) {
         for (const pu of item.produtos_utilizados) {
           let custoUnitario = Number(pu.custo_unitario || 0);
-          if (custoUnitario === 0) {
+          let quantidadePorUnidade = Number(pu.quantidade_por_unidade || 0);
+          let unidadeMedidaInsumo = pu.unidade_medida_insumo || "";
+          let custoProporcional = Number(pu.custo_proporcional || 0);
+
+          // Fetch product to get fresh values when not already set
+          if (custoUnitario === 0 || quantidadePorUnidade === 0 || !unidadeMedidaInsumo) {
             const prod = await getProdutoModel().findByPk(pu.produto_id);
-            custoUnitario = prod ? Number(prod.custo_unitario || 0) : 0;
+            if (prod) {
+              if (custoUnitario === 0) {
+                custoUnitario = Number(prod.custo_unitario || 0);
+              }
+              if (quantidadePorUnidade === 0) {
+                quantidadePorUnidade = Number(prod.quantidade_por_unidade || 0);
+              }
+              if (!unidadeMedidaInsumo) {
+                unidadeMedidaInsumo = prod.unidade_medida_insumo || "un";
+              }
+            }
           }
+
           let prodNome = pu.produto_nome || pu.produto_name || "";
           if (!prodNome && pu.produto_id) {
             const prod = await getProdutoModel().findByPk(pu.produto_id);
             prodNome = prod ? prod.nome : "";
           }
+          // Calculate proportional cost: cost per unit of measure (e.g. per gram/ml)
+          // Falls back to custo_unitario if quantidade_por_unidade is not set (backward-compatible)
+          if (custoProporcional === 0) {
+            custoProporcional = (quantidadePorUnidade > 0)
+              ? custoUnitario / quantidadePorUnidade
+              : custoUnitario;
+          }
           resolvedProdutosUtilizados.push({
             produto_id: pu.produto_id,
             produto_nome: prodNome,
             quantidade: Number(pu.quantidade || 0),
-            custo_unitario: custoUnitario
+            custo_unitario: custoUnitario,            // cost of the package (unchanged semantics)
+            quantidade_por_unidade: quantidadePorUnidade, // package contents, stored for audit
+            custo_proporcional: custoProporcional,        // cost per unit of measure (new)
+            unidade_medida_insumo: unidadeMedidaInsumo || "un" // unit of measure for consumption (new)
           });
         }
       }
@@ -193,7 +225,8 @@ const getAgend = async (req, res) => {
     const ag = await getAgendamentoModel().findByPk(req.params.aid);
     if (!ag || ag.deletado === 'S') return res.status(404).json({ detail: 'Não encontrado' });
 
-    const { email, password } = req.query;
+    const email = req.body.auth_email || req.headers['x-auth-email'] || req.query.email;
+    const password = req.body.auth_password || req.body.password || req.headers['x-auth-password'] || req.query.password;
     if (email && password) {
       const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
       if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
@@ -240,13 +273,17 @@ const createAgend = async (req, res) => {
 };
 
 const updateAgend = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
-    const ag = await getAgendamentoModel().findByPk(req.params.aid);
-    if (!ag) return res.status(404).json({ detail: 'Não encontrado' });
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+    if (!ag) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Não encontrado' });
+    }
 
     const wasConcluido = ag.status === 'concluido';
     if (wasConcluido) {
-      await adjustStock(ag, 'restore');
+      await adjustStock(ag, 'restore', { transaction });
     }
 
     let isOnlyInsumos = req.query.only_insumos === 'true' || req.body.only_insumos === true;
@@ -299,16 +336,19 @@ const updateAgend = async (req, res) => {
     }
 
     if (ag.status === 'concluido' && !isOnlyInsumos) {
-      const email = req.query.email || req.body.auth_email;
-      const password = req.query.password || req.body.auth_password;
+      const email = req.body.auth_email || req.headers['x-auth-email'] || req.query.email;
+      const password = req.body.auth_password || req.body.password || req.headers['x-auth-password'] || req.query.password;
       if (!email || !password) {
+        await transaction.rollback();
         return res.status(400).json({ detail: 'Para alterar um agendamento concluído, é necessária a autorização de um administrador (usuário e senha).' });
       }
-      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
+      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' }, transaction });
       if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+        await transaction.rollback();
         return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
       }
       if (!authUser.pode_alterar_concluido) {
+        await transaction.rollback();
         return res.status(403).json({ detail: 'Este usuário não possui permissão para alterar agendamentos concluídos.' });
       }
     }
@@ -318,51 +358,58 @@ const updateAgend = async (req, res) => {
     delete doc.status;
     delete doc.valor_pago;
 
-    await ag.update(doc);
+    await ag.update(doc, { transaction });
 
     if (wasConcluido) {
-      const updatedAg = await getAgendamentoModel().findByPk(req.params.aid);
-      await adjustStock(updatedAg, 'deduct');
+      const updatedAg = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+      await adjustStock(updatedAg, 'deduct', { transaction });
     }
+
+    await transaction.commit();
 
     // Update scheduled WhatsApp reminders (handles rescheduling)
     await generateReminders(ag);
 
     res.json(ag);
   } catch (error) {
+    await transaction.rollback();
     res.status(400).json({ detail: error.message });
   }
 };
 
 const deleteAgend = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     if (!req.user || !req.user.pode_excluir_agendamento) {
+      await transaction.rollback();
       return res.status(403).json({ detail: 'Você não tem permissão para excluir agendamentos.' });
     }
 
-    const ag = await getAgendamentoModel().findByPk(req.params.aid);
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
     if (ag) {
       // Validar pagamentos vinculados
       const countPagamentos = await getPagamentoModel().count({
         where: {
           agendamento_id: req.params.aid,
           deletado: 'N'
-        }
+        },
+        transaction
       });
 
       if (countPagamentos > 0) {
         console.warn(`[AUDIT] Tentativa de exclusão de agendamento bloqueada: O agendamento ID ${req.params.aid} possui pagamentos ativos.`);
+        await transaction.rollback();
         return res.status(400).json({ detail: "Não é permitido excluir registros que possuem pagamentos vinculados." });
       }
 
       if (ag.status === 'concluido') {
-        await adjustStock(ag, 'restore');
+        await adjustStock(ag, 'restore', { transaction });
       }
       await ag.update({
         deletado: 'S',
         deletado_por: req.user ? req.user.name : 'Sistema',
         deletado_em: new Date()
-      });
+      }, { transaction });
       await getPagamentoModel().update(
         {
           deletado: 'S',
@@ -370,15 +417,18 @@ const deleteAgend = async (req, res) => {
           deletado_em: new Date()
         },
         {
-          where: { agendamento_id: req.params.aid }
+          where: { agendamento_id: req.params.aid },
+          transaction
         }
       );
 
       // Cancel any pending reminders
       await cancelReminders(req.params.aid);
     }
+    await transaction.commit();
     res.json({ ok: true });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
@@ -388,19 +438,25 @@ const setStatus = async (req, res) => {
   const valid = ['agendado', 'confirmado', 'em_andamento', 'concluido', 'cancelado'];
   if (!valid.includes(status)) return res.status(400).json({ detail: 'Status inválido' });
 
+  const transaction = await sequelize.transaction();
   try {
-    const ag = await getAgendamentoModel().findByPk(req.params.aid);
-    if (!ag) return res.status(404).json({ detail: 'Não encontrado' });
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+    if (!ag) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Não encontrado' });
+    }
 
     if (status === 'concluido') {
       for (const item of ag.itens || []) {
         if (!item.colaborador_id || item.colaborador_id === "none") {
+          await transaction.rollback();
           return res.status(400).json({ detail: 'Não é possível concluir o atendimento sem definir o profissional que realizou cada serviço.' });
         }
       }
-      const pagamentos = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
+      const pagamentos = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
       const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
       if (totalPago < ag.valor_total - 0.01) {
+        await transaction.rollback();
         return res.status(400).json({ detail: 'Registre o pagamento total antes de finalizar' });
       }
     }
@@ -408,14 +464,16 @@ const setStatus = async (req, res) => {
     const oldStatus = ag.status;
     if (oldStatus !== status) {
       if (status === 'concluido') {
-        await adjustStock(ag, 'deduct');
+        await adjustStock(ag, 'deduct', { transaction });
       } else if (oldStatus === 'concluido') {
-        await adjustStock(ag, 'restore');
+        await adjustStock(ag, 'restore', { transaction });
       }
     }
 
     ag.status = status;
-    await ag.save();
+    await ag.save({ transaction });
+
+    await transaction.commit();
 
     // WhatsApp Reminders hooks
     if (status === 'cancelado') {
@@ -426,18 +484,23 @@ const setStatus = async (req, res) => {
 
     res.json({ ok: true });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
 
 const addPagamentos = async (req, res) => {
   const { pagamentos, finalizar } = req.body;
+  const transaction = await sequelize.transaction();
 
   try {
-    const ag = await getAgendamentoModel().findByPk(req.params.aid);
-    if (!ag) return res.status(404).json({ detail: 'Agendamento não encontrado' });
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+    if (!ag) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Agendamento não encontrado' });
+    }
 
-    const existingPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
+    const existingPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
     const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
     const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
     let adjustedPagamentos = [...pagamentos];
@@ -451,6 +514,7 @@ const addPagamentos = async (req, res) => {
         adjustedPagamentos[idxDinheiro].observacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (adjustedPagamentos[idxDinheiro].observacao ? ` - ${adjustedPagamentos[idxDinheiro].observacao}` : '');
         novoTotal = ag.valor_total;
       } else {
+        await transaction.rollback();
         return res.status(400).json({ detail: 'Valor excede o total devido' });
       }
     }
@@ -463,7 +527,7 @@ const addPagamentos = async (req, res) => {
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
         data_hora: new Date()
-      });
+      }, { transaction });
     }
 
     const oldStatus = ag.status;
@@ -471,6 +535,7 @@ const addPagamentos = async (req, res) => {
     if (finalizar && novoTotal >= ag.valor_total - 0.01) {
       for (const item of ag.itens || []) {
         if (!item.colaborador_id || item.colaborador_id === "none") {
+          await transaction.rollback();
           return res.status(400).json({ detail: 'Não é possível concluir o atendimento sem definir o profissional que realizou cada serviço.' });
         }
       }
@@ -479,44 +544,52 @@ const addPagamentos = async (req, res) => {
 
     if (oldStatus !== ag.status) {
       if (ag.status === 'concluido') {
-        await adjustStock(ag, 'deduct');
+        await adjustStock(ag, 'deduct', { transaction });
       } else if (oldStatus === 'concluido') {
-        await adjustStock(ag, 'restore');
+        await adjustStock(ag, 'restore', { transaction });
       }
     }
-    await ag.save();
+    await ag.save({ transaction });
 
+    await transaction.commit();
     res.json({ ok: true, total_pago: novoTotal, saldo: ag.valor_total - novoTotal });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
 
 const updatePagamento = async (req, res) => {
   const { valor, forma_pagamento, observacao } = req.body;
-  const { password } = req.query;
+  const password = req.body.password || req.body.auth_password || req.headers['x-auth-password'] || req.query.password;
 
+  const transaction = await sequelize.transaction();
   try {
     if (!password) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Senha é obrigatória' });
     }
-    const user = await getUserModel().findByPk(req.user.id);
+    const user = await getUserModel().findByPk(req.user.id, { transaction });
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      await transaction.rollback();
       return res.status(401).json({ detail: 'Senha incorreta' });
     }
 
-    const pagamento = await getPagamentoModel().findByPk(req.params.pid);
-    if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
+    const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
+    if (!pagamento) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Pagamento não encontrado' });
+    }
 
     pagamento.valor = Number(valor || 0);
     pagamento.forma_pagamento = forma_pagamento;
     pagamento.observacao = observacao || '';
-    await pagamento.save();
+    await pagamento.save({ transaction });
 
-    const ag = await getAgendamentoModel().findByPk(req.params.aid);
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
     if (ag) {
       const oldStatus = ag.status;
-      const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
+      const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       ag.valor_pago = totalPago;
       if (totalPago >= ag.valor_total - 0.01) {
@@ -527,48 +600,58 @@ const updatePagamento = async (req, res) => {
 
       if (oldStatus !== ag.status) {
         if (ag.status === 'concluido') {
-          await adjustStock(ag, 'deduct');
+          await adjustStock(ag, 'deduct', { transaction });
         } else if (oldStatus === 'concluido') {
-          await adjustStock(ag, 'restore');
+          await adjustStock(ag, 'restore', { transaction });
         }
       }
-      await ag.save();
+      await ag.save({ transaction });
     }
 
+    await transaction.commit();
     res.json({ ok: true });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
 
 const deletePagamento = async (req, res) => {
-  const { email, password } = req.query;
+  const email = req.body.auth_email || req.body.email || req.headers['x-auth-email'] || req.query.email;
+  const password = req.body.auth_password || req.body.password || req.headers['x-auth-password'] || req.query.password;
 
+  const transaction = await sequelize.transaction();
   try {
     if (!email || !password) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
     }
-    const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() } });
+    const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
     if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+      await transaction.rollback();
       return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
     }
     if (!authUser.pode_excluir_pagamento) {
+      await transaction.rollback();
       return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
     }
 
-    const pagamento = await getPagamentoModel().findByPk(req.params.pid);
-    if (!pagamento) return res.status(404).json({ detail: 'Pagamento não encontrado' });
+    const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
+    if (!pagamento) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Pagamento não encontrado' });
+    }
 
     await pagamento.update({
       deletado: 'S',
       deletado_por: req.user ? req.user.name : 'Sistema',
       deletado_em: new Date()
-    });
+    }, { transaction });
 
-    const ag = await getAgendamentoModel().findByPk(req.params.aid);
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
     if (ag) {
       const oldStatus = ag.status;
-      const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
+      const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       ag.valor_pago = totalPago;
       if (totalPago >= ag.valor_total - 0.01) {
@@ -579,16 +662,18 @@ const deletePagamento = async (req, res) => {
 
       if (oldStatus !== ag.status) {
         if (ag.status === 'concluido') {
-          await adjustStock(ag, 'deduct');
+          await adjustStock(ag, 'deduct', { transaction });
         } else if (oldStatus === 'concluido') {
-          await adjustStock(ag, 'restore');
+          await adjustStock(ag, 'restore', { transaction });
         }
       }
-      await ag.save();
+      await ag.save({ transaction });
     }
 
+    await transaction.commit();
     res.json({ ok: true });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };

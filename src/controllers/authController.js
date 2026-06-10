@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { getUserModel } from '../models/User.js';
 import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
+import { getTenantSchema } from '../config/tenantContext.js';
 
 const isMobileRequest = (req) => {
   const userAgent = req.headers['user-agent'] || '';
@@ -21,15 +22,16 @@ const login = async (req, res) => {
     }
 
     const isMobile = isMobileRequest(req);
+    const activeTenant = getTenantSchema();
 
     const token = jwt.sign(
-      { sub: user.id, email: user.email },
+      { sub: user.id, email: user.email, tenant: activeTenant },
       process.env.JWT_SECRET,
       { expiresIn: '30m' }
     );
 
     const refreshToken = jwt.sign(
-      { sub: user.id },
+      { sub: user.id, tenant: activeTenant },
       process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh',
       { expiresIn: '1d' }
     );
@@ -85,6 +87,11 @@ const refreshToken = async (req, res) => {
       process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh'
     );
 
+    const activeTenant = getTenantSchema();
+    if (decoded.tenant && decoded.tenant !== activeTenant) {
+      return res.status(401).json({ detail: 'Refresh token inválido para este tenant' });
+    }
+
     const user = await getUserModel().findByPk(decoded.sub);
 
     if (!user || !user.ativo) {
@@ -96,13 +103,13 @@ const refreshToken = async (req, res) => {
     const cookieMaxAge = isMobile ? 30 * 60 * 1000 : 15 * 60 * 1000;
 
     const newAccessToken = jwt.sign(
-      { sub: user.id, email: user.email },
+      { sub: user.id, email: user.email, tenant: activeTenant },
       process.env.JWT_SECRET,
       { expiresIn: tokenExpiry }
     );
 
     const newRefreshToken = jwt.sign(
-      { sub: user.id },
+      { sub: user.id, tenant: activeTenant },
       process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh',
       { expiresIn: isMobile ? '24h' : '1h' }
     );

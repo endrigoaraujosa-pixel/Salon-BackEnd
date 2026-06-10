@@ -18,7 +18,11 @@ const protect = async (req, res, next) => {
 
   try {    
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.schema(getTenantSchema()).findByPk(decoded.sub);
+    const activeTenant = getTenantSchema();
+    if (decoded.tenant && decoded.tenant !== activeTenant) {
+      return res.status(401).json({ detail: 'Acesso negado: Token inválido para esta sessão/empresa.' });
+    }
+    const user = await User.schema(activeTenant).findByPk(decoded.sub);
 
     if (!user) {
       return res.status(401).json({ detail: 'Usuário não encontrado' });

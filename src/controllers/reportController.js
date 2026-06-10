@@ -599,10 +599,22 @@ const relatorioDre = async (req, res) => {
 
     let custoProdutos = 0;
     for (const v of vendas) {
-      const prod = productsMap.get(v.produto_id);
-      if (prod) {
-        custoProdutos += v.quantidade * (prod.custo_unitario || 0);
+      let saleCost = 0;
+      const itens = Array.isArray(v.itens) && v.itens.length > 0 ? v.itens : [];
+      if (itens.length > 0) {
+        for (const item of itens) {
+          if (item.custo_unitario !== undefined && item.custo_unitario !== null) {
+            saleCost += Number(item.quantidade) * Number(item.custo_unitario);
+          } else {
+            const prod = productsMap.get(item.produto_id);
+            saleCost += Number(item.quantidade) * (prod ? Number(prod.custo_unitario || 0) : 0);
+          }
+        }
+      } else {
+        const prod = productsMap.get(v.produto_id);
+        saleCost += Number(v.quantidade || 0) * (prod ? Number(prod.custo_unitario || 0) : 0);
       }
+      custoProdutos += saleCost;
     }
 
     // ---------------------------------------------
@@ -1002,6 +1014,21 @@ const relatorioProdutos = async (req, res) => {
       const pags = pagamentosMap.get(v.id) || [];
       const formas = [...new Set(pags.map(p => p.forma_pagamento))];
 
+      let custoTotal = 0;
+      const itens = Array.isArray(v.itens) && v.itens.length > 0 ? v.itens : [];
+      if (itens.length > 0) {
+        for (const item of itens) {
+          if (item.custo_unitario !== undefined && item.custo_unitario !== null) {
+            custoTotal += Number(item.quantidade) * Number(item.custo_unitario);
+          } else {
+            const itemProd = produtosMap.get(item.produto_id);
+            custoTotal += Number(item.quantidade) * (itemProd ? Number(itemProd.custo_unitario || 0) : 0);
+          }
+        }
+      } else {
+        custoTotal = v.quantidade * custoUnitario;
+      }
+
       return {
         id: v.id,
         numero_venda: v.numero_venda,
@@ -1018,7 +1045,7 @@ const relatorioProdutos = async (req, res) => {
         cliente_id: v.cliente_id,
         cliente_nome: v.cliente_nome || 'Consumidor',
         categoria: categoriaProd,
-        custo_total: v.quantidade * custoUnitario,
+        custo_total: custoTotal,
         formas_pagamento: formas,
         pagamentos: pags
       };

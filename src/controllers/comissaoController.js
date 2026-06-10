@@ -16,6 +16,28 @@ const normalizeName = (name) => {
     .replace(/\s+/g, ' ');
 };
 
+const getCustoProporcional = (pu, produtos) => {
+  if (pu.custo_proporcional !== undefined && Number(pu.custo_proporcional) > 0) {
+    return Number(pu.custo_proporcional);
+  }
+  
+  let custoUnitario = Number(pu.custo_unitario || 0);
+  let qtyPorUnidade = Number(pu.quantidade_por_unidade || 0);
+  
+  if (custoUnitario === 0 || qtyPorUnidade === 0) {
+    const prod = produtos.find(p => p.id === pu.produto_id);
+    if (prod) {
+      if (custoUnitario === 0) custoUnitario = Number(prod.custo_unitario || 0);
+      if (qtyPorUnidade === 0) qtyPorUnidade = Number(prod.quantidade_por_unidade || 0);
+    }
+  }
+  
+  if (qtyPorUnidade > 0) {
+    return custoUnitario / qtyPorUnidade;
+  }
+  return custoUnitario;
+};
+
 const listComissoes = async (req, res) => {
   const { mes, data_inicio, data_fim, status, colaborador_id } = req.query;
   const statusFilter = status || 'pendente'; // 'pendente' | 'pago' | 'todos'
@@ -116,12 +138,8 @@ const listComissoes = async (req, res) => {
               let custo_produtos = 0;
               const produtos_utilizados = item.produtos_utilizados || [];
               for (const pu of produtos_utilizados) {
-                let custo_u = Number(pu.custo_unitario || 0);
-                if (custo_u === 0) {
-                  const prod = produtos.find(p => p.id === pu.produto_id);
-                  custo_u = prod ? Number(prod.custo_unitario || 0) : 0;
-                }
-                custo_produtos += Number(pu.quantidade || 0) * custo_u;
+                const custo_prop = getCustoProporcional(pu, produtos);
+                custo_produtos += Number(pu.quantidade || 0) * custo_prop;
               }
 
               // Decidir base de comissão com base na flag do desconto
@@ -181,12 +199,8 @@ const listComissoes = async (req, res) => {
               let custo_produtos = 0;
               const produtos_utilizados = item.produtos_utilizados || [];
               for (const pu of produtos_utilizados) {
-                let custo_u = Number(pu.custo_unitario || 0);
-                if (custo_u === 0) {
-                  const prod = produtos.find(p => p.id === pu.produto_id);
-                  custo_u = prod ? Number(prod.custo_unitario || 0) : 0;
-                }
-                custo_produtos += Number(pu.quantidade || 0) * custo_u;
+                const custo_prop = getCustoProporcional(pu, produtos);
+                custo_produtos += Number(pu.quantidade || 0) * custo_prop;
               }
 
               // Decidir base de comissão com base na flag do desconto
@@ -401,12 +415,8 @@ const listComissoes = async (req, res) => {
           let custo_produtos = 0;
           const produtos_utilizados = item.produtos_utilizados || [];
           for (const pu of produtos_utilizados) {
-            let custo_u = Number(pu.custo_unitario || 0);
-            if (custo_u === 0) {
-              const prod = produtos.find(p => p.id === pu.produto_id);
-              custo_u = prod ? Number(prod.custo_unitario || 0) : 0;
-            }
-            custo_produtos += Number(pu.quantidade || 0) * custo_u;
+            const custo_prop = getCustoProporcional(pu, produtos);
+            custo_produtos += Number(pu.quantidade || 0) * custo_prop;
           }
           totalInsumosTotal += custo_produtos;
         }

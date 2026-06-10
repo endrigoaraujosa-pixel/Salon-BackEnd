@@ -33,7 +33,7 @@ const createUser = async (req, res) => {
       return res.status(400).json({ detail: 'Email e senha são obrigatórios' });
     }
     
-    const existing = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() } });
+    const existing = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
     if (existing) {
       return res.status(400).json({ detail: 'Este email já está cadastrado' });
     }
@@ -122,7 +122,7 @@ const updateUser = async (req, res) => {
     }
 
     if (email && email.toLowerCase().trim() !== user.email) {
-      const existing = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() } });
+      const existing = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
       if (existing) {
         return res.status(400).json({ detail: 'Este email já está cadastrado' });
       }
@@ -190,6 +190,7 @@ const deleteUser = async (req, res) => {
         return res.status(400).json({ detail: 'Você não pode excluir o próprio usuário conectado' });
       }
       await user.update({
+        email: `${user.email}_deleted_${Date.now()}`,
         deletado: 'S',
         deletado_por: req.user ? req.user.name : 'Sistema',
         deletado_em: new Date()
