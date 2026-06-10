@@ -112,8 +112,11 @@ const registrarEntrada = async (req, res) => {
         return res.status(404).json({ detail: `Produto ID ${produto_id} não encontrado ou inativo.` });
       }
 
+      const qtyPerUnit = Number(product.quantidade_por_unidade || 0);
+      const qteReal = qtyPerUnit > 0 ? Number((qte * qtyPerUnit).toFixed(3)) : qte;
+
       const qtdAnterior = product.quantidade_estoque || 0;
-      const qtdAtual = Number((qtdAnterior + qte).toFixed(3));
+      const qtdAtual = Number((qtdAnterior + qteReal).toFixed(3));
 
       // Update product quantity, unit cost, and supplier name
       await product.update({
@@ -139,7 +142,7 @@ const registrarEntrada = async (req, res) => {
         produto_id,
         produto_nome: product.nome,
         tipo: 'entrada',
-        quantidade: qte,
+        quantidade: qteReal,
         quantidade_anterior: qtdAnterior,
         quantidade_atual: qtdAtual,
         valor_unitario: custo,

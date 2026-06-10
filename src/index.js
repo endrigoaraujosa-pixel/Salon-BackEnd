@@ -28,6 +28,7 @@ import { admin, protect, requirePermission } from './middleware/auth.js';
 import { connectDB } from './config/db.js';
 import { startReminderJob } from './jobs/whatsapp-reminder.job.js';
 import { tenantMiddleware } from './middleware/tenant.js';
+import { convertLegacyStock } from '../scripts/convert-legacy-stock.js';
 
 const app = express();
 
@@ -241,6 +242,7 @@ app.listen(PORT, async () => {
   try {
     await connectDB();
     console.log('Database boot sequence successfully completed.');
+    await convertLegacyStock();
     
     // Start background WhatsApp reminder processing job
     // startReminderJob();
