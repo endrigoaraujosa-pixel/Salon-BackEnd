@@ -65,6 +65,10 @@ const Produto = sequelize.define('Produto', {
     type: DataTypes.BOOLEAN,
     defaultValue: false
   },
+  uso_exclusivo_servicos: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
