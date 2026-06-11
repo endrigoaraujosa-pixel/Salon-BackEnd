@@ -16,7 +16,7 @@ import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
 import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
 import { createProd, deleteProd, listProd, updateProd } from './controllers/produtoController.js';
-import { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos } from './controllers/reportController.js';
+import { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos, relatorioResultadoOperacional } from './controllers/reportController.js';
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
 import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor } from './controllers/fornecedorController.js';
 import { createUser, deleteUser, listUsers, updateUser } from './controllers/userController.js';
@@ -126,6 +126,7 @@ app.get('/api/relatorios/dre', protect, admin, relatorioDre);
 app.get('/api/relatorios/caixa', protect, admin, relatorioCaixa);
 app.get('/api/relatorios/produtos', protect, admin, relatorioProdutos);
 app.get('/api/relatorios/servicos', protect, admin, relatorioServicos);
+app.get('/api/relatorios/resultado-operacional', protect, admin, relatorioResultadoOperacional);
 
 // Users Routes
 const userRoutes = express.Router();

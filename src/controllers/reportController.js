@@ -10,6 +10,7 @@ import { getPagamentoModel } from '../models/Pagamento.js';
 import { getCategoriaModel } from '../models/Categoria.js';
 import { getDespesaModel } from '../models/Despesa.js';
 import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
+import { getServicoModel } from '../models/Servico.js';
 
 const normalizeName = (name) => {
   if (!name) return '';
@@ -1256,5 +1257,485 @@ const relatorioServicos = async (req, res) => {
   }
 };
 
-export { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos };
+const relatorioResultadoOperacional = async (req, res) => {
+  const { data_inicio, data_fim, colaborador_id, categoria_servico, categoria_produto } = req.query;
+
+  if (!data_inicio || !data_fim) {
+    return res.status(400).json({ detail: 'Defina o período de datas (data_inicio e data_fim)' });
+  }
+
+  try {
+    // 1. Fetch auxiliary catalogs
+    const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
+    const colabMap = new Map(colaboradores.map(c => [c.id, c]));
+    const colabNameMap = new Map(colaboradores.map(c => [c.id, c.nome]));
+
+    const produtos = await getProdutoModel().findAll({ where: { deletado: 'N' } });
+    const produtosMap = new Map(produtos.map(p => [p.id, p]));
+
+    const servicos = await getServicoModel().findAll({ where: { deletado: 'N' } });
+    const servicosMap = new Map(servicos.map(s => [s.id, s]));
+
+    const categories = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoryMap = new Map(categories.map(c => [c.id, c.nome]));
+
+    // 2. Fetch rates
+    let rates = await getTaxaCartaoModel().findAll();
+    if (rates.length === 0) {
+      await getTaxaCartaoModel().bulkCreate([
+        { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true },
+        { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true }
+      ]);
+      rates = await getTaxaCartaoModel().findAll();
+    }
+    const rateMap = {};
+    rates.forEach(r => {
+      if (r.ativo) {
+        rateMap[r.forma_pagamento] = Number(r.percentual || 0);
+      }
+    });
+
+    // 3. Fetch completed agendamentos in period
+    const ags = await getAgendamentoModel().findAll({
+      where: {
+        status: 'concluido',
+        deletado: 'N',
+        data_hora: {
+          [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+        }
+      }
+    });
+
+    // 4. Fetch paid product sales in period
+    const vendas = await getVendaDiretaModel().findAll({
+      where: {
+        status: 'pago',
+        deletado: 'N',
+        data_venda: {
+          [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+        }
+      }
+    });
+
+    // 5. Fetch associated payments
+    const agIds = ags.map(a => a.id);
+    const vIds = vendas.map(v => v.id);
+    const payments = (agIds.length > 0 || vIds.length > 0)
+      ? await getPagamentoModel().findAll({
+          where: {
+            [Op.or]: [
+              { agendamento_id: { [Op.in]: agIds } },
+              { venda_direta_id: { [Op.in]: vIds } }
+            ],
+            deletado: 'N'
+          }
+        })
+      : [];
+
+    const paymentsByAgId = {};
+    const paymentsByVendaId = {};
+    payments.forEach(p => {
+      if (p.agendamento_id) {
+        if (!paymentsByAgId[p.agendamento_id]) paymentsByAgId[p.agendamento_id] = [];
+        paymentsByAgId[p.agendamento_id].push(p);
+      }
+      if (p.venda_direta_id) {
+        if (!paymentsByVendaId[p.venda_direta_id]) paymentsByVendaId[p.venda_direta_id] = [];
+        paymentsByVendaId[p.venda_direta_id].push(p);
+      }
+    });
+
+    // Helper: calculate total transaction fee for a list of payments
+    const getTxFee = (pags) => {
+      if (!pags) return 0;
+      return pags.reduce((acc, p) => {
+        const rate = rateMap[p.forma_pagamento] || 0;
+        return acc + (Number(p.valor || 0) * (rate / 100));
+      }, 0);
+    };
+
+    // Helper: get proportional cost of an insumo item
+    const getCustoProp = (pu) => {
+      if (pu.custo_proporcional !== undefined && Number(pu.custo_proporcional) > 0) {
+        return Number(pu.custo_proporcional);
+      }
+      let custoUnitario = Number(pu.custo_unitario || 0);
+      let qtyPorUnidade = Number(pu.quantidade_por_unidade || 0);
+      if (custoUnitario === 0 || qtyPorUnidade === 0) {
+        const prod = produtosMap.get(pu.produto_id);
+        if (prod) {
+          if (custoUnitario === 0) custoUnitario = Number(prod.custo_unitario || 0);
+          if (qtyPorUnidade === 0) qtyPorUnidade = Number(prod.quantidade_por_unidade || 0);
+        }
+      }
+      if (qtyPorUnidade > 0) {
+        return custoUnitario / qtyPorUnidade;
+      }
+      return custoUnitario;
+    };
+
+    // ----------------------------------------------------
+    // PROCESS SERVICES DATA
+    // ----------------------------------------------------
+    const listServicesFiltered = [];
+    ags.forEach(ag => {
+      let items = [];
+      try {
+        items = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+      } catch (e) {
+        items = ag.itens || [];
+      }
+      if (!Array.isArray(items)) return;
+
+      const agPayments = paymentsByAgId[ag.id] || [];
+      const totalTxFee = getTxFee(agPayments);
+
+      items.forEach(item => {
+        // Filter by collaborator if requested
+        if (colaborador_id && colaborador_id !== 'todos') {
+          if (item.colaborador_id !== colaborador_id && item.auxiliar_id !== colaborador_id) {
+            return;
+          }
+        }
+
+        // Fetch category name
+        const s_model = servicosMap.get(item.servico_id);
+        const catId = s_model ? s_model.categoria_id : null;
+        const catName = categoryMap.get(catId) || 'Outros';
+
+        // Filter by service category if requested
+        if (categoria_servico && categoria_servico !== 'todos') {
+          if (String(catId) !== String(categoria_servico) && catName.toLowerCase() !== categoria_servico.toLowerCase()) {
+            return;
+          }
+        }
+
+        // Calculate insumos (cost of products utilized)
+        let insumoCost = 0;
+        const prodUtils = item.produtos_utilizados || [];
+        prodUtils.forEach(pu => {
+          const c_prop = getCustoProp(pu);
+          insumoCost += Number(pu.quantidade || 0) * c_prop;
+        });
+
+        // Determine base commission
+        let val_serv_comissao = Number(item.valor || 0);
+        if (item.valor_original !== undefined && item.valor_original !== item.valor) {
+          let descApplied = ag.desconto_aplicado;
+          if (typeof descApplied === 'string') {
+            try { descApplied = JSON.parse(descApplied); } catch (e) {}
+          }
+          if (descApplied && descApplied.incide_comissao === false) {
+            val_serv_comissao = Number(item.valor_original || item.valor);
+          }
+        }
+
+        const baseCom = Math.max(0, val_serv_comissao - insumoCost);
+
+        // Calculate principal collaborator commission
+        let comissaoVal = 0;
+        const colabPrincipal = colabMap.get(item.colaborador_id);
+        if (colabPrincipal) {
+          const temAuxiliar = !!(item.auxiliar_id && String(item.auxiliar_id).trim() !== "" && String(item.auxiliar_id).trim() !== "null");
+          const pct = temAuxiliar
+            ? Number(colabPrincipal.comissao_ajuda != null ? colabPrincipal.comissao_ajuda : 30)
+            : Number(colabPrincipal.comissao_sozinho != null ? colabPrincipal.comissao_sozinho : (colabPrincipal.comissao_principal || 0));
+          comissaoVal += baseCom * (pct / 100);
+        }
+
+        // Calculate auxiliary collaborator commission
+        const colabAuxiliar = colabMap.get(item.auxiliar_id);
+        if (colabAuxiliar) {
+          const pct = Number(colabAuxiliar.comissao_auxiliar || 0);
+          comissaoVal += baseCom * (pct / 100);
+        }
+
+        // Calculate proportional fee
+        const proportion = ag.valor_total > 0 ? (Number(item.valor || 0) / Number(ag.valor_total)) : (1 / items.length);
+        const txFee = totalTxFee * proportion;
+
+        listServicesFiltered.push({
+          agendamento_id: ag.id,
+          numero: ag.numero ? String(ag.numero).padStart(6, '0') + ' | S' : '-',
+          data: ag.data_hora,
+          cliente: ag.cliente_nome || 'Consumidor',
+          profissional: colabNameMap.get(item.colaborador_id) || 'Nenhum',
+          servico_nome: item.nome,
+          faturamento: Number(item.valor || 0),
+          insumos: Number(insumoCost.toFixed(2)),
+          comissao: Number(comissaoVal.toFixed(2)),
+          taxas: Number(txFee.toFixed(2)),
+          resultado_operacional: Number((Number(item.valor || 0) - insumoCost - comissaoVal - txFee).toFixed(2))
+        });
+      });
+    });
+
+    // ----------------------------------------------------
+    // PROCESS PRODUCTS DATA
+    // ----------------------------------------------------
+    const listProductsFiltered = [];
+    vendas.forEach(v => {
+      // Carrinho support
+      const itensVenda = Array.isArray(v.itens) && v.itens.length > 0
+        ? v.itens
+        : [{ produto_id: v.produto_id, produto_nome: v.produto_nome, quantidade: v.quantidade, subtotal: v.valor_total, comissao_pct: null }];
+
+      const vPayments = paymentsByVendaId[v.id] || [];
+      const totalTxFee = getTxFee(vPayments);
+
+      itensVenda.forEach(item => {
+        // Filter by collaborator
+        if (colaborador_id && colaborador_id !== 'todos') {
+          if (v.colaborador_id !== colaborador_id) return;
+        }
+
+        // Fetch category
+        const prod = produtosMap.get(item.produto_id);
+        const catId = prod ? prod.categoria_id : null;
+        const catName = prod ? (prod.categoria || categoryMap.get(catId) || 'Nenhuma') : 'Nenhuma';
+
+        // Filter by product category
+        if (categoria_produto && categoria_produto !== 'todos') {
+          if (String(catId) !== String(categoria_produto) && catName.toLowerCase() !== categoria_produto.toLowerCase()) {
+            return;
+          }
+        }
+
+        // Fetch historical cost at sale or current fallback
+        let itemCost = 0;
+        if (item.custo_unitario !== undefined && item.custo_unitario !== null) {
+          itemCost = Number(item.quantidade) * Number(item.custo_unitario);
+        } else {
+          itemCost = Number(item.quantidade) * (prod ? Number(prod.custo_unitario || 0) : 0);
+        }
+
+        // Calculate commission
+        let pct = item.comissao_pct != null ? Number(item.comissao_pct) : null;
+        if (pct == null) {
+          pct = prod ? Number(prod.comissao || 0) : 0;
+        }
+        
+        let val_item_comissao = Number(item.subtotal || item.preco_unitario * item.quantidade || 0);
+        if (item.preco_unitario_original !== undefined) {
+          let descApplied = v.desconto_aplicado;
+          if (typeof descApplied === 'string') {
+            try { descApplied = JSON.parse(descApplied); } catch (e) {}
+          }
+          if (descApplied && descApplied.incide_comissao === false) {
+            val_item_comissao = Number(item.preco_unitario_original) * Number(item.quantidade);
+          }
+        }
+        const comVal = val_item_comissao * (pct / 100);
+
+        // Calculate proportional fee
+        const proportion = v.valor_total > 0 ? (Number(item.subtotal || 0) / Number(v.valor_total)) : (1 / itensVenda.length);
+        const txFee = totalTxFee * proportion;
+
+        listProductsFiltered.push({
+          venda_id: v.id,
+          numero: v.numero_venda ? String(v.numero_venda).padStart(6, '0') + ' | V' : '-',
+          data: v.data_venda,
+          cliente: v.cliente_nome || 'Consumidor',
+          profissional: v.colaborador_nome || 'Nenhum',
+          produto_nome: item.produto_nome || (prod ? prod.nome : 'Produto Desconhecido'),
+          quantidade: Number(item.quantidade || 0),
+          faturamento: Number(item.subtotal || 0),
+          cmv: Number(itemCost.toFixed(2)),
+          comissao: Number(comVal.toFixed(2)),
+          taxas: Number(txFee.toFixed(2)),
+          resultado_operacional: Number((Number(item.subtotal || 0) - itemCost - comVal - txFee).toFixed(2))
+        });
+      });
+    });
+
+    // ----------------------------------------------------
+    // AGGREGATION: RENTABILIDADE POR SERVIÇO
+    // ----------------------------------------------------
+    const servicesSummaryMap = {};
+    listServicesFiltered.forEach(s => {
+      const name = s.servico_nome;
+      if (!servicesSummaryMap[name]) {
+        servicesSummaryMap[name] = {
+          servico_nome: name,
+          quantidade: 0,
+          faturamento: 0,
+          comissao: 0,
+          taxas: 0,
+          insumos: 0,
+          resultado_operacional: 0
+        };
+      }
+      servicesSummaryMap[name].quantidade += 1;
+      servicesSummaryMap[name].faturamento += s.faturamento;
+      servicesSummaryMap[name].comissao += s.comissao;
+      servicesSummaryMap[name].taxas += s.taxas;
+      servicesSummaryMap[name].insumos += s.insumos;
+      servicesSummaryMap[name].resultado_operacional += s.resultado_operacional;
+    });
+
+    const servicosSummaryList = Object.values(servicesSummaryMap).map(s => {
+      s.faturamento = Number(s.faturamento.toFixed(2));
+      s.comissao = Number(s.comissao.toFixed(2));
+      s.taxas = Number(s.taxas.toFixed(2));
+      s.insumos = Number(s.insumos.toFixed(2));
+      s.resultado_operacional = Number(s.resultado_operacional.toFixed(2));
+      s.margem = s.faturamento > 0 ? Number(((s.resultado_operacional / s.faturamento) * 100).toFixed(2)) : 0;
+      return s;
+    });
+
+    // ----------------------------------------------------
+    // AGGREGATION: RENTABILIDADE POR PRODUTO
+    // ----------------------------------------------------
+    const productsSummaryMap = {};
+    listProductsFiltered.forEach(p => {
+      const name = p.produto_nome;
+      if (!productsSummaryMap[name]) {
+        productsSummaryMap[name] = {
+          produto_nome: name,
+          quantidade: 0,
+          faturamento: 0,
+          cmv: 0,
+          taxas: 0,
+          comissao: 0,
+          resultado_operacional: 0
+        };
+      }
+      productsSummaryMap[name].quantidade += p.quantidade;
+      productsSummaryMap[name].faturamento += p.faturamento;
+      productsSummaryMap[name].cmv += p.cmv;
+      productsSummaryMap[name].taxas += p.taxas;
+      productsSummaryMap[name].comissao += p.comissao;
+      productsSummaryMap[name].resultado_operacional += p.resultado_operacional;
+    });
+
+    const produtosSummaryList = Object.values(productsSummaryMap).map(p => {
+      p.faturamento = Number(p.faturamento.toFixed(2));
+      p.cmv = Number(p.cmv.toFixed(2));
+      p.taxas = Number(p.taxas.toFixed(2));
+      p.comissao = Number(p.comissao.toFixed(2));
+      p.resultado_operacional = Number(p.resultado_operacional.toFixed(2));
+      p.margem = p.faturamento > 0 ? Number(((p.resultado_operacional / p.faturamento) * 100).toFixed(2)) : 0;
+      return p;
+    });
+
+    // ----------------------------------------------------
+    // AGGREGATION: ANALÍTICO POR VENDA
+    // ----------------------------------------------------
+    const salesAnalyticMap = {};
+    
+    // Process Services
+    listServicesFiltered.forEach(s => {
+      const key = `S-${s.agendamento_id}`;
+      if (!salesAnalyticMap[key]) {
+        salesAnalyticMap[key] = {
+          numero: s.numero,
+          data: s.data,
+          cliente: s.cliente,
+          profissional: s.profissional,
+          valor_produtos: 0,
+          valor_servicos: 0,
+          faturamento_total: 0,
+          cmv: 0,
+          comissao: 0,
+          taxas: 0,
+          resultado_operacional: 0
+        };
+      }
+      salesAnalyticMap[key].valor_servicos += s.faturamento;
+      salesAnalyticMap[key].faturamento_total += s.faturamento;
+      salesAnalyticMap[key].cmv += s.insumos;
+      salesAnalyticMap[key].comissao += s.comissao;
+      salesAnalyticMap[key].taxas += s.taxas;
+      salesAnalyticMap[key].resultado_operacional += s.resultado_operacional;
+    });
+
+    // Process Products
+    listProductsFiltered.forEach(p => {
+      const key = `V-${p.venda_id}`;
+      if (!salesAnalyticMap[key]) {
+        salesAnalyticMap[key] = {
+          numero: p.numero,
+          data: p.data,
+          cliente: p.cliente,
+          profissional: p.profissional,
+          valor_produtos: 0,
+          valor_servicos: 0,
+          faturamento_total: 0,
+          cmv: 0,
+          comissao: 0,
+          taxas: 0,
+          resultado_operacional: 0
+        };
+      }
+      salesAnalyticMap[key].valor_produtos += p.faturamento;
+      salesAnalyticMap[key].faturamento_total += p.faturamento;
+      salesAnalyticMap[key].cmv += p.cmv;
+      salesAnalyticMap[key].comissao += p.comissao;
+      salesAnalyticMap[key].taxas += p.taxas;
+      salesAnalyticMap[key].resultado_operacional += p.resultado_operacional;
+    });
+
+    const salesAnalyticList = Object.values(salesAnalyticMap).map(sale => {
+      sale.valor_produtos = Number(sale.valor_produtos.toFixed(2));
+      sale.valor_servicos = Number(sale.valor_servicos.toFixed(2));
+      sale.faturamento_total = Number(sale.faturamento_total.toFixed(2));
+      sale.cmv = Number(sale.cmv.toFixed(2));
+      sale.comissao = Number(sale.comissao.toFixed(2));
+      sale.taxas = Number(sale.taxas.toFixed(2));
+      sale.resultado_operacional = Number(sale.resultado_operacional.toFixed(2));
+      sale.margem = sale.faturamento_total > 0 ? Number(((sale.resultado_operacional / sale.faturamento_total) * 100).toFixed(2)) : 0;
+      return sale;
+    });
+
+    // ----------------------------------------------------
+    // AGGREGATION: CONSOLIDADO
+    // ----------------------------------------------------
+    let receitaServicos = 0;
+    let receitaProdutos = 0;
+    let cmvTotal = 0;
+    let comissoesTotal = 0;
+    let taxasTotal = 0;
+
+    listServicesFiltered.forEach(s => {
+      receitaServicos += s.faturamento;
+      cmvTotal += s.insumos;
+      comissoesTotal += s.comissao;
+      taxasTotal += s.taxas;
+    });
+
+    listProductsFiltered.forEach(p => {
+      receitaProdutos += p.faturamento;
+      cmvTotal += p.cmv;
+      comissoesTotal += p.comissao;
+      taxasTotal += p.taxas;
+    });
+
+    const receitaTotal = receitaServicos + receitaProdutos;
+    const resultadoOperacional = receitaTotal - cmvTotal - comissoesTotal - taxasTotal;
+    const margemOperacional = receitaTotal > 0 ? (resultadoOperacional / receitaTotal) * 100 : 0;
+
+    const consolidado = {
+      receita_servicos: Number(receitaServicos.toFixed(2)),
+      receita_produtos: Number(receitaProdutos.toFixed(2)),
+      receita_total: Number(receitaTotal.toFixed(2)),
+      cmv: Number(cmvTotal.toFixed(2)),
+      comissoes: Number(comissoesTotal.toFixed(2)),
+      taxas: Number(taxasTotal.toFixed(2)),
+      resultado_operacional: Number(resultadoOperacional.toFixed(2)),
+      margem_operacional: Number(margemOperacional.toFixed(2))
+    };
+
+    res.json({
+      consolidado,
+      servicos: servicosSummaryList,
+      produtos: produtosSummaryList,
+      vendas: salesAnalyticList
+    });
+  } catch (error) {
+    console.error('OPERATIONAL RESULT REPORT ERROR:', error.message, error.stack);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos, relatorioResultadoOperacional };
 
