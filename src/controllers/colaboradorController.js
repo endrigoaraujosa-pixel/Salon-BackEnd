@@ -20,6 +20,10 @@ const listColab = async (req, res) => {
 
 const createColab = async (req, res) => {
   try {
+    const { nome } = req.body;
+    if (!nome || !nome.trim()) {
+      return res.status(400).json({ detail: 'O preenchimento do campo Nome é obrigatório para a conclusão do cadastro.' });
+    }
     const colab = await getColaboradorModel().create(req.body);
     res.status(201).json(colab);
   } catch (error) {
@@ -29,6 +33,10 @@ const createColab = async (req, res) => {
 
 const updateColab = async (req, res) => {
   try {
+    const { nome } = req.body;
+    if (nome !== undefined && (!nome || !nome.trim())) {
+      return res.status(400).json({ detail: 'O preenchimento do campo Nome é obrigatório para a conclusão do cadastro.' });
+    }
     const colab = await getColaboradorModel().findByPk(req.params.cid);
     if (!colab) return res.status(404).json({ detail: 'Colaborador não encontrado' });
     

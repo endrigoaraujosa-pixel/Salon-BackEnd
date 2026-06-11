@@ -17,7 +17,10 @@ const listClientes = async (req, res) => {
 
 const createCliente = async (req, res) => {
   try {
-    const { telefone } = req.body;
+    const { nome, telefone } = req.body;
+    if (!nome || !nome.trim()) {
+      return res.status(400).json({ detail: 'O preenchimento do campo Nome é obrigatório para a conclusão do cadastro.' });
+    }
     if (telefone) {
       const cleanInput = telefone.replace(/\D/g, "");
       if (cleanInput.length > 0) {
@@ -42,7 +45,11 @@ const updateCliente = async (req, res) => {
     const cliente = await getClienteModel().findByPk(req.params.cid);
     if (!cliente) return res.status(404).json({ detail: 'Cliente não encontrado' });
 
-    const { telefone } = req.body;
+    const { nome, telefone } = req.body;
+    if (nome !== undefined && (!nome || !nome.trim())) {
+      return res.status(400).json({ detail: 'O preenchimento do campo Nome é obrigatório para a conclusão do cadastro.' });
+    }
+
     if (telefone) {
       const cleanInput = telefone.replace(/\D/g, "");
       if (cleanInput.length > 0) {

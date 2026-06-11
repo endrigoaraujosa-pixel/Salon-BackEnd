@@ -87,6 +87,10 @@ const createVenda = async (req, res) => {
         await transaction.rollback();
         return res.status(400).json({ detail: `Produto não encontrado: ${item.produto_id}` });
       }
+      if (produto.uso_exclusivo_servicos) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: `O produto "${produto.nome}" é de uso exclusivo em serviços e não pode ser vendido diretamente.` });
+      }
       const qtd = Number(item.quantidade);
       const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
       const neededStock = qtyPerUnit > 0 ? (qtd * qtyPerUnit) : qtd;
@@ -563,6 +567,11 @@ const addItemCarrinho = async (req, res) => {
       return res.status(400).json({ detail: 'Produto não encontrado.' });
     }
 
+    if (produto.uso_exclusivo_servicos) {
+      await transaction.rollback();
+      return res.status(400).json({ detail: `O produto "${produto.nome}" é de uso exclusivo em serviços e não pode ser vendido diretamente.` });
+    }
+
     const qtd = Number(quantidade);
     if (!qtd || qtd <= 0) {
       await transaction.rollback();
@@ -661,6 +670,11 @@ const updateItemCarrinho = async (req, res) => {
     if (!produto) {
       await transaction.rollback();
       return res.status(400).json({ detail: 'Produto do item não encontrado.' });
+    }
+
+    if (produto.uso_exclusivo_servicos) {
+      await transaction.rollback();
+      return res.status(400).json({ detail: `O produto "${produto.nome}" é de uso exclusivo em serviços e não pode ser vendido diretamente.` });
     }
 
     // Estoque: considera a reserva dos outros itens do mesmo produto
