@@ -10,7 +10,7 @@ import { createCategoria, deleteCategoria, listCategorias, updateCategoria } fro
 import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente, rankingClientes } from './controllers/clienteController.js';
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
-import { getTaxas, saveTaxa, getEmpresa, saveEmpresa } from './controllers/configuracaoController.js';
+import { getTaxas, saveTaxa, getEmpresa, saveEmpresa, getPublicEmpresa } from './controllers/configuracaoController.js';
 import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect } from './modules/whatsapp/whatsapp.controller.js';
 import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
@@ -188,6 +188,7 @@ configRoutes.get('/whatsapp/historico', protect, requirePermission('agenda'), ge
 configRoutes.post('/whatsapp/reenviar/:id', protect, requirePermission('agenda', 'editar'), postResendReminder);
 configRoutes.get('/whatsapp/local-status', protect, requirePermission('configuracoes'), getLocalStatus);
 configRoutes.post('/whatsapp/local-disconnect', protect, requirePermission('configuracoes', 'editar'), postLocalDisconnect);
+app.get('/api/configuracoes/empresa/public', getPublicEmpresa);
 app.use('/api/configuracoes', configRoutes);
 
 // Categorias Routes

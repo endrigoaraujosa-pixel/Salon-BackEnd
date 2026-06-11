@@ -85,5 +85,20 @@ const saveEmpresa = async (req, res) => {
   }
 };
 
-export { getTaxas, saveTaxa, getEmpresa, saveEmpresa };
+const getPublicEmpresa = async (req, res) => {
+  try {
+    const empresa = await getEmpresaModel().findOne();
+    if (empresa) {
+      res.json({
+        nome_fantasia: empresa.nome_fantasia || ""
+      });
+    } else {
+      res.json({ nome_fantasia: "" });
+    }
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export { getTaxas, saveTaxa, getEmpresa, saveEmpresa, getPublicEmpresa };
 
