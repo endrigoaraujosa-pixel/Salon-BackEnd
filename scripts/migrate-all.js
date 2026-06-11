@@ -39,7 +39,8 @@ async function runMigrations() {
       context: sequelize.getQueryInterface(),
       storage: new SequelizeStorage({
         sequelize: sequelize,
-        modelName: 'SequelizeMeta', // Tabela que guarda o histórico de migrations
+        modelName: `SequelizeMeta_${schema_name}`, // Nome único por schema para evitar cache do Sequelize
+        tableName: 'SequelizeMeta', // Tabela real no banco continua sendo SequelizeMeta
         schema: schema_name,            // Salva o histórico DENTRO do schema atual
       }),
       logger: console,
