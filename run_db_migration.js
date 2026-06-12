@@ -13,8 +13,10 @@ import createEmpresa from './src/migrations/20260528120000-create-empresa.js';
 import addCriadoPorToAgendamentos from './src/migrations/20260528175000-add-criado-por-to-agendamentos.js';
 import createWhatsAppTables from './src/migrations/20260601000000-create-whatsapp-tables.js';
 import addApiFieldsToWhatsappConfig from './src/migrations/20260601100000-add-api-fields-to-whatsapp-config.js';
-import addDescontoFields from './src/migrations/20260602100000-add-desconto-fields.js';
+import createDescontos from './src/migrations/20260603122000-create-descontos.js';
 import addAuditFieldsToVendasDiretas from './src/migrations/20260603100000-add-audit-fields-to-vendas-diretas.js';
+import createConfiguracaoSistema from './src/migrations/20260611100000-create-configuracao-sistema.js';
+import addOcultarInsumosToProdutos from './src/migrations/20260611110000-add-ocultar-insumos-to-produtos.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -136,12 +138,12 @@ async function run() {
       console.log('Add API fields to whatsapp config migration skipped or already applied:', e.message);
     }
 
-    console.log('Running add discount fields migration (up)...');
+    console.log('Running create descontos table migration (up)...');
     try {
-      await addDescontoFields.up(queryInterface, Sequelize);
-      console.log('Add discount fields migration completed.');
+      await createDescontos.up(queryInterface, Sequelize);
+      console.log('Create descontos table migration completed.');
     } catch (e) {
-      console.log('Add discount fields migration skipped or already applied:', e.message);
+      console.log('Create descontos table migration skipped or already applied:', e.message);
     }
 
     console.log('Running add audit fields to vendas diretas migration (up)...');
@@ -150,6 +152,22 @@ async function run() {
       console.log('Add audit fields to vendas diretas migration completed.');
     } catch (e) {
       console.log('Add audit fields to vendas diretas migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running create configuracao sistema migration (up)...');
+    try {
+      await createConfiguracaoSistema.up(queryInterface, Sequelize);
+      console.log('Create configuracao sistema migration completed.');
+    } catch (e) {
+      console.log('Create configuracao sistema migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add ocultar_insumos to produtos migration (up)...');
+    try {
+      await addOcultarInsumosToProdutos.up(queryInterface, Sequelize);
+      console.log('Add ocultar_insumos to produtos migration completed.');
+    } catch (e) {
+      console.log('Add ocultar_insumos to produtos migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');

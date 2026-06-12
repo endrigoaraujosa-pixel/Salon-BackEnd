@@ -1,6 +1,6 @@
 import { getServicoModel } from '../models/Servico.js';
 import { getAgendamentoModel } from '../models/Agendamento.js';
-
+import { sequelize } from '../config/db.js';
 import { Op } from 'sequelize';
 
 const listServ = async (req, res) => {
@@ -17,9 +17,20 @@ const listServ = async (req, res) => {
 
 const createServ = async (req, res) => {
   try {
-    const { categoria_id } = req.body;
+    const { categoria_id, nome } = req.body;
     if (!categoria_id) {
       return res.status(400).json({ detail: 'A categoria é obrigatória' });
+    }
+    if (nome) {
+      const existing = await getServicoModel().findOne({
+        where: {
+          nome: sequelize.where(sequelize.fn('LOWER', sequelize.col('nome')), nome.trim().toLowerCase()),
+          deletado: 'N'
+        }
+      });
+      if (existing) {
+        return res.status(400).json({ detail: 'Já existe um serviço cadastrado com este nome.' });
+      }
     }
     console.log("createServ payload received:", JSON.stringify(req.body, null, 2));
     const serv = await getServicoModel().create(req.body);
@@ -33,9 +44,21 @@ const createServ = async (req, res) => {
 
 const updateServ = async (req, res) => {
   try {
-    const { categoria_id } = req.body;
+    const { categoria_id, nome } = req.body;
     if (categoria_id !== undefined && !categoria_id) {
       return res.status(400).json({ detail: 'A categoria é obrigatória' });
+    }
+    if (nome) {
+      const existing = await getServicoModel().findOne({
+        where: {
+          nome: sequelize.where(sequelize.fn('LOWER', sequelize.col('nome')), nome.trim().toLowerCase()),
+          deletado: 'N',
+          id: { [Op.ne]: req.params.sid }
+        }
+      });
+      if (existing) {
+        return res.status(400).json({ detail: 'Já existe um serviço cadastrado com este nome.' });
+      }
     }
     console.log("updateServ sid:", req.params.sid, "payload received:", JSON.stringify(req.body, null, 2));
     const serv = await getServicoModel().findByPk(req.params.sid);

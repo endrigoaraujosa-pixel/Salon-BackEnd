@@ -11,6 +11,7 @@ import { getPagamentoModel } from '../models/Pagamento.js';
 import { getUserModel } from '../models/User.js';
 import { getDescontoModel } from '../models/Desconto.js';
 import { sequelize } from '../config/db.js';
+import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 
 export const adjustStock = async (ag, type, options = {}) => {
   const transaction = options.transaction;
@@ -42,6 +43,15 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   if (!cliente) throw new Error('Cliente inválido');
 
   let itens = [];
+  let bloquearValorMenor = false;
+  try {
+    const systemConfig = await getConfiguracaoSistemaModel().findOne();
+    if (systemConfig) {
+      bloquearValorMenor = !!systemConfig.bloquear_valor_agendamento_menor;
+    }
+  } catch (err) {
+    console.error("Erro ao carregar configuracoes do sistema:", err);
+  }
   let valorTotal = 0;
   let duracaoTotal = 0;
   let profsMap = new Map();
@@ -57,32 +67,29 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
       const resolvedProdutosUtilizados = [];
       if (Array.isArray(item.produtos_utilizados)) {
         for (const pu of item.produtos_utilizados) {
+          const prod = await getProdutoModel().findByPk(pu.produto_id);
+          if (prod && prod.ocultar_insumos) {
+            throw new Error(`O produto "${prod.nome}" não pode ser utilizado no lançamento de insumos pois está configurado como Somente Venda.`);
+          }
+
           let custoUnitario = Number(pu.custo_unitario || 0);
           let quantidadePorUnidade = Number(pu.quantidade_por_unidade || 0);
           let unidadeMedidaInsumo = pu.unidade_medida_insumo || "";
           let custoProporcional = Number(pu.custo_proporcional || 0);
 
-          // Fetch product to get fresh values when not already set
-          if (custoUnitario === 0 || quantidadePorUnidade === 0 || !unidadeMedidaInsumo) {
-            const prod = await getProdutoModel().findByPk(pu.produto_id);
-            if (prod) {
-              if (custoUnitario === 0) {
-                custoUnitario = Number(prod.custo_unitario || 0);
-              }
-              if (quantidadePorUnidade === 0) {
-                quantidadePorUnidade = Number(prod.quantidade_por_unidade || 0);
-              }
-              if (!unidadeMedidaInsumo) {
-                unidadeMedidaInsumo = prod.unidade_medida_insumo || "un";
-              }
+          if (prod) {
+            if (custoUnitario === 0) {
+              custoUnitario = Number(prod.custo_unitario || 0);
+            }
+            if (quantidadePorUnidade === 0) {
+              quantidadePorUnidade = Number(prod.quantidade_por_unidade || 0);
+            }
+            if (!unidadeMedidaInsumo) {
+              unidadeMedidaInsumo = prod.unidade_medida_insumo || "un";
             }
           }
 
-          let prodNome = pu.produto_nome || pu.produto_name || "";
-          if (!prodNome && pu.produto_id) {
-            const prod = await getProdutoModel().findByPk(pu.produto_id);
-            prodNome = prod ? prod.nome : "";
-          }
+          let prodNome = pu.produto_nome || pu.produto_name || (prod ? prod.nome : "");
           // Calculate proportional cost: cost per unit of measure (e.g. per gram/ml)
           // Falls back to custo_unitario if quantidade_por_unidade is not set (backward-compatible)
           if (custoProporcional === 0) {
@@ -104,6 +111,10 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
 
       const valorOriginal = item.valor_original !== undefined && item.valor_original !== null && item.valor_original !== '' ? Number(item.valor_original) : Number(s.valor || 0);
       const valorCobrado = item.valor !== undefined && item.valor !== null && item.valor !== '' ? Number(item.valor) : Number(s.valor || 0);
+
+      if (bloquearValorMenor && valorCobrado < Number(s.valor || 0)) {
+        throw new Error(`O valor cobrado para o serviço "${s.nome}" (R$ ${valorCobrado.toFixed(2)}) não pode ser inferior ao valor cadastrado (R$ ${Number(s.valor || 0).toFixed(2)}).`);
+      }
 
       itens.push({
         servico_id: item.servico_id,
@@ -789,6 +800,25 @@ const aplicarDescontoAgendamento = async (req, res) => {
         const itemDiscount = totalDiscount * proporcao;
         item.valor = Math.max(0, Number((item.valor - itemDiscount).toFixed(2)));
       });
+    }
+
+    let bloquearValorMenor = false;
+    try {
+      const systemConfig = await getConfiguracaoSistemaModel().findOne();
+      if (systemConfig) {
+        bloquearValorMenor = !!systemConfig.bloquear_valor_agendamento_menor;
+      }
+    } catch (err) {
+      console.error("Erro ao carregar configuracoes do sistema:", err);
+    }
+
+    if (bloquearValorMenor) {
+      for (const item of itens) {
+        const s = await getServicoModel().findByPk(item.servico_id);
+        if (s && item.valor < Number(s.valor || 0)) {
+          return res.status(400).json({ detail: `Não é permitido aplicar este desconto pois o valor cobrado para o serviço "${s.nome}" (R$ ${Number(item.valor).toFixed(2)}) ficaria inferior ao valor cadastrado (R$ ${Number(s.valor || 0).toFixed(2)}).` });
+        }
+      }
     }
 
     ag.itens = itens;
