@@ -1729,7 +1729,9 @@ const relatorioResultadoOperacional = async (req, res) => {
       consolidado,
       servicos: servicosSummaryList,
       produtos: produtosSummaryList,
-      vendas: salesAnalyticList
+      vendas: salesAnalyticList,
+      detalhes_servicos: listServicesFiltered,
+      detalhes_produtos: listProductsFiltered
     });
   } catch (error) {
     console.error('OPERATIONAL RESULT REPORT ERROR:', error.message, error.stack);
