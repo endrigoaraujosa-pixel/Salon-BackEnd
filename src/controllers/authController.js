@@ -14,6 +14,10 @@ const isMobileRequest = (req) => {
 const login = async (req, res) => {
   const { email, password } = req.body;
 
+  if (!email || !email.trim() || !password || !password.trim()) {
+    return res.status(400).json({ detail: 'Email e senha são obrigatórios' });
+  }
+
   try {
     const user = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
 
