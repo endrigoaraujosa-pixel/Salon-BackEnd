@@ -1,5 +1,6 @@
 import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
 import { getEmpresaModel } from '../models/Empresa.js';
+import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 
 const getTaxas = async (req, res) => {
   try {
@@ -100,5 +101,33 @@ const getPublicEmpresa = async (req, res) => {
   }
 };
 
-export { getTaxas, saveTaxa, getEmpresa, saveEmpresa, getPublicEmpresa };
+const getConfiguracaoSistema = async (req, res) => {
+  try {
+    let config = await getConfiguracaoSistemaModel().findOne();
+    if (!config) {
+      config = await getConfiguracaoSistemaModel().create({
+        bloquear_valor_agendamento_menor: false
+      });
+    }
+    res.json(config);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const saveConfiguracaoSistema = async (req, res) => {
+  try {
+    let config = await getConfiguracaoSistemaModel().findOne();
+    if (!config) {
+      config = await getConfiguracaoSistemaModel().create(req.body);
+    } else {
+      await config.update(req.body);
+    }
+    res.json(config);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export { getTaxas, saveTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema };
 

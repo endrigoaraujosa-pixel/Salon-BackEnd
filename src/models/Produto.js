@@ -69,6 +69,10 @@ const Produto = sequelize.define('Produto', {
     type: DataTypes.BOOLEAN,
     defaultValue: false
   },
+  ocultar_insumos: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

@@ -10,7 +10,7 @@ import { createCategoria, deleteCategoria, listCategorias, updateCategoria } fro
 import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente, rankingClientes } from './controllers/clienteController.js';
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
-import { getTaxas, saveTaxa, getEmpresa, saveEmpresa, getPublicEmpresa } from './controllers/configuracaoController.js';
+import { getTaxas, saveTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
 import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect } from './modules/whatsapp/whatsapp.controller.js';
 import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
@@ -182,6 +182,8 @@ configRoutes.get('/taxas-cartao', protect, requirePermission('cadastros'), getTa
 configRoutes.post('/taxas-cartao', protect, requirePermission('cadastros', 'editar'), saveTaxa);
 configRoutes.get('/empresa', protect, getEmpresa);
 configRoutes.post('/empresa', protect, requirePermission('configuracoes', 'editar'), saveEmpresa);
+configRoutes.get('/sistema', protect, requirePermission('configuracoes'), getConfiguracaoSistema);
+configRoutes.post('/sistema', protect, requirePermission('configuracoes', 'editar'), saveConfiguracaoSistema);
 configRoutes.get('/whatsapp', protect, requirePermission('configuracoes'), getWhatsappConfig);
 configRoutes.post('/whatsapp', protect, requirePermission('configuracoes', 'editar'), saveWhatsappConfig);
 configRoutes.get('/whatsapp/historico', protect, requirePermission('agenda'), getWhatsappHistory);
