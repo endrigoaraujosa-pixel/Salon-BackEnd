@@ -130,6 +130,10 @@ export const deleteDesconto = async (req, res) => {
 export const validarDescontoAutorizacao = async (req, res) => {
   const { id, email, password } = req.body;
 
+  if (!email || !email.trim() || !password || !password.trim()) {
+    return res.status(400).json({ detail: 'Usuário e senha são obrigatórios para a autorização.' });
+  }
+
   try {
     const desconto = await getDescontoModel().findOne({ where: { id, deletado: 'N' } });
     if (!desconto) {
