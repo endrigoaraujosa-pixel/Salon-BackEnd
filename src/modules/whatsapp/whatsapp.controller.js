@@ -1,5 +1,7 @@
 import * as whatsappService from './whatsapp.service.js';
 import { getLocalClientStatus, disconnectLocalClient } from './local-client.js';
+import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
+// import 'dotenv/config';
 
 export const getWhatsappConfig = async (req, res) => {
   try {
@@ -56,3 +58,92 @@ export const postLocalDisconnect = async (req, res) => {
   }
 };
 
+export const startLocalIntegration = async (req, res) => {
+  try {
+    const instance = req.body.subdominio;
+    const urlEvolution = process.env.EVOLUTION_API_URL + "/instance/create";
+    const payload = {
+      instanceName: instance,
+      qrcode: true,
+      integration: "WHATSAPP-BAILEYS"
+    }
+
+    const response = await fetch(urlEvolution, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apiKey': process.env.EVOLUTION_API_TOKEN
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+
+      await whatsappService.saveConfig({
+        instancia: result.instance.instanceName,
+        token: result.hash,
+      });
+
+      res.json({
+        success: true,
+        message: 'Integração iniciada com sucesso',
+        data: result
+      });
+
+    } else {
+      const errorData = await response.json();
+      res.status(500).json({ detail: errorData.detalhe });
+    }
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export const getExternalStatus = async (req, res) => {
+  try {
+    const { instance } = req.params;
+    const urlEvolution = process.env.EVOLUTION_API_URL + `/instance/connectionState/${instance}`;
+
+    const response = await fetch(urlEvolution, {
+      method: 'GET',
+      headers: {
+        'apiKey': process.env.EVOLUTION_API_TOKEN
+      }
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      res.json(result);
+    } else {
+      const errorData = await response.json();
+      res.status(500).json({ detail: errorData.detail || "Erro ao consultar status" });
+    }
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export const getExternalQrCode = async (req, res) => {
+  try {
+    const { instance } = req.params;
+    const urlEvolution = process.env.EVOLUTION_API_URL + `/instance/connect/${instance}`;
+
+    const response = await fetch(urlEvolution, {
+      method: 'GET',
+      headers: {
+        'apiKey': process.env.EVOLUTION_API_TOKEN
+      }
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      res.json(result);
+    } else {
+      const errorData = await response.json();
+      res.status(500).json({ detail: errorData.detail || "Erro ao buscar qr code" });
+    }
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
