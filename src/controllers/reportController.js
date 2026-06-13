@@ -2228,7 +2228,8 @@ const relatorioEstoqueConsumoInsumos = async (req, res) => {
             quantidade_por_unidade: prod ? (prod.quantidade_por_unidade || 0) : 0,
             quantidade_por_embalagem: prod ? (prod.quantidade_por_unidade || 0) : 0,
             custo_unitario: custoProp,
-            custo_total: totalCusto
+            custo_total: totalCusto,
+            valor_total_custo: totalCusto
           });
         }
       }
