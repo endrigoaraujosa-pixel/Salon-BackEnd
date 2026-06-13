@@ -10,7 +10,8 @@
     "vercel-build": "npx sequelize-cli db:migrate",
     "migrate": "node scripts/migrate-all.js",
     "create-schema": "node scripts/createSchemaClient.js",
-    "seed-user": "npx sequelize-cli db:seed --seed 20260520141621-demo-user.cjs"
+    "seed-user": "npx sequelize-cli db:seed --seed 20260520141621-demo-user.cjs",
+    "worker": "node src/worker-runner.js"
   },
   "keywords": [],
   "author": "",

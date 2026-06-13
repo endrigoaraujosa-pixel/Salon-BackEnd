@@ -1,6 +1,6 @@
-import WhatsappConfig from '../../models/WhatsappConfig.js';
-import WhatsappLembrete from '../../models/WhatsappLembrete.js';
-import Cliente from '../../models/Cliente.js';
+import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
+import { getWhatsappLembreteModel } from '../../models/WhatsappLembrete.js';
+import { getClienteModel } from '../../models/Cliente.js';
 import { DEFAULT_TEMPLATE } from './templates/reminder.template.js';
 import { sequelize } from '../../config/db.js';
 
@@ -11,9 +11,9 @@ import { sequelize } from '../../config/db.js';
 export async function generateReminders(agendamento) {
   try {
     // 1. Consultar configurações do WhatsApp.
-    let config = await WhatsappConfig.findOne();
+    let config = await getWhatsappConfigModel().findOne();
     if (!config) {
-      config = await WhatsappConfig.create({
+      config = await getWhatsappConfigModel().create({
         ativo: 0,
         lembrete_24h: 1,
         lembrete_2h: 1,
@@ -29,7 +29,7 @@ export async function generateReminders(agendamento) {
     }
 
     // 2. Consultar o telefone do cliente
-    const client = await Cliente.findByPk(agendamento.cliente_id);
+    const client = await getClienteModel().findByPk(agendamento.cliente_id);
     if (!client) {
       console.error(`[WhatsAppReminderService] Cliente ID ${agendamento.cliente_id} não encontrado para o agendamento ${agendamento.id}.`);
       return;
@@ -44,18 +44,18 @@ export async function generateReminders(agendamento) {
 
     // Cancelar/renomear lembretes antigos pendentes para evitar violação do índice único
     // "Ao alterar data ou hora: 1. Cancelar lembretes antigos. 2. Gerar novos lembretes com base na nova data."
-    await WhatsappLembrete.update(
-      {
-        status: 'Cancelado',
-        tipo_lembrete: sequelize.literal("tipo_lembrete || '_cancelado_' || id")
-      },
-      {
-        where: {
-          agendamento_id: agendamento.id,
-          status: 'Pendente'
-        }
-      }
-    );
+    // await getWhatsappLembreteModel().update(
+    //   {
+    //     status: 'Cancelado',
+    //     tipo_lembrete: sequelize.literal("tipo_lembrete || '_cancelado_' || id")
+    //   },
+    //   {
+    //     where: {
+    //       agendamento_id: agendamento.id,
+    //       status: 'Pendente'
+    //     }
+    //   }
+    // );
 
     // 3. Identificar lembretes habilitados.
     const activeReminders = [];
@@ -73,7 +73,7 @@ export async function generateReminders(agendamento) {
       if (scheduledTime > new Date()) {
         try {
           // Prevenção de duplicidade: checar se já existe um lembrete idêntico ativo (por garantia)
-          const existing = await WhatsappLembrete.findOne({
+          const existing = await getWhatsappLembreteModel().findOne({
             where: {
               agendamento_id: agendamento.id,
               tipo_lembrete: item.type
@@ -81,7 +81,7 @@ export async function generateReminders(agendamento) {
           });
 
           if (!existing) {
-            await WhatsappLembrete.create({
+            await getWhatsappLembreteModel().create({
               agendamento_id: agendamento.id,
               tipo_lembrete: item.type,
               data_programada: scheduledTime,
@@ -119,7 +119,7 @@ export async function generateReminders(agendamento) {
  */
 export async function cancelReminders(agendamentoId) {
   try {
-    const [count] = await WhatsappLembrete.update(
+    const [count] = await getWhatsappLembreteModel().update(
       {
         status: 'Cancelado',
         tipo_lembrete: sequelize.literal("tipo_lembrete || '_cancelado_' || id")
