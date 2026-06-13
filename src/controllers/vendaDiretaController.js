@@ -10,6 +10,36 @@ import { getDescontoModel } from '../models/Desconto.js';
 import { getUserModel } from '../models/User.js';
 import { sequelize } from '../config/db.js';
 
+const _registrarMovimentacaoVenda = async (produto, tipo, quantidade, venda, transaction, user = null) => {
+  try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    const motivo = tipo === 'saida'
+      ? `Saída Venda - Código: ${String(venda.numero_venda || '').padStart(6, '0')} | V`
+      : `Devolução por alteração/cancelamento de venda`;
+
+    const qtdAtual = produto.quantidade_estoque;
+    const qtdAnterior = tipo === 'saida'
+      ? Number((qtdAtual + quantidade).toFixed(3))
+      : Number((qtdAtual - quantidade).toFixed(3));
+
+    await getMovimentacaoEstoqueModel().create({
+      produto_id: produto.id,
+      produto_nome: produto.nome,
+      tipo,
+      quantidade,
+      quantidade_anterior: qtdAnterior,
+      quantidade_atual: qtdAtual,
+      valor_unitario: produto.custo_unitario || 0,
+      motivo,
+      referencia_id: venda.id,
+      usuario_id: user ? user.id : null,
+      usuario_nome: user ? user.name : null
+    }, { transaction });
+  } catch (error) {
+    console.error('Erro ao registrar movimentação de estoque para venda:', error);
+  }
+};
+
 const listVendas = async (req, res) => {
   const { data_inicio, data_fim, cliente_id, status } = req.query;
   console.log('[DEBUG listVendas] Received query params:', { data_inicio, data_fim, cliente_id, status });
@@ -293,6 +323,7 @@ const addPagamentos = async (req, res) => {
           const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
           produto.quantidade_estoque = Number((produto.quantidade_estoque - stockAdjustment).toFixed(3));
           await produto.save({ transaction });
+          await _registrarMovimentacaoVenda(produto, 'saida', stockAdjustment, venda, transaction, req.user);
         }
       }
     }
@@ -348,6 +379,7 @@ const updatePagamento = async (req, res) => {
             const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
             produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
             await produto.save({ transaction });
+            await _registrarMovimentacaoVenda(produto, 'entrada', stockAdjustment, venda, transaction, req.user);
           }
         }
       }
@@ -363,6 +395,7 @@ const updatePagamento = async (req, res) => {
             const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
             produto.quantidade_estoque = Number((produto.quantidade_estoque - stockAdjustment).toFixed(3));
             await produto.save({ transaction });
+            await _registrarMovimentacaoVenda(produto, 'saida', stockAdjustment, venda, transaction, req.user);
           }
         }
       }
@@ -434,6 +467,7 @@ const deletePagamento = async (req, res) => {
             const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
             produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
             await produto.save({ transaction });
+            await _registrarMovimentacaoVenda(produto, 'entrada', stockAdjustment, venda, transaction, req.user);
           }
         }
       }

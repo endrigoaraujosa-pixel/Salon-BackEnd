@@ -16,12 +16,32 @@ import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
 import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
 import { createProd, deleteProd, listProd, updateProd } from './controllers/produtoController.js';
-import { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos, relatorioResultadoOperacional } from './controllers/reportController.js';
+import {
+  dashboard,
+  dashboardDetail,
+  relatorioCaixa,
+  relatorioDre,
+  relatorioProdutos,
+  relatorioServicos,
+  relatorioResultadoOperacional,
+  relatorioEstoque,
+  relatorioMovimentacaoEstoque,
+  relatorioEstoqueAbaixoMinimo,
+  relatorioEstoqueSemEstoque,
+  relatorioEstoqueValorizacao,
+  relatorioEstoqueConsumoInsumos,
+  relatorioEstoqueMaisMovimentados,
+  relatorioEstoqueSemMovimentacao,
+  relatorioEstoqueHistoricoAjustes,
+  relatorioEstoqueInventario,
+  relatorioEstoquePerdasQuebras
+} from './controllers/reportController.js';
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
 import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor } from './controllers/fornecedorController.js';
 import { createUser, deleteUser, listUsers, updateUser } from './controllers/userController.js';
 import { listarPerfis, obterPerfil, criarPerfil, atualizarPerfil, deletarPerfil } from './controllers/perfilAcessoController.js';
-import { listEntradas, getEntradaDetail, registrarEntrada, registrarAjusteInventario, listMovimentacoes } from './controllers/estoqueController.js';
+import { listEntradas, getEntradaDetail, registrarEntrada, registrarAjusteInventario, listMovimentacoes, registrarMovimentacao, registrarInventarioAssistido, listProtocolos, autorizarZeragemEstoque } from './controllers/estoqueController.js';
+import { listMotivos, createMotivo, updateMotivo } from './controllers/motivoEstoqueController.js';
 import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento, aplicarDescontoVenda } from './controllers/vendaDiretaController.js';
 import { listDescontos, createDesconto, updateDesconto, deleteDesconto, validarDescontoAutorizacao } from './controllers/descontoController.js';
 import { admin, protect, requirePermission } from './middleware/auth.js';
@@ -127,6 +147,17 @@ app.get('/api/relatorios/caixa', protect, admin, relatorioCaixa);
 app.get('/api/relatorios/produtos', protect, admin, relatorioProdutos);
 app.get('/api/relatorios/servicos', protect, admin, relatorioServicos);
 app.get('/api/relatorios/resultado-operacional', protect, admin, relatorioResultadoOperacional);
+app.get('/api/relatorios/estoque', protect, admin, relatorioEstoque);
+app.get('/api/relatorios/estoque/movimentacao', protect, admin, relatorioMovimentacaoEstoque);
+app.get('/api/relatorios/estoque/abaixo-minimo', protect, admin, relatorioEstoqueAbaixoMinimo);
+app.get('/api/relatorios/estoque/sem-estoque', protect, admin, relatorioEstoqueSemEstoque);
+app.get('/api/relatorios/estoque/valorizacao', protect, admin, relatorioEstoqueValorizacao);
+app.get('/api/relatorios/estoque/consumo-insumos', protect, admin, relatorioEstoqueConsumoInsumos);
+app.get('/api/relatorios/estoque/mais-movimentados', protect, admin, relatorioEstoqueMaisMovimentados);
+app.get('/api/relatorios/estoque/sem-movimentacao', protect, admin, relatorioEstoqueSemMovimentacao);
+app.get('/api/relatorios/estoque/historico-ajustes', protect, admin, relatorioEstoqueHistoricoAjustes);
+app.get('/api/relatorios/estoque/inventario', protect, admin, relatorioEstoqueInventario);
+app.get('/api/relatorios/estoque/perdas-quebras', protect, admin, relatorioEstoquePerdasQuebras);
 
 // Users Routes
 const userRoutes = express.Router();
@@ -191,6 +222,9 @@ configRoutes.post('/whatsapp/reenviar/:id', protect, requirePermission('agenda',
 configRoutes.get('/whatsapp/local-status', protect, requirePermission('configuracoes'), getLocalStatus);
 configRoutes.post('/whatsapp/local-disconnect', protect, requirePermission('configuracoes', 'editar'), postLocalDisconnect);
 app.get('/api/configuracoes/empresa/public', getPublicEmpresa);
+configRoutes.get('/motivos-estoque', protect, listMotivos);
+configRoutes.post('/motivos-estoque', protect, requirePermission('cadastros', 'editar'), createMotivo);
+configRoutes.put('/motivos-estoque/:id', protect, requirePermission('cadastros', 'editar'), updateMotivo);
 app.use('/api/configuracoes', configRoutes);
 
 // Categorias Routes
@@ -233,6 +267,10 @@ estoqueRoutes.get('/entradas', protect, listEntradas);
 estoqueRoutes.get('/entradas/:id', protect, getEntradaDetail);
 estoqueRoutes.post('/entradas', protect, registrarEntrada);
 estoqueRoutes.post('/inventario/ajuste', protect, registrarAjusteInventario);
+estoqueRoutes.post('/inventario/assistido', protect, requirePermission('estoque', 'estoque.inventariar'), registrarInventarioAssistido);
+estoqueRoutes.post('/inventario/autorizar-zeragem', protect, autorizarZeragemEstoque);
+estoqueRoutes.get('/inventario/protocolos', protect, listProtocolos);
+estoqueRoutes.post('/movimentacao', protect, requirePermission('estoque', 'estoque.movimentar'), registrarMovimentacao);
 estoqueRoutes.get('/movimentacoes', protect, listMovimentacoes);
 app.use('/api/estoque', estoqueRoutes);
 

@@ -15,7 +15,9 @@ import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 
 export const adjustStock = async (ag, type, options = {}) => {
   const transaction = options.transaction;
+  const user = options.user || null;
   try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
     for (const item of ag.itens || []) {
       const utilized = item.produtos_utilizados || [];
       for (const pu of utilized) {
@@ -24,12 +26,34 @@ export const adjustStock = async (ag, type, options = {}) => {
           const qty = Number(pu.quantidade || 0);
           const stockAdjustment = qty;
 
+          const qtdAnterior = prod.quantidade_estoque || 0;
+
           if (type === 'deduct') {
-            prod.quantidade_estoque = Number((prod.quantidade_estoque - stockAdjustment).toFixed(3));
+            prod.quantidade_estoque = Number((qtdAnterior - stockAdjustment).toFixed(3));
           } else if (type === 'restore') {
-            prod.quantidade_estoque = Number((prod.quantidade_estoque + stockAdjustment).toFixed(3));
+            prod.quantidade_estoque = Number((qtdAnterior + stockAdjustment).toFixed(3));
           }
           await prod.save({ transaction });
+
+          const qtdAtual = prod.quantidade_estoque;
+          const tipoMovimentacao = type === 'deduct' ? 'saida' : 'entrada';
+          const motivo = type === 'deduct'
+            ? `Consumo de insumos - Agendamento: ${ag.id}`
+            : `Devolução de insumos por cancelamento`;
+
+          await getMovimentacaoEstoqueModel().create({
+            produto_id: prod.id,
+            produto_nome: prod.nome,
+            tipo: tipoMovimentacao,
+            quantidade: stockAdjustment,
+            quantidade_anterior: qtdAnterior,
+            quantidade_atual: qtdAtual,
+            valor_unitario: prod.custo_unitario || 0,
+            motivo,
+            referencia_id: ag.id,
+            usuario_id: user ? user.id : null,
+            usuario_nome: user ? user.name : null
+          }, { transaction });
         }
       }
     }
@@ -302,7 +326,7 @@ const updateAgend = async (req, res) => {
 
     const wasConcluido = ag.status === 'concluido';
     if (wasConcluido) {
-      await adjustStock(ag, 'restore', { transaction });
+      await adjustStock(ag, 'restore', { transaction, user: req.user });
     }
 
     let isOnlyInsumos = req.query.only_insumos === 'true' || req.body.only_insumos === true;
@@ -381,7 +405,7 @@ const updateAgend = async (req, res) => {
 
     if (wasConcluido) {
       const updatedAg = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
-      await adjustStock(updatedAg, 'deduct', { transaction });
+      await adjustStock(updatedAg, 'deduct', { transaction, user: req.user });
     }
 
     await transaction.commit();
@@ -422,7 +446,7 @@ const deleteAgend = async (req, res) => {
       }
 
       if (ag.status === 'concluido') {
-        await adjustStock(ag, 'restore', { transaction });
+        await adjustStock(ag, 'restore', { transaction, user: req.user });
       }
       await ag.update({
         deletado: 'S',
@@ -483,9 +507,9 @@ const setStatus = async (req, res) => {
     const oldStatus = ag.status;
     if (oldStatus !== status) {
       if (status === 'concluido') {
-        await adjustStock(ag, 'deduct', { transaction });
+        await adjustStock(ag, 'deduct', { transaction, user: req.user });
       } else if (oldStatus === 'concluido') {
-        await adjustStock(ag, 'restore', { transaction });
+        await adjustStock(ag, 'restore', { transaction, user: req.user });
       }
     }
 
@@ -563,9 +587,9 @@ const addPagamentos = async (req, res) => {
 
     if (oldStatus !== ag.status) {
       if (ag.status === 'concluido') {
-        await adjustStock(ag, 'deduct', { transaction });
+        await adjustStock(ag, 'deduct', { transaction, user: req.user });
       } else if (oldStatus === 'concluido') {
-        await adjustStock(ag, 'restore', { transaction });
+        await adjustStock(ag, 'restore', { transaction, user: req.user });
       }
     }
     await ag.save({ transaction });
@@ -619,9 +643,9 @@ const updatePagamento = async (req, res) => {
 
       if (oldStatus !== ag.status) {
         if (ag.status === 'concluido') {
-          await adjustStock(ag, 'deduct', { transaction });
+          await adjustStock(ag, 'deduct', { transaction, user: req.user });
         } else if (oldStatus === 'concluido') {
-          await adjustStock(ag, 'restore', { transaction });
+          await adjustStock(ag, 'restore', { transaction, user: req.user });
         }
       }
       await ag.save({ transaction });
@@ -681,9 +705,9 @@ const deletePagamento = async (req, res) => {
 
       if (oldStatus !== ag.status) {
         if (ag.status === 'concluido') {
-          await adjustStock(ag, 'deduct', { transaction });
+          await adjustStock(ag, 'deduct', { transaction, user: req.user });
         } else if (oldStatus === 'concluido') {
-          await adjustStock(ag, 'restore', { transaction });
+          await adjustStock(ag, 'restore', { transaction, user: req.user });
         }
       }
       await ag.save({ transaction });

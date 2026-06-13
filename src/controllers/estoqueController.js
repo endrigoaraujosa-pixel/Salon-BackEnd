@@ -3,6 +3,12 @@ import { getEntradaEstoqueModel } from '../models/EntradaEstoque.js';
 import { getEntradaEstoqueItemModel } from '../models/EntradaEstoqueItem.js';
 import { getMovimentacaoEstoqueModel } from '../models/MovimentacaoEstoque.js';
 import { getProdutoModel } from '../models/Produto.js';
+import { getMotivoMovimentacaoModel } from '../models/MotivoMovimentacao.js';
+import { getInventarioProtocoloModel } from '../models/InventarioProtocolo.js';
+import { Op } from 'sequelize';
+import bcrypt from 'bcryptjs';
+import { getUserModel } from '../models/User.js';
+import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
 
 // List all stock entries
 const listEntradas = async (req, res) => {
@@ -147,7 +153,9 @@ const registrarEntrada = async (req, res) => {
         quantidade_atual: qtdAtual,
         valor_unitario: custo,
         motivo: `Entrada de mercadoria - NF: ${numero_nota.trim()} (Série: ${serie_nota.trim()})`,
-        referencia_id: entrada.id
+        referencia_id: entrada.id,
+        usuario_id: req.user ? req.user.id : null,
+        usuario_nome: req.user ? req.user.name : null
       }, { transaction });
     }
 
@@ -195,7 +203,6 @@ const registrarAjusteInventario = async (req, res) => {
     const qtdAtual = Number(Number(quantidade_contada).toFixed(3));
     const diferenca = Number((qtdAtual - qtdAnterior).toFixed(3));
 
-    // If difference is 0, no stock update is strictly needed, but let's allow saving the adjustment record if desired.
     await product.update({
       quantidade_estoque: qtdAtual
     }, { transaction });
@@ -209,7 +216,9 @@ const registrarAjusteInventario = async (req, res) => {
       quantidade_anterior: qtdAnterior,
       quantidade_atual: qtdAtual,
       valor_unitario: product.custo_unitario || 0,
-      motivo: observacoes || `Ajuste de Inventário (Diferença de ${diferenca > 0 ? '+' : ''}${diferenca})`
+      motivo: observacoes || `Ajuste de Inventário (Diferença de ${diferenca > 0 ? '+' : ''}${diferenca})`,
+      usuario_id: req.user ? req.user.id : null,
+      usuario_nome: req.user ? req.user.name : null
     }, { transaction });
 
     await transaction.commit();
@@ -226,19 +235,324 @@ const registrarAjusteInventario = async (req, res) => {
   }
 };
 
+// Register manual movement (saida_manual, perda, consumo_interno, ajuste_positivo, ajuste_negativo, transferencia)
+const registrarMovimentacao = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { produto_id, tipo, quantidade, motivo_id, observacao } = req.body;
+
+    if (!produto_id || !tipo || quantidade === undefined || Number(quantidade) <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({ detail: 'Produto, tipo da movimentação e quantidade válida são obrigatórios.' });
+    }
+
+    if (!motivo_id) {
+      await transaction.rollback();
+      return res.status(400).json({ detail: 'O motivo operacional da movimentação é obrigatório.' });
+    }
+
+    const product = await getProdutoModel().findByPk(produto_id, { transaction });
+    if (!product || product.deletado === 'S') {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Produto não encontrado ou inativo.' });
+    }
+
+    // Load custom motive from database (mandatory)
+    const Motivo = getMotivoMovimentacaoModel();
+    const dbMotivo = await Motivo.findByPk(motivo_id, { transaction });
+    if (!dbMotivo) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Motivo operacional de movimentação não encontrado ou inativo.' });
+    }
+    const motivoNome = dbMotivo.nome;
+
+    const qtdAnterior = product.quantidade_estoque || 0;
+    let qtyChange = Number(Number(quantidade).toFixed(3));
+    let dbTipo = 'ajuste'; // default
+
+    // Determine type behaviour
+    const isReduction = ['saida_manual', 'perda', 'consumo_interno', 'ajuste_negativo', 'transferencia'].includes(tipo);
+
+    if (isReduction) {
+      qtyChange = -qtyChange;
+      if (tipo === 'saida_manual' || tipo === 'transferencia') {
+        dbTipo = 'saida';
+      } else {
+        dbTipo = 'ajuste';
+      }
+    } else {
+      dbTipo = 'ajuste';
+    }
+
+    const qtdAtual = Number((qtdAnterior + qtyChange).toFixed(3));
+
+    // Block negative stock
+    if (qtdAtual < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ detail: `Quantidade insuficiente em estoque. Saldo atual: ${qtdAnterior}` });
+    }
+
+    await product.update({
+      quantidade_estoque: qtdAtual
+    }, { transaction });
+
+    // Format final motivo log
+    const displayType = {
+      saida_manual: 'Saída Manual',
+      perda: 'Perda',
+      consumo_interno: 'Consumo Interno',
+      ajuste_positivo: 'Ajuste Positivo',
+      ajuste_negativo: 'Ajuste Negativo',
+      transferencia: 'Transferência'
+    }[tipo] || tipo;
+
+    const motivoLogParts = [];
+    motivoLogParts.push(displayType);
+    if (motivoNome) motivoLogParts.push(motivoNome);
+    if (observacao && observacao.trim()) motivoLogParts.push(observacao.trim());
+    const motivoLog = motivoLogParts.join(' - ');
+
+    const movement = await getMovimentacaoEstoqueModel().create({
+      produto_id,
+      produto_nome: product.nome,
+      tipo: dbTipo,
+      quantidade: qtyChange,
+      quantidade_anterior: qtdAnterior,
+      quantidade_atual: qtdAtual,
+      valor_unitario: product.custo_unitario || 0,
+      motivo: motivoLog,
+      usuario_id: req.user ? req.user.id : null,
+      usuario_nome: req.user ? req.user.name : null
+    }, { transaction });
+
+    await transaction.commit();
+
+    res.json({
+      ok: true,
+      produto: product,
+      movimentacao: movement
+    });
+  } catch (error) {
+    await transaction.rollback();
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+// Register physical inventory in batch (Assisted Inventory)
+const registrarInventarioAssistido = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { itens, observacao } = req.body;
+
+    if (!itens || !Array.isArray(itens) || itens.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ detail: 'Nenhum item informado para inventariar.' });
+    }
+
+    const year = new Date().getFullYear();
+    const prefix = `INV-${year}-`;
+    
+    // Find the latest protocol number for current year
+    const Inventario = getInventarioProtocoloModel();
+    const latest = await Inventario.findOne({
+      where: {
+        numero_protocolo: {
+          [Op.like]: `${prefix}%`
+        }
+      },
+      order: [['numero_protocolo', 'DESC']],
+      transaction
+    });
+
+    let nextSeq = 1;
+    if (latest) {
+      const parts = latest.numero_protocolo.split('-');
+      const seqPart = parseInt(parts[2], 10);
+      if (!isNaN(seqPart)) {
+        nextSeq = seqPart + 1;
+      }
+    }
+    const numero_protocolo = `${prefix}${String(nextSeq).padStart(5, '0')}`;
+
+    let qtdConferida = 0;
+    let qtdDivergencias = 0;
+    let valorDivergencia = 0;
+
+    const protocolo = await Inventario.create({
+      numero_protocolo,
+      data_conferenca: new Date(),
+      usuario_id: req.user ? req.user.id : 'system',
+      usuario_nome: req.user ? req.user.name : 'Sistema',
+      qtd_conferida: 0,
+      qtd_divergencias: 0,
+      valor_divergencia: 0,
+      observacao: observacao || ''
+    }, { transaction });
+
+    for (const item of itens) {
+      const { produto_id, quantidade_contada } = item;
+      if (!produto_id || quantidade_contada === undefined) {
+        continue;
+      }
+
+      const product = await getProdutoModel().findByPk(produto_id, { transaction });
+      if (!product || product.deletado === 'S') {
+        continue;
+      }
+
+      qtdConferida++;
+      const qtdAnterior = product.quantidade_estoque || 0;
+      const qtdAtual = Number(Number(quantidade_contada).toFixed(3));
+      const diferenca = Number((qtdAtual - qtdAnterior).toFixed(3));
+      const custo = product.custo_unitario || 0;
+
+      if (diferenca !== 0) {
+        qtdDivergencias++;
+        valorDivergencia += Math.abs(diferenca * custo);
+
+        // Update product stock
+        await product.update({
+          quantidade_estoque: qtdAtual
+        }, { transaction });
+
+        // Log the adjustment movement for full traceability
+        await getMovimentacaoEstoqueModel().create({
+          produto_id,
+          produto_nome: product.nome,
+          tipo: 'ajuste',
+          quantidade: diferenca,
+          quantidade_anterior: qtdAnterior,
+          quantidade_atual: qtdAtual,
+          valor_unitario: custo,
+          motivo: `Ajuste de Inventário (Protocolo ${numero_protocolo})`,
+          referencia_id: protocolo.id,
+          usuario_id: req.user ? req.user.id : null,
+          usuario_nome: req.user ? req.user.name : null
+        }, { transaction });
+      }
+    }
+
+    // Update protocol stats
+    await protocolo.update({
+      qtd_conferida: qtdConferida,
+      qtd_divergencias: qtdDivergencias,
+      valor_divergencia: Number(valorDivergencia.toFixed(2))
+    }, { transaction });
+
+    await transaction.commit();
+
+    res.json({
+      ok: true,
+      protocolo: {
+        ...protocolo.toJSON()
+      }
+    });
+  } catch (error) {
+    await transaction.rollback();
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+// List all physical inventory protocols
+const listProtocolos = async (req, res) => {
+  try {
+    const Inventario = getInventarioProtocoloModel();
+    const list = await Inventario.findAll({
+      order: [['createdAt', 'DESC']]
+    });
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 // List all stock movements (traceability history)
 const listMovimentacoes = async (req, res) => {
   try {
+    const { produto_id } = req.query;
+    const where = {};
+    if (produto_id) {
+      where.produto_id = produto_id;
+    }
     const movements = await getMovimentacaoEstoqueModel().findAll({
+      where,
       order: [['createdAt', 'DESC']]
     });
-    res.json(movements);
+
+    const { getVendaDiretaModel } = await import('../models/VendaDireta.js');
+    const { Op } = await import('sequelize');
+    const vendaIds = [...new Set(movements.filter(m => m.referencia_id).map(m => m.referencia_id))];
+
+    let vendasMap = new Map();
+    if (vendaIds.length > 0) {
+      const vendas = await getVendaDiretaModel().findAll({
+        where: { id: { [Op.in]: vendaIds } }
+      });
+      vendasMap = new Map(vendas.map(v => [v.id, v]));
+    }
+
+    const formattedMovements = movements.map(m => {
+      const movementData = m.toJSON();
+      let motivoFormatado = m.motivo || '';
+
+      if (m.referencia_id && vendasMap.has(m.referencia_id)) {
+        const v = vendasMap.get(m.referencia_id);
+        if (m.tipo === 'saida') {
+          motivoFormatado = `Saída Venda - Código: ${String(v.numero_venda || '').padStart(6, '0')} | V`;
+        }
+      } else if (motivoFormatado.startsWith('Venda Direta - Código:')) {
+        const uuid = motivoFormatado.replace('Venda Direta - Código:', '').trim();
+        const shortId = uuid.length > 8 ? uuid.substring(0, 8) : uuid;
+        motivoFormatado = `Saída Venda - Código: ${shortId} | V`;
+      }
+
+      movementData.motivo = motivoFormatado;
+      return movementData;
+    });
+
+    res.json(formattedMovements);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const autorizarZeragemEstoque = async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ detail: "Email e senha são obrigatórios" });
+  }
+
+  try {
+    const user = await getUserModel().findOne({ 
+      where: { 
+        email: email.toLowerCase().trim(), 
+        deletado: 'N' 
+      } 
+    });
+
+    if (!user || !(await bcrypt.compare(password, user.password_hash)) || !user.ativo) {
+      return res.status(400).json({ detail: "Usuário ou senha incorretos" });
+    }
+
+    // Verificar se o usuário supervisor possui permissão estoque.zerar ou é admin
+    let temPermissao = user.role === 'admin';
+    if (!temPermissao && user.perfil_acesso_id) {
+      const perfil = await getPerfilAcessoModel().findByPk(user.perfil_acesso_id);
+      if (perfil && perfil.permissoes?.acoes?.['estoque.zerar']) {
+        temPermissao = true;
+      }
+    }
+
+    if (!temPermissao) {
+      return res.status(403).json({ detail: "Este usuário não possui permissão para autorizar a zeragem." });
+    }
+
+    res.json({ success: true, supervisor: user.name });
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
 };
 
 export {
-  getEntradaDetail, listEntradas, listMovimentacoes, registrarAjusteInventario, registrarEntrada
+  getEntradaDetail, listEntradas, listMovimentacoes, registrarAjusteInventario, registrarEntrada, registrarMovimentacao, registrarInventarioAssistido, listProtocolos, autorizarZeragemEstoque
 };
-
