@@ -167,6 +167,51 @@ const dashboard = async (req, res) => {
       .sort((a, b) => b.qtd - a.qtd)
       .slice(0, 5);
 
+    // Get all scheduled/confirmed appointments in the period
+    const agendadosAgs = await getAgendamentoModel().findAll({
+      attributes: ['id', 'itens'],
+      where: {
+        status: { [Op.in]: ['agendado', 'confirmado'] },
+        data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+        deletado: 'N'
+      }
+    });
+
+    let filteredAgendados = agendadosAgs;
+    if (colabId) {
+      filteredAgendados = agendadosAgs.filter(ag => {
+        let itens = [];
+        try { itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens; } catch(e) {}
+        return Array.isArray(itens) && itens.some(item => item.colaborador_id === colabId || item.auxiliar_id === colabId);
+      });
+    }
+
+    const agendadosContagem = {};
+    filteredAgendados.forEach(ag => {
+      let itens = [];
+      try {
+        itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+      } catch (e) {
+        itens = ag.itens || [];
+      }
+      if (Array.isArray(itens)) {
+        itens.forEach(item => {
+          if (!colabId || item.colaborador_id === colabId || item.auxiliar_id === colabId) {
+            if (!agendadosContagem[item.nome]) {
+              agendadosContagem[item.nome] = { nome: item.nome, qtd: 0, total: 0 };
+            }
+            agendadosContagem[item.nome].qtd += 1;
+            agendadosContagem[item.nome].total += (item.valor || 0);
+          }
+        });
+      }
+    });
+
+    const servicosAgendadosResumo = Object.values(agendadosContagem)
+      .sort((a, b) => b.qtd - a.qtd);
+
+    const totalServicosAgendados = servicosAgendadosResumo.reduce((acc, s) => acc + s.qtd, 0);
+
     res.json({
       total_clientes: totalClientes,
       total_colaboradores: totalColaboradores,
@@ -176,6 +221,8 @@ const dashboard = async (req, res) => {
       atendimentos_mes: concluidos,
       estoque_baixo: estoqueBaixo,
       top_servicos: topServicos,
+      servicos_agendados: servicosAgendadosResumo,
+      total_servicos_agendados: totalServicosAgendados,
       colaboradores: colaboradores.map(c => ({ id: c.id, nome: c.nome }))
     });
   } catch (error) {
@@ -465,6 +512,97 @@ const dashboardDetail = async (req, res) => {
           });
         }
       });
+
+      return res.json({ details });
+    }
+
+    if (metric === 'servicos_agendados') {
+      const ags = await getAgendamentoModel().findAll({
+        attributes: ['id', 'itens'],
+        where: {
+          status: { [Op.in]: ['agendado', 'confirmado'] },
+          data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+          deletado: 'N'
+        }
+      });
+
+      let filtered = ags;
+      if (colabId) {
+        filtered = ags.filter(ag => {
+          let itens = [];
+          try { itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens; } catch(e) {}
+          return Array.isArray(itens) && itens.some(item => item.colaborador_id === colabId || item.auxiliar_id === colabId);
+        });
+      }
+
+      const contagem = {};
+      filtered.forEach(ag => {
+        let itens = [];
+        try {
+          itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+        } catch (e) {
+          itens = ag.itens || [];
+        }
+        if (Array.isArray(itens)) {
+          itens.forEach(item => {
+            if (!colabId || item.colaborador_id === colabId || item.auxiliar_id === colabId) {
+              if (!contagem[item.nome]) {
+                contagem[item.nome] = { nome: item.nome, qtd: 0, total: 0 };
+              }
+              contagem[item.nome].qtd += 1;
+              contagem[item.nome].total += (item.valor || 0);
+            }
+          });
+        }
+      });
+
+      const details = Object.values(contagem).sort((a, b) => b.qtd - a.qtd);
+      return res.json({ details });
+    }
+
+    if (metric === 'servicos_agendados_detalhe') {
+      const ags = await getAgendamentoModel().findAll({
+        where: {
+          status: { [Op.in]: ['agendado', 'confirmado'] },
+          data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+          deletado: 'N'
+        },
+        order: [['data_hora', 'ASC']]
+      });
+
+      const details = [];
+      ags.forEach(ag => {
+        let itens = [];
+        try {
+          itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+        } catch (e) {
+          itens = ag.itens || [];
+        }
+        if (Array.isArray(itens)) {
+          itens.forEach(item => {
+            if (item.nome === service_name) {
+              if (!colabId || item.colaborador_id === colabId || item.auxiliar_id === colabId) {
+                const colab = colaboradores.find(c => c.id === item.colaborador_id);
+                const colabNome = colab ? colab.nome : '—';
+                details.push({
+                  id: `${ag.id}-${item.servico_id}`,
+                  agendamento_id: ag.id,
+                  numero: ag.numero,
+                  data_hora: ag.data_hora,
+                  cliente_nome: ag.cliente_nome || 'Consumidor',
+                  servico_nome: item.nome,
+                  colaborador_nome: colabNome,
+                  valor: item.valor || 0,
+                  status: ag.status
+                });
+              }
+            }
+          });
+        }
+      });
+
+      // Sort details chronologically ascending (data crescente, horário crescente)
+      details.sort((a, b) => new Date(a.data_hora) - new Date(b.data_hora));
 
       return res.json({ details });
     }
