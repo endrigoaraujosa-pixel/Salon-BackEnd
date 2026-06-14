@@ -999,6 +999,10 @@ const relatorioCaixa = async (req, res) => {
     const agMap = new Map(agendamentos.map(a => [a.id, a]));
     const vMap = new Map(vendas.map(v => [v.id, v]));
     
+    // Fetch all active colaboradores to resolve names for agendamentos/vendas
+    const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
+    const colabMap = new Map(colaboradores.map(c => [c.id, c.nome]));
+    
     let filteredPags = pagsAg;
 
     if (colaborador_id && colaborador_id !== 'todos') {
@@ -1038,12 +1042,21 @@ const relatorioCaixa = async (req, res) => {
       let numero = '-';
       let cliente = 'Consumidor';
       let itens = '-';
+      let tipo = 'outro';
+      let profissional = '-';
+      let usuario_recebimento = 'Sistema';
+      let valor_total_operacao = 0;
+      let status_operacao = '-';
       
       if (p.agendamento_id) {
         const ag = agMap.get(p.agendamento_id);
         if (ag) {
           numero = ag.numero ? `${String(ag.numero).padStart(6, '0')} | S` : '-';
           cliente = ag.cliente_nome || 'Consumidor';
+          tipo = 'servico';
+          valor_total_operacao = ag.valor_total || 0;
+          status_operacao = ag.status || '-';
+          usuario_recebimento = ag.criado_por_nome || 'Sistema';
           
           let parsedItens = [];
           try {
@@ -1054,6 +1067,25 @@ const relatorioCaixa = async (req, res) => {
           if (Array.isArray(parsedItens) && parsedItens.length > 0) {
             itens = parsedItens.map(item => item.nome).join(', ');
           }
+
+          // Resolve professionals involved in service items or from ag.profissionais
+          const profNamesSet = new Set();
+          if (ag.profissionais) {
+            let parsedProfs = [];
+            try {
+              parsedProfs = typeof ag.profissionais === 'string' ? JSON.parse(ag.profissionais) : ag.profissionais;
+            } catch (e) {}
+            if (Array.isArray(parsedProfs)) {
+              parsedProfs.forEach(pr => { if (pr.nome) profNamesSet.add(pr.nome); });
+            }
+          }
+          if (profNamesSet.size === 0 && Array.isArray(parsedItens)) {
+            parsedItens.forEach(item => {
+              if (item.colaborador_id && colabMap.has(item.colaborador_id)) profNamesSet.add(colabMap.get(item.colaborador_id));
+              if (item.auxiliar_id && colabMap.has(item.auxiliar_id)) profNamesSet.add(colabMap.get(item.auxiliar_id));
+            });
+          }
+          profissional = [...profNamesSet].join(', ') || '-';
         }
       } else if (p.venda_direta_id) {
         const v = vMap.get(p.venda_direta_id);
@@ -1061,6 +1093,11 @@ const relatorioCaixa = async (req, res) => {
           numero = v.numero_venda ? `${String(v.numero_venda).padStart(6, '0')} | V` : '-';
           cliente = v.cliente_nome || 'Consumidor';
           itens = v.produto_nome || '-';
+          tipo = 'venda';
+          valor_total_operacao = v.valor_total || 0;
+          status_operacao = v.status || '-';
+          usuario_recebimento = v.criado_por_nome || 'Sistema';
+          profissional = v.colaborador_nome || (v.colaborador_id && colabMap.get(v.colaborador_id)) || '-';
         }
       }
 
@@ -1071,7 +1108,12 @@ const relatorioCaixa = async (req, res) => {
         itens,
         valor: p.valor,
         data_hora: p.data_hora,
-        forma_pagamento: p.forma_pagamento
+        forma_pagamento: p.forma_pagamento,
+        tipo,
+        profissional,
+        usuario_recebimento,
+        valor_total_operacao,
+        status_operacao
       };
     });
 
