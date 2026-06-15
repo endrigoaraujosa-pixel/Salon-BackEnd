@@ -1030,13 +1030,30 @@ const relatorioCaixa = async (req, res) => {
       });
     }
 
-    const totais = { dinheiro: 0, pix: 0, cartao_credito: 0, cartao_debito: 0, vale: 0, geral: 0 };
+    const totais = { dinheiro: 0, pix: 0, cartao_credito: 0, cartao_debito: 0, vale: 0, geral: 0, troco: 0, bruto: 0 };
     filteredPags.forEach(p => {
-      totais.geral += p.valor;
+      const pValor = Number(p.valor || 0);
+      const pTroco = Number(p.troco || 0);
+      const pRecebido = Number(p.valor_recebido || 0);
+
+      totais.geral += pValor;
+      totais.troco += pTroco;
+      totais.bruto += pRecebido;
+
       if (totais.hasOwnProperty(p.forma_pagamento)) {
-        totais[p.forma_pagamento] += p.valor;
+        totais[p.forma_pagamento] += pValor;
       }
     });
+
+    // Rounding to avoid float precision issues
+    totais.geral = Number(totais.geral.toFixed(2));
+    totais.troco = Number(totais.troco.toFixed(2));
+    totais.bruto = Number(totais.bruto.toFixed(2));
+    totais.dinheiro = Number(totais.dinheiro.toFixed(2));
+    totais.pix = Number(totais.pix.toFixed(2));
+    totais.cartao_credito = Number(totais.cartao_credito.toFixed(2));
+    totais.cartao_debito = Number(totais.cartao_debito.toFixed(2));
+    totais.vale = Number(totais.vale.toFixed(2));
 
     const pagamentosDetalhes = filteredPags.map(p => {
       let numero = '-';
@@ -1107,6 +1124,8 @@ const relatorioCaixa = async (req, res) => {
         cliente,
         itens,
         valor: p.valor,
+        valor_recebido: p.valor_recebido,
+        troco: p.troco,
         data_hora: p.data_hora,
         forma_pagamento: p.forma_pagamento,
         tipo,

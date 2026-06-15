@@ -274,16 +274,22 @@ const addPagamentos = async (req, res) => {
     }
 
     const existingPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
-    const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
-    const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-    let adjustedPagamentos = [...pagamentos];
-    let novoTotal = pagoAtual + novoValor;
+    const pagoAtual = existingPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    const novoValorBruto = pagamentos.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    let adjustedPagamentos = pagamentos.map(p => ({
+      ...p,
+      valor_recebido: Number(p.valor || 0),
+      troco: 0,
+      valor: Number(p.valor || 0)
+    }));
+    let novoTotal = pagoAtual + novoValorBruto;
 
     if (novoTotal > venda.valor_total + 0.01) {
       let excesso = novoTotal - venda.valor_total;
       let idxDinheiro = adjustedPagamentos.findIndex(p => p.forma_pagamento === 'dinheiro');
-      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor >= excesso) {
-        adjustedPagamentos[idxDinheiro].valor -= excesso;
+      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor_recebido >= excesso) {
+        adjustedPagamentos[idxDinheiro].valor = Number((adjustedPagamentos[idxDinheiro].valor_recebido - excesso).toFixed(2));
+        adjustedPagamentos[idxDinheiro].troco = Number(excesso.toFixed(2));
         adjustedPagamentos[idxDinheiro].observacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (adjustedPagamentos[idxDinheiro].observacao ? ` - ${adjustedPagamentos[idxDinheiro].observacao}` : '');
         novoTotal = venda.valor_total;
       } else {
@@ -297,6 +303,8 @@ const addPagamentos = async (req, res) => {
         id: uuidv4(),
         venda_direta_id: req.params.id,
         valor: p.valor,
+        valor_recebido: p.valor_recebido,
+        troco: p.troco,
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
         data_hora: new Date()
@@ -347,56 +355,88 @@ const updatePagamento = async (req, res) => {
       return res.status(404).json({ detail: 'Pagamento não encontrado' });
     }
 
-    pagamento.valor = valor;
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
+    if (!venda) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Venda não encontrada' });
+    }
+
+    const otherPags = await getPagamentoModel().findAll({
+      where: {
+        venda_direta_id: req.params.id,
+        deletado: 'N',
+        id: { [Op.ne]: req.params.pid }
+      },
+      transaction
+    });
+    const pagoOutros = otherPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+
+    const novoValorRecebido = Number(valor || 0);
+    const novoTotal = pagoOutros + novoValorRecebido;
+    let novoTroco = 0;
+    let novoValorNet = novoValorRecebido;
+    let novaObservacao = observacao || '';
+
+    if (novoTotal > venda.valor_total + 0.01) {
+      let excesso = novoTotal - venda.valor_total;
+      if (forma_pagamento === 'dinheiro' && novoValorRecebido >= excesso) {
+        novoTroco = Number(excesso.toFixed(2));
+        novoValorNet = Number((novoValorRecebido - excesso).toFixed(2));
+        novaObservacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (observacao ? ` - ${observacao}` : '');
+      } else {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Valor excede o total devido' });
+      }
+    }
+
+    pagamento.valor = novoValorNet;
+    pagamento.valor_recebido = novoValorRecebido;
+    pagamento.troco = novoTroco;
     pagamento.forma_pagamento = forma_pagamento;
-    pagamento.observacao = observacao || '';
+    pagamento.observacao = novaObservacao;
     await pagamento.save({ transaction });
 
-    // Recompute venda total paid and handle stock adjustments on status transition
-    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
-    if (venda) {
-      const eraStatusAnteriorPago = venda.status === 'pago';
-      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
-      const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
-      venda.valor_pago = totalPago;
-      const ficouPago = totalPago >= venda.valor_total - 0.01;
-      if (ficouPago) {
-        venda.status = 'pago';
-      } else {
-        venda.status = 'pendente';
-      }
-      await venda.save({ transaction });
+    const eraStatusAnteriorPago = venda.status === 'pago';
+    const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
+    const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
+    venda.valor_pago = totalPago;
+    const ficouPago = totalPago >= venda.valor_total - 0.01;
+    if (ficouPago) {
+      venda.status = 'pago';
+    } else {
+      venda.status = 'pendente';
+    }
+    await venda.save({ transaction });
 
-      // Devolver estoque se a venda deixou de ser paga (ficou pendente)
-      if (eraStatusAnteriorPago && !ficouPago) {
-        const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
-          ? venda.itens
-          : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
-        for (const item of itensVenda) {
-          const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
-          if (produto) {
-            const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
-            const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
-            produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
-            await produto.save({ transaction });
-            await _registrarMovimentacaoVenda(produto, 'entrada', stockAdjustment, venda, transaction, req.user);
-          }
+    // Devolver estoque se a venda deixou de ser paga (ficou pendente)
+    if (eraStatusAnteriorPago && !ficouPago) {
+      const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
+        ? venda.itens
+        : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
+      for (const item of itensVenda) {
+        const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
+        if (produto) {
+          const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+          const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+          produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
+          await produto.save({ transaction });
+          await _registrarMovimentacaoVenda(produto, 'entrada', stockAdjustment, venda, transaction, req.user);
         }
       }
-      // Deduzir estoque se a venda passou de pendente para paga
-      else if (!eraStatusAnteriorPago && ficouPago) {
-        const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
-          ? venda.itens
-          : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
-        for (const item of itensVenda) {
-          const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
-          if (produto) {
-            const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
-            const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
-            produto.quantidade_estoque = Number((produto.quantidade_estoque - stockAdjustment).toFixed(3));
-            await produto.save({ transaction });
-            await _registrarMovimentacaoVenda(produto, 'saida', stockAdjustment, venda, transaction, req.user);
-          }
+    }
+    // Deduzir estoque se a venda passou de pendente para paga
+    else if (!eraStatusAnteriorPago && ficouPago) {
+      const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
+        ? venda.itens
+        : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
+      for (const item of itensVenda) {
+        const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
+        if (produto) {
+          const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+          const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+          produto.quantidade_estoque = Number((produto.quantidade_estoque - stockAdjustment).toFixed(3));
+          await produto.save({ transaction });
+          await _registrarMovimentacaoVenda(produto, 'saida', stockAdjustment, venda, transaction, req.user);
         }
       }
     }

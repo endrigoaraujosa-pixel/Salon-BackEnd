@@ -544,16 +544,22 @@ const addPagamentos = async (req, res) => {
     }
 
     const existingPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
-    const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
-    const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-    let adjustedPagamentos = [...pagamentos];
-    let novoTotal = pagoAtual + novoValor;
+    const pagoAtual = existingPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    const novoValorBruto = pagamentos.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    let adjustedPagamentos = pagamentos.map(p => ({
+      ...p,
+      valor_recebido: Number(p.valor || 0),
+      troco: 0,
+      valor: Number(p.valor || 0)
+    }));
+    let novoTotal = pagoAtual + novoValorBruto;
 
     if (novoTotal > ag.valor_total + 0.01) {
       let excesso = novoTotal - ag.valor_total;
       let idxDinheiro = adjustedPagamentos.findIndex(p => p.forma_pagamento === 'dinheiro');
-      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor >= excesso) {
-        adjustedPagamentos[idxDinheiro].valor -= excesso;
+      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor_recebido >= excesso) {
+        adjustedPagamentos[idxDinheiro].valor = Number((adjustedPagamentos[idxDinheiro].valor_recebido - excesso).toFixed(2));
+        adjustedPagamentos[idxDinheiro].troco = Number(excesso.toFixed(2));
         adjustedPagamentos[idxDinheiro].observacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (adjustedPagamentos[idxDinheiro].observacao ? ` - ${adjustedPagamentos[idxDinheiro].observacao}` : '');
         novoTotal = ag.valor_total;
       } else {
@@ -567,6 +573,8 @@ const addPagamentos = async (req, res) => {
         id: uuidv4(),
         agendamento_id: req.params.aid,
         valor: p.valor,
+        valor_recebido: p.valor_recebido,
+        troco: p.troco,
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
         data_hora: new Date()
@@ -624,32 +632,65 @@ const updatePagamento = async (req, res) => {
       return res.status(404).json({ detail: 'Pagamento não encontrado' });
     }
 
-    pagamento.valor = Number(valor || 0);
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+    if (!ag) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Agendamento não encontrado' });
+    }
+
+    const otherPags = await getPagamentoModel().findAll({
+      where: {
+        agendamento_id: req.params.aid,
+        deletado: 'N',
+        id: { [Op.ne]: req.params.pid }
+      },
+      transaction
+    });
+    const pagoOutros = otherPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+
+    const novoValorRecebido = Number(valor || 0);
+    const novoTotal = pagoOutros + novoValorRecebido;
+    let novoTroco = 0;
+    let novoValorNet = novoValorRecebido;
+    let novaObservacao = observacao || '';
+
+    if (novoTotal > ag.valor_total + 0.01) {
+      let excesso = novoTotal - ag.valor_total;
+      if (forma_pagamento === 'dinheiro' && novoValorRecebido >= excesso) {
+        novoTroco = Number(excesso.toFixed(2));
+        novoValorNet = Number((novoValorRecebido - excesso).toFixed(2));
+        novaObservacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (observacao ? ` - ${observacao}` : '');
+      } else {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Valor excede o total devido' });
+      }
+    }
+
+    pagamento.valor = novoValorNet;
+    pagamento.valor_recebido = novoValorRecebido;
+    pagamento.troco = novoTroco;
     pagamento.forma_pagamento = forma_pagamento;
-    pagamento.observacao = observacao || '';
+    pagamento.observacao = novaObservacao;
     await pagamento.save({ transaction });
 
-    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
-    if (ag) {
-      const oldStatus = ag.status;
-      const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
-      const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
-      ag.valor_pago = totalPago;
-      if (totalPago >= ag.valor_total - 0.01) {
-        ag.status = 'concluido';
-      } else {
-        ag.status = 'agendado';
-      }
-
-      if (oldStatus !== ag.status) {
-        if (ag.status === 'concluido') {
-          await adjustStock(ag, 'deduct', { transaction, user: req.user });
-        } else if (oldStatus === 'concluido') {
-          await adjustStock(ag, 'restore', { transaction, user: req.user });
-        }
-      }
-      await ag.save({ transaction });
+    const oldStatus = ag.status;
+    const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
+    const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
+    ag.valor_pago = totalPago;
+    if (totalPago >= ag.valor_total - 0.01) {
+      ag.status = 'concluido';
+    } else {
+      ag.status = 'agendado';
     }
+
+    if (oldStatus !== ag.status) {
+      if (ag.status === 'concluido') {
+        await adjustStock(ag, 'deduct', { transaction, user: req.user });
+      } else if (oldStatus === 'concluido') {
+        await adjustStock(ag, 'restore', { transaction, user: req.user });
+      }
+    }
+    await ag.save({ transaction });
 
     await transaction.commit();
     res.json({ ok: true });

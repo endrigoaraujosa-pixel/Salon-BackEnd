@@ -21,6 +21,16 @@ const Pagamento = sequelize.define('Pagamento', {
     type: DataTypes.FLOAT,
     allowNull: false
   },
+  valor_recebido: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0
+  },
+  troco: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0
+  },
   forma_pagamento: {
     type: DataTypes.STRING(50),
     allowNull: false
