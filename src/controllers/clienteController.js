@@ -2,6 +2,7 @@ import { Op } from 'sequelize';
 import { getClienteModel } from '../models/Cliente.js';
 import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getVendaDiretaModel } from '../models/VendaDireta.js';
+import { getPagamentoModel } from '../models/Pagamento.js';
 
 const listClientes = async (req, res) => {
   try {
@@ -103,14 +104,43 @@ const historicoCliente = async (req, res) => {
       limit: 100
     });
 
+    const agendamentoIds = agendamentos.map(a => a.id);
+    const vendaIds = vendas.map(v => v.id);
+
+    const pagamentos = await getPagamentoModel().findAll({
+      where: {
+        deletado: 'N',
+        [Op.or]: [
+          { agendamento_id: { [Op.in]: agendamentoIds } },
+          { venda_direta_id: { [Op.in]: vendaIds } }
+        ]
+      }
+    });
+
+    const agendamentosComPagamentos = agendamentos.map(a => {
+      const pags = pagamentos.filter(p => p.agendamento_id === a.id);
+      return {
+        ...a.toJSON(),
+        pagamentos: pags
+      };
+    });
+
+    const vendasComPagamentos = vendas.map(v => {
+      const pags = pagamentos.filter(p => p.venda_direta_id === v.id);
+      return {
+        ...v.toJSON(),
+        pagamentos: pags
+      };
+    });
+
     const concluidos = agendamentos.filter(a => a.status === 'concluido');
     const vendasPagas = vendas.filter(v => v.status === 'pago');
     const totalGasto = concluidos.reduce((acc, a) => acc + a.valor_total, 0) + vendasPagas.reduce((acc, v) => acc + v.valor_total, 0);
 
     res.json({
       cliente,
-      agendamentos,
-      vendas,
+      agendamentos: agendamentosComPagamentos,
+      vendas: vendasComPagamentos,
       total_gasto: totalGasto,
       total_visitas: concluidos.length
     });

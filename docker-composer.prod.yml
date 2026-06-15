@@ -55,12 +55,29 @@ services:
     networks:
       - salonstudio
     volumes:
-      - postgres_data:/var/lib/postgresql/data  
-      
+      - postgres_data:/var/lib/postgresql/data
+  reminder-worker:
+    image: salonstudio/salon-backend:latest
+    container_name: reminder-worker
+    restart: always
+    command: ["node", "src/worker-runner.js"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DB_USENAME: ${DB_USENAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB: ${DB}
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://evolution-api:8080}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+      NODE_ENV: 'production'
+    depends_on:
+      - salon-postgre
+    networks:
+      - salonstudio
 networks:
   salonstudio:
     external: true
 
 volumes:
   postgres_data:
-  

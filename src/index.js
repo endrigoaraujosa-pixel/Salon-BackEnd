@@ -1,7 +1,7 @@
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import 'dotenv/config';
 import express from 'express';
+import 'dotenv/config';
 
 import { addPagamentos, createAgend, deleteAgend, deletePagamento as deleteAgendamentoPagamento, getAgend, listAgend, setStatus, updateAgend, updatePagamento as updateAgendamentoPagamento, patchObservacoes, aplicarDescontoAgendamento } from './controllers/agendamentoController.js';
 import { getDeletados, restoreRecord } from './controllers/auditController.js';
@@ -11,24 +11,43 @@ import { createCliente, deleteCliente, historicoCliente, listClientes, updateCli
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
 import { getTaxas, saveTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
-import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect } from './modules/whatsapp/whatsapp.controller.js';
+import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect, startLocalIntegration, getExternalStatus, getExternalQrCode } from './modules/whatsapp/whatsapp.controller.js';
 import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
 import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
 import { createProd, deleteProd, listProd, updateProd } from './controllers/produtoController.js';
-import { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos, relatorioResultadoOperacional } from './controllers/reportController.js';
+import {
+  dashboard,
+  dashboardDetail,
+  relatorioCaixa,
+  relatorioDre,
+  relatorioProdutos,
+  relatorioServicos,
+  relatorioResultadoOperacional,
+  relatorioEstoque,
+  relatorioMovimentacaoEstoque,
+  relatorioEstoqueAbaixoMinimo,
+  relatorioEstoqueSemEstoque,
+  relatorioEstoqueValorizacao,
+  relatorioEstoqueConsumoInsumos,
+  relatorioEstoqueMaisMovimentados,
+  relatorioEstoqueSemMovimentacao,
+  relatorioEstoqueHistoricoAjustes,
+  relatorioEstoqueInventario,
+  relatorioEstoquePerdasQuebras
+} from './controllers/reportController.js';
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
 import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor } from './controllers/fornecedorController.js';
 import { createUser, deleteUser, listUsers, updateUser } from './controllers/userController.js';
 import { listarPerfis, obterPerfil, criarPerfil, atualizarPerfil, deletarPerfil } from './controllers/perfilAcessoController.js';
-import { listEntradas, getEntradaDetail, registrarEntrada, registrarAjusteInventario, listMovimentacoes } from './controllers/estoqueController.js';
+import { listEntradas, getEntradaDetail, registrarEntrada, registrarAjusteInventario, listMovimentacoes, registrarMovimentacao, registrarInventarioAssistido, listProtocolos, autorizarZeragemEstoque } from './controllers/estoqueController.js';
+import { listMotivos, createMotivo, updateMotivo } from './controllers/motivoEstoqueController.js';
 import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento, aplicarDescontoVenda } from './controllers/vendaDiretaController.js';
 import { listDescontos, createDesconto, updateDesconto, deleteDesconto, validarDescontoAutorizacao } from './controllers/descontoController.js';
 import { admin, protect, requirePermission } from './middleware/auth.js';
 import { connectDB } from './config/db.js';
 import { startReminderJob } from './jobs/whatsapp-reminder.job.js';
 import { tenantMiddleware } from './middleware/tenant.js';
-import { convertLegacyStock } from '../scripts/convert-legacy-stock.js';
 
 const app = express();
 
@@ -42,9 +61,7 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    console.log(origin);
-    
+    if (!origin) return callback(null, true);    
     const isAllowed = allowedOrigins.includes(origin) ||
       /^(https:\/\/([a-zA-Z0-9-]+\.)*salonstudio\.com\.br|http:\/\/([a-zA-Z0-9-]+)\.localhost(?::\d+)?)$/.test(origin)
     if (isAllowed) {
@@ -127,6 +144,17 @@ app.get('/api/relatorios/caixa', protect, admin, relatorioCaixa);
 app.get('/api/relatorios/produtos', protect, admin, relatorioProdutos);
 app.get('/api/relatorios/servicos', protect, admin, relatorioServicos);
 app.get('/api/relatorios/resultado-operacional', protect, admin, relatorioResultadoOperacional);
+app.get('/api/relatorios/estoque', protect, admin, relatorioEstoque);
+app.get('/api/relatorios/estoque/movimentacao', protect, admin, relatorioMovimentacaoEstoque);
+app.get('/api/relatorios/estoque/abaixo-minimo', protect, admin, relatorioEstoqueAbaixoMinimo);
+app.get('/api/relatorios/estoque/sem-estoque', protect, admin, relatorioEstoqueSemEstoque);
+app.get('/api/relatorios/estoque/valorizacao', protect, admin, relatorioEstoqueValorizacao);
+app.get('/api/relatorios/estoque/consumo-insumos', protect, admin, relatorioEstoqueConsumoInsumos);
+app.get('/api/relatorios/estoque/mais-movimentados', protect, admin, relatorioEstoqueMaisMovimentados);
+app.get('/api/relatorios/estoque/sem-movimentacao', protect, admin, relatorioEstoqueSemMovimentacao);
+app.get('/api/relatorios/estoque/historico-ajustes', protect, admin, relatorioEstoqueHistoricoAjustes);
+app.get('/api/relatorios/estoque/inventario', protect, admin, relatorioEstoqueInventario);
+app.get('/api/relatorios/estoque/perdas-quebras', protect, admin, relatorioEstoquePerdasQuebras);
 
 // Users Routes
 const userRoutes = express.Router();
@@ -189,8 +217,14 @@ configRoutes.post('/whatsapp', protect, requirePermission('configuracoes', 'edit
 configRoutes.get('/whatsapp/historico', protect, requirePermission('agenda'), getWhatsappHistory);
 configRoutes.post('/whatsapp/reenviar/:id', protect, requirePermission('agenda', 'editar'), postResendReminder);
 configRoutes.get('/whatsapp/local-status', protect, requirePermission('configuracoes'), getLocalStatus);
+configRoutes.post('/whatsapp/iniciar-integracao', protect, requirePermission('configuracoes', 'editar'), startLocalIntegration);
+configRoutes.get('/whatsapp/status-integracao/:instance', protect, requirePermission('configuracoes'), getExternalStatus);
+configRoutes.get('/whatsapp/qr-code/:instance', protect, requirePermission('configuracoes'), getExternalQrCode);
 configRoutes.post('/whatsapp/local-disconnect', protect, requirePermission('configuracoes', 'editar'), postLocalDisconnect);
 app.get('/api/configuracoes/empresa/public', getPublicEmpresa);
+configRoutes.get('/motivos-estoque', protect, listMotivos);
+configRoutes.post('/motivos-estoque', protect, requirePermission('cadastros', 'editar'), createMotivo);
+configRoutes.put('/motivos-estoque/:id', protect, requirePermission('cadastros', 'editar'), updateMotivo);
 app.use('/api/configuracoes', configRoutes);
 
 // Categorias Routes
@@ -233,6 +267,10 @@ estoqueRoutes.get('/entradas', protect, listEntradas);
 estoqueRoutes.get('/entradas/:id', protect, getEntradaDetail);
 estoqueRoutes.post('/entradas', protect, registrarEntrada);
 estoqueRoutes.post('/inventario/ajuste', protect, registrarAjusteInventario);
+estoqueRoutes.post('/inventario/assistido', protect, requirePermission('estoque', 'estoque.inventariar'), registrarInventarioAssistido);
+estoqueRoutes.post('/inventario/autorizar-zeragem', protect, autorizarZeragemEstoque);
+estoqueRoutes.get('/inventario/protocolos', protect, listProtocolos);
+estoqueRoutes.post('/movimentacao', protect, requirePermission('estoque', 'estoque.movimentar'), registrarMovimentacao);
 estoqueRoutes.get('/movimentacoes', protect, listMovimentacoes);
 app.use('/api/estoque', estoqueRoutes);
 
@@ -246,8 +284,6 @@ app.listen(PORT, async () => {
   try {
     await connectDB();
     console.log('Database boot sequence successfully completed.');
-    await convertLegacyStock();
-    
     // Start background WhatsApp reminder processing job
     // startReminderJob();
 

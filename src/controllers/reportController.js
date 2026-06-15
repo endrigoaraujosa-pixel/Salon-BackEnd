@@ -167,6 +167,51 @@ const dashboard = async (req, res) => {
       .sort((a, b) => b.qtd - a.qtd)
       .slice(0, 5);
 
+    // Get all scheduled/confirmed appointments in the period
+    const agendadosAgs = await getAgendamentoModel().findAll({
+      attributes: ['id', 'itens'],
+      where: {
+        status: { [Op.in]: ['agendado', 'confirmado'] },
+        data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+        deletado: 'N'
+      }
+    });
+
+    let filteredAgendados = agendadosAgs;
+    if (colabId) {
+      filteredAgendados = agendadosAgs.filter(ag => {
+        let itens = [];
+        try { itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens; } catch(e) {}
+        return Array.isArray(itens) && itens.some(item => item.colaborador_id === colabId || item.auxiliar_id === colabId);
+      });
+    }
+
+    const agendadosContagem = {};
+    filteredAgendados.forEach(ag => {
+      let itens = [];
+      try {
+        itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+      } catch (e) {
+        itens = ag.itens || [];
+      }
+      if (Array.isArray(itens)) {
+        itens.forEach(item => {
+          if (!colabId || item.colaborador_id === colabId || item.auxiliar_id === colabId) {
+            if (!agendadosContagem[item.nome]) {
+              agendadosContagem[item.nome] = { nome: item.nome, qtd: 0, total: 0 };
+            }
+            agendadosContagem[item.nome].qtd += 1;
+            agendadosContagem[item.nome].total += (item.valor || 0);
+          }
+        });
+      }
+    });
+
+    const servicosAgendadosResumo = Object.values(agendadosContagem)
+      .sort((a, b) => b.qtd - a.qtd);
+
+    const totalServicosAgendados = servicosAgendadosResumo.reduce((acc, s) => acc + s.qtd, 0);
+
     res.json({
       total_clientes: totalClientes,
       total_colaboradores: totalColaboradores,
@@ -176,6 +221,8 @@ const dashboard = async (req, res) => {
       atendimentos_mes: concluidos,
       estoque_baixo: estoqueBaixo,
       top_servicos: topServicos,
+      servicos_agendados: servicosAgendadosResumo,
+      total_servicos_agendados: totalServicosAgendados,
       colaboradores: colaboradores.map(c => ({ id: c.id, nome: c.nome }))
     });
   } catch (error) {
@@ -465,6 +512,97 @@ const dashboardDetail = async (req, res) => {
           });
         }
       });
+
+      return res.json({ details });
+    }
+
+    if (metric === 'servicos_agendados') {
+      const ags = await getAgendamentoModel().findAll({
+        attributes: ['id', 'itens'],
+        where: {
+          status: { [Op.in]: ['agendado', 'confirmado'] },
+          data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+          deletado: 'N'
+        }
+      });
+
+      let filtered = ags;
+      if (colabId) {
+        filtered = ags.filter(ag => {
+          let itens = [];
+          try { itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens; } catch(e) {}
+          return Array.isArray(itens) && itens.some(item => item.colaborador_id === colabId || item.auxiliar_id === colabId);
+        });
+      }
+
+      const contagem = {};
+      filtered.forEach(ag => {
+        let itens = [];
+        try {
+          itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+        } catch (e) {
+          itens = ag.itens || [];
+        }
+        if (Array.isArray(itens)) {
+          itens.forEach(item => {
+            if (!colabId || item.colaborador_id === colabId || item.auxiliar_id === colabId) {
+              if (!contagem[item.nome]) {
+                contagem[item.nome] = { nome: item.nome, qtd: 0, total: 0 };
+              }
+              contagem[item.nome].qtd += 1;
+              contagem[item.nome].total += (item.valor || 0);
+            }
+          });
+        }
+      });
+
+      const details = Object.values(contagem).sort((a, b) => b.qtd - a.qtd);
+      return res.json({ details });
+    }
+
+    if (metric === 'servicos_agendados_detalhe') {
+      const ags = await getAgendamentoModel().findAll({
+        where: {
+          status: { [Op.in]: ['agendado', 'confirmado'] },
+          data_hora: { [Op.between]: [dataInicioMes, dataFimMes] },
+          deletado: 'N'
+        },
+        order: [['data_hora', 'ASC']]
+      });
+
+      const details = [];
+      ags.forEach(ag => {
+        let itens = [];
+        try {
+          itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+        } catch (e) {
+          itens = ag.itens || [];
+        }
+        if (Array.isArray(itens)) {
+          itens.forEach(item => {
+            if (item.nome === service_name) {
+              if (!colabId || item.colaborador_id === colabId || item.auxiliar_id === colabId) {
+                const colab = colaboradores.find(c => c.id === item.colaborador_id);
+                const colabNome = colab ? colab.nome : '—';
+                details.push({
+                  id: `${ag.id}-${item.servico_id}`,
+                  agendamento_id: ag.id,
+                  numero: ag.numero,
+                  data_hora: ag.data_hora,
+                  cliente_nome: ag.cliente_nome || 'Consumidor',
+                  servico_nome: item.nome,
+                  colaborador_nome: colabNome,
+                  valor: item.valor || 0,
+                  status: ag.status
+                });
+              }
+            }
+          });
+        }
+      });
+
+      // Sort details chronologically ascending (data crescente, horário crescente)
+      details.sort((a, b) => new Date(a.data_hora) - new Date(b.data_hora));
 
       return res.json({ details });
     }
@@ -861,6 +999,10 @@ const relatorioCaixa = async (req, res) => {
     const agMap = new Map(agendamentos.map(a => [a.id, a]));
     const vMap = new Map(vendas.map(v => [v.id, v]));
     
+    // Fetch all active colaboradores to resolve names for agendamentos/vendas
+    const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
+    const colabMap = new Map(colaboradores.map(c => [c.id, c.nome]));
+    
     let filteredPags = pagsAg;
 
     if (colaborador_id && colaborador_id !== 'todos') {
@@ -888,24 +1030,50 @@ const relatorioCaixa = async (req, res) => {
       });
     }
 
-    const totais = { dinheiro: 0, pix: 0, cartao_credito: 0, cartao_debito: 0, vale: 0, geral: 0 };
+    const totais = { dinheiro: 0, pix: 0, cartao_credito: 0, cartao_debito: 0, vale: 0, geral: 0, troco: 0, bruto: 0 };
     filteredPags.forEach(p => {
-      totais.geral += p.valor;
+      const pValor = Number(p.valor || 0);
+      const pTroco = Number(p.troco || 0);
+      const pRecebido = Number(p.valor_recebido || 0);
+
+      totais.geral += pValor;
+      totais.troco += pTroco;
+      totais.bruto += pRecebido;
+
       if (totais.hasOwnProperty(p.forma_pagamento)) {
-        totais[p.forma_pagamento] += p.valor;
+        totais[p.forma_pagamento] += pValor;
       }
     });
+
+    // Rounding to avoid float precision issues
+    totais.geral = Number(totais.geral.toFixed(2));
+    totais.troco = Number(totais.troco.toFixed(2));
+    totais.bruto = Number(totais.bruto.toFixed(2));
+    totais.dinheiro = Number(totais.dinheiro.toFixed(2));
+    totais.pix = Number(totais.pix.toFixed(2));
+    totais.cartao_credito = Number(totais.cartao_credito.toFixed(2));
+    totais.cartao_debito = Number(totais.cartao_debito.toFixed(2));
+    totais.vale = Number(totais.vale.toFixed(2));
 
     const pagamentosDetalhes = filteredPags.map(p => {
       let numero = '-';
       let cliente = 'Consumidor';
       let itens = '-';
+      let tipo = 'outro';
+      let profissional = '-';
+      let usuario_recebimento = 'Sistema';
+      let valor_total_operacao = 0;
+      let status_operacao = '-';
       
       if (p.agendamento_id) {
         const ag = agMap.get(p.agendamento_id);
         if (ag) {
           numero = ag.numero ? `${String(ag.numero).padStart(6, '0')} | S` : '-';
           cliente = ag.cliente_nome || 'Consumidor';
+          tipo = 'servico';
+          valor_total_operacao = ag.valor_total || 0;
+          status_operacao = ag.status || '-';
+          usuario_recebimento = ag.criado_por_nome || 'Sistema';
           
           let parsedItens = [];
           try {
@@ -916,6 +1084,25 @@ const relatorioCaixa = async (req, res) => {
           if (Array.isArray(parsedItens) && parsedItens.length > 0) {
             itens = parsedItens.map(item => item.nome).join(', ');
           }
+
+          // Resolve professionals involved in service items or from ag.profissionais
+          const profNamesSet = new Set();
+          if (ag.profissionais) {
+            let parsedProfs = [];
+            try {
+              parsedProfs = typeof ag.profissionais === 'string' ? JSON.parse(ag.profissionais) : ag.profissionais;
+            } catch (e) {}
+            if (Array.isArray(parsedProfs)) {
+              parsedProfs.forEach(pr => { if (pr.nome) profNamesSet.add(pr.nome); });
+            }
+          }
+          if (profNamesSet.size === 0 && Array.isArray(parsedItens)) {
+            parsedItens.forEach(item => {
+              if (item.colaborador_id && colabMap.has(item.colaborador_id)) profNamesSet.add(colabMap.get(item.colaborador_id));
+              if (item.auxiliar_id && colabMap.has(item.auxiliar_id)) profNamesSet.add(colabMap.get(item.auxiliar_id));
+            });
+          }
+          profissional = [...profNamesSet].join(', ') || '-';
         }
       } else if (p.venda_direta_id) {
         const v = vMap.get(p.venda_direta_id);
@@ -923,6 +1110,11 @@ const relatorioCaixa = async (req, res) => {
           numero = v.numero_venda ? `${String(v.numero_venda).padStart(6, '0')} | V` : '-';
           cliente = v.cliente_nome || 'Consumidor';
           itens = v.produto_nome || '-';
+          tipo = 'venda';
+          valor_total_operacao = v.valor_total || 0;
+          status_operacao = v.status || '-';
+          usuario_recebimento = v.criado_por_nome || 'Sistema';
+          profissional = v.colaborador_nome || (v.colaborador_id && colabMap.get(v.colaborador_id)) || '-';
         }
       }
 
@@ -932,8 +1124,15 @@ const relatorioCaixa = async (req, res) => {
         cliente,
         itens,
         valor: p.valor,
+        valor_recebido: p.valor_recebido,
+        troco: p.troco,
         data_hora: p.data_hora,
-        forma_pagamento: p.forma_pagamento
+        forma_pagamento: p.forma_pagamento,
+        tipo,
+        profissional,
+        usuario_recebimento,
+        valor_total_operacao,
+        status_operacao
       };
     });
 
@@ -1739,5 +1938,901 @@ const relatorioResultadoOperacional = async (req, res) => {
   }
 };
 
-export { dashboard, dashboardDetail, relatorioCaixa, relatorioDre, relatorioProdutos, relatorioServicos, relatorioResultadoOperacional };
+const relatorioEstoque = async (req, res) => {
+  const { categorias, produto_id } = req.query;
+
+  try {
+    const where = { deletado: 'N' };
+
+    if (produto_id) {
+      where.id = produto_id;
+    }
+
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      if (typeof categorias === 'string') {
+        categoriasIds = categorias.split(',').filter(Boolean);
+      } else if (Array.isArray(categorias)) {
+        categoriasIds = categorias.filter(Boolean);
+      }
+    }
+
+    if (categoriasIds.length > 0) {
+      where.categoria_id = { [Op.in]: categoriasIds };
+    }
+
+    const produtos = await getProdutoModel().findAll({
+      where,
+      order: [['nome', 'ASC']]
+    });
+
+    const categoriesList = await getCategoriaModel().findAll({
+      where: { deletado: 'N' }
+    });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    const mappedProdutos = produtos.map(p => {
+      const valorTotalCusto = (p.quantidade_estoque || 0) * (p.custo_unitario || 0);
+      const valorTotalVenda = (p.quantidade_estoque || 0) * (p.preco_venda || 0);
+      const statusEstoque = (p.quantidade_estoque || 0) <= (p.estoque_minimo || 0) ? 'alerta' : 'normal';
+
+      return {
+        id: p.id,
+        nome: p.nome,
+        produto_nome: p.nome,
+        categoria_id: p.categoria_id,
+        categoria_nome: categoriesMap.get(p.categoria_id) || p.categoria || 'Sem Categoria',
+        unidade_medida: p.unidade_medida || 'un',
+        quantidade_estoque: p.quantidade_estoque || 0,
+        estoque_minimo: p.estoque_minimo || 0,
+        custo_unitario: p.custo_unitario || 0,
+        preco_venda: p.preco_venda || 0,
+        valor_total_custo: valorTotalCusto,
+        valor_total_venda: valorTotalVenda,
+        status_estoque: statusEstoque,
+        uso_exclusivo_servicos: p.uso_exclusivo_servicos || false,
+        quantidade_por_unidade: p.quantidade_por_unidade || 0,
+        quantidade_por_embalagem: p.quantidade_por_unidade || 0,
+        unidade_medida_insumo: p.unidade_medida_insumo || ''
+      };
+    });
+
+    let totalItens = 0;
+    let totalCustoEstoque = 0;
+    let totalVendaEstoque = 0;
+    let itensAlerta = 0;
+
+    mappedProdutos.forEach(p => {
+      totalItens += p.quantidade_estoque;
+      totalCustoEstoque += p.valor_total_custo;
+      totalVendaEstoque += p.valor_total_venda;
+      if (p.status_estoque === 'alerta') {
+        itensAlerta += 1;
+      }
+    });
+
+    const porCategoria = {};
+    mappedProdutos.forEach(p => {
+      const catName = p.categoria_nome;
+      if (!porCategoria[catName]) {
+        porCategoria[catName] = {
+          quantidade_produtos: 0,
+          total_itens: 0,
+          valor_custo: 0,
+          valor_venda: 0
+        };
+      }
+      porCategoria[catName].quantidade_produtos += 1;
+      porCategoria[catName].total_itens += p.quantidade_estoque;
+      porCategoria[catName].valor_custo += p.valor_total_custo;
+      porCategoria[catName].valor_venda += p.valor_total_venda;
+    });
+
+    res.json({
+      produtos: mappedProdutos,
+      totais: {
+        total_produtos: mappedProdutos.length,
+        total_itens: totalItens,
+        total_custo: totalCustoEstoque,
+        total_venda: totalVendaEstoque,
+        itens_alerta: itensAlerta
+      },
+      por_categoria: porCategoria
+    });
+  } catch (error) {
+    console.error('ESTOQUE REPORT ERROR:', error.message, error.stack);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioMovimentacaoEstoque = async (req, res) => {
+  const { categorias, produto_id, data_inicio, data_fim } = req.query;
+  try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    
+    const where = {};
+    if (data_inicio && data_fim) {
+      where.criado_em = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
+
+    if (produto_id) {
+      where.produto_id = produto_id;
+    }
+
+    const movimentacoes = await getMovimentacaoEstoqueModel().findAll({
+      where,
+      order: [['criado_em', 'DESC']]
+    });
+
+    const vendaIds = [...new Set(movimentacoes.filter(m => m.referencia_id).map(m => m.referencia_id))];
+    let vendasMap = new Map();
+    if (vendaIds.length > 0) {
+      const vendas = await getVendaDiretaModel().findAll({
+        where: { id: { [Op.in]: vendaIds } }
+      });
+      vendasMap = new Map(vendas.map(v => [v.id, v]));
+    }
+
+    const produtosIds = [...new Set(movimentacoes.map(m => m.produto_id))];
+    const whereProdutos = { id: { [Op.in]: produtosIds } };
+    
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+
+    const produtos = await getProdutoModel().findAll({
+      where: whereProdutos
+    });
+    const produtosMap = new Map(produtos.map(p => [p.id, p]));
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    let totalEntradas = 0;
+    let totalSaidas = 0;
+    let totalAjustes = 0;
+
+    const filtradas = movimentacoes.filter(m => {
+      const prod = produtosMap.get(m.produto_id);
+      if (!prod) return false;
+      if (categoriasIds.length > 0 && !categoriasIds.includes(prod.categoria_id)) {
+        return false;
+      }
+      return true;
+    }).map(m => {
+      const prod = produtosMap.get(m.produto_id);
+      const catNome = prod ? (categoriesMap.get(prod.categoria_id) || prod.categoria || 'Sem Categoria') : 'Sem Categoria';
+      
+      const q = Math.abs(m.quantidade);
+      if (m.tipo === 'entrada') totalEntradas += q;
+      else if (m.tipo === 'saida') totalSaidas += q;
+      else if (m.tipo === 'ajuste') totalAjustes += q;
+
+      let motivoFormatado = m.motivo || '';
+      if (m.referencia_id && vendasMap.has(m.referencia_id)) {
+        const v = vendasMap.get(m.referencia_id);
+        if (m.tipo === 'saida') {
+          motivoFormatado = `Saída Venda - Código: ${String(v.numero_venda || '').padStart(6, '0')} | V`;
+        }
+      } else if (motivoFormatado.startsWith('Venda Direta - Código:')) {
+        const uuid = motivoFormatado.replace('Venda Direta - Código:', '').trim();
+        const shortId = uuid.length > 8 ? uuid.substring(0, 8) : uuid;
+        motivoFormatado = `Saída Venda - Código: ${shortId} | V`;
+      }
+
+      return {
+        id: m.id,
+        data: m.criado_em,
+        criado_em: m.criado_em,
+        produto_id: m.produto_id,
+        produto_nome: m.produto_nome || (prod ? prod.nome : 'Produto Desconhecido'),
+        categoria_nome: catNome,
+        tipo: m.tipo,
+        quantidade: m.quantidade,
+        quantidade_anterior: m.quantidade_anterior,
+        quantidade_atual: m.quantidade_atual,
+        valor_unitario: m.valor_unitario || 0,
+        valor_total: Math.abs(m.quantidade) * (m.valor_unitario || 0),
+        motivo: motivoFormatado,
+        usuario_nome: m.usuario_nome || 'Sistema',
+        unidade_medida: prod ? (prod.unidade_medida || 'un') : 'un',
+        quantidade_por_unidade: prod ? (prod.quantidade_por_unidade || 0) : 0,
+        quantidade_por_embalagem: prod ? (prod.quantidade_por_unidade || 0) : 0,
+        unidade_medida_insumo: prod ? (prod.unidade_medida_insumo || '') : ''
+      };
+    });
+
+    res.json({
+      movimentacoes: filtradas,
+      totais: {
+        total_entradas: totalEntradas,
+        total_saidas: totalSaidas,
+        total_ajustes: totalAjustes,
+        total_movimentacoes: filtradas.length
+      }
+    });
+  } catch (error) {
+    console.error('MOVIMENTACAO ESTOQUE ERROR:', error.message, error.stack);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioEstoqueAbaixoMinimo = async (req, res) => {
+  const { categorias, produto_id } = req.query;
+  try {
+    const where = {
+      deletado: 'N',
+      quantidade_estoque: { [Op.lte]: sequelize.col('estoque_minimo') }
+    };
+
+    if (produto_id) {
+      where.id = produto_id;
+    }
+
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+    if (categoriasIds.length > 0) {
+      where.categoria_id = { [Op.in]: categoriasIds };
+    }
+
+    const produtos = await getProdutoModel().findAll({
+      where,
+      order: [['nome', 'ASC']]
+    });
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    const mapped = produtos.map(p => {
+      const diferenca = (p.estoque_minimo || 0) - (p.quantidade_estoque || 0);
+      return {
+        id: p.id,
+        nome: p.nome,
+        produto_nome: p.nome,
+        categoria_nome: categoriesMap.get(p.categoria_id) || p.categoria || 'Sem Categoria',
+        unidade_medida: p.unidade_medida || 'un',
+        quantidade_estoque: p.quantidade_estoque || 0,
+        estoque_minimo: p.estoque_minimo || 0,
+        diferenca: diferenca > 0 ? diferenca : 0,
+        custo_unitario: p.custo_unitario || 0,
+        valor_total_custo: (p.quantidade_estoque || 0) * (p.custo_unitario || 0),
+        quantidade_por_unidade: p.quantidade_por_unidade || 0,
+        quantidade_por_embalagem: p.quantidade_por_unidade || 0,
+        unidade_medida_insumo: p.unidade_medida_insumo || ''
+      };
+    });
+
+    res.json({
+      produtos: mapped,
+      totais: {
+        total_produtos: mapped.length,
+        total_itens: mapped.reduce((acc, p) => acc + p.quantidade_estoque, 0)
+      }
+    });
+  } catch (error) {
+    console.error('ABAIXO MINIMO ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioEstoqueSemEstoque = async (req, res) => {
+  const { categorias, produto_id } = req.query;
+  try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    const where = {
+      deletado: 'N',
+      quantidade_estoque: { [Op.lte]: 0 }
+    };
+
+    if (produto_id) {
+      where.id = produto_id;
+    }
+
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+    if (categoriasIds.length > 0) {
+      where.categoria_id = { [Op.in]: categoriasIds };
+    }
+
+    const produtos = await getProdutoModel().findAll({
+      where,
+      order: [['nome', 'ASC']]
+    });
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    const mapped = await Promise.all(produtos.map(async p => {
+      const ultimaMov = await getMovimentacaoEstoqueModel().findOne({
+        where: { produto_id: p.id },
+        order: [['criado_em', 'DESC']]
+      });
+
+      return {
+        id: p.id,
+        nome: p.nome,
+        produto_nome: p.nome,
+        categoria_nome: categoriesMap.get(p.categoria_id) || p.categoria || 'Sem Categoria',
+        unidade_medida: p.unidade_medida || 'un',
+        quantidade_estoque: p.quantidade_estoque || 0,
+        estoque_minimo: p.estoque_minimo || 0,
+        data_ultima_movimentacao: ultimaMov ? ultimaMov.criado_em : null,
+        motivo_ultima_movimentacao: ultimaMov ? ultimaMov.motivo : 'Sem movimentações',
+        quantidade_por_unidade: p.quantidade_por_unidade || 0,
+        quantidade_por_embalagem: p.quantidade_por_unidade || 0,
+        unidade_medida_insumo: p.unidade_medida_insumo || ''
+      };
+    }));
+
+    res.json({
+      produtos: mapped,
+      totais: {
+        total_sem_estoque: mapped.length
+      }
+    });
+  } catch (error) {
+    console.error('SEM ESTOQUE ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioEstoqueValorizacao = async (req, res) => {
+  const { categorias, produto_id } = req.query;
+  try {
+    const where = {
+      deletado: 'N',
+      quantidade_estoque: { [Op.gt]: 0 }
+    };
+
+    if (produto_id) {
+      where.id = produto_id;
+    }
+
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+    if (categoriasIds.length > 0) {
+      where.categoria_id = { [Op.in]: categoriasIds };
+    }
+
+    const produtos = await getProdutoModel().findAll({
+      where,
+      order: [['nome', 'ASC']]
+    });
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    let totalCusto = 0;
+    let totalVenda = 0;
+    let totalItens = 0;
+
+    const mapped = produtos.map(p => {
+      const vCusto = (p.quantidade_estoque || 0) * (p.custo_unitario || 0);
+      const vVenda = (p.quantidade_estoque || 0) * (p.preco_venda || 0);
+      const margemPotencial = vVenda - vCusto;
+
+      totalCusto += vCusto;
+      totalVenda += vVenda;
+      totalItens += p.quantidade_estoque;
+
+      return {
+        id: p.id,
+        nome: p.nome,
+        produto_nome: p.nome,
+        categoria_nome: categoriesMap.get(p.categoria_id) || p.categoria || 'Sem Categoria',
+        unidade_medida: p.unidade_medida || 'un',
+        quantidade_estoque: p.quantidade_estoque || 0,
+        custo_unitario: p.custo_unitario || 0,
+        preco_venda: p.preco_venda || 0,
+        valor_total_custo: vCusto,
+        valor_total_venda: vVenda,
+        margem_potencial: margemPotencial,
+        quantidade_por_unidade: p.quantidade_por_unidade || 0,
+        quantidade_por_embalagem: p.quantidade_por_unidade || 0,
+        unidade_medida_insumo: p.unidade_medida_insumo || ''
+      };
+    });
+
+    res.json({
+      produtos: mapped,
+      totais: {
+        total_produtos: mapped.length,
+        total_itens: totalItens,
+        total_custo: totalCusto,
+        total_venda: totalVenda,
+        margem_potencial: totalVenda - totalCusto
+      }
+    });
+  } catch (error) {
+    console.error('VALORIZACAO ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioEstoqueConsumoInsumos = async (req, res) => {
+  const { categorias, produto_id, data_inicio, data_fim } = req.query;
+  try {
+    const whereAg = {
+      status: 'concluido',
+      deletado: 'N'
+    };
+    if (data_inicio && data_fim) {
+      whereAg.data_hora = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
+
+    const agendamentos = await getAgendamentoModel().findAll({
+      where: whereAg,
+      order: [['data_hora', 'ASC']]
+    });
+
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+
+    const productsList = await getProdutoModel().findAll();
+    const productsMap = new Map(productsList.map(p => [p.id, p]));
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    const consumos = [];
+    let totalConsumidoQty = 0;
+    let totalCustoConsumo = 0;
+
+    for (const ag of agendamentos) {
+      const itens = Array.isArray(ag.itens) ? ag.itens : [];
+      for (const item of itens) {
+        const utilized = item.produtos_utilizados || [];
+        for (const pu of utilized) {
+          if (produto_id && pu.produto_id !== produto_id) continue;
+
+          const prod = productsMap.get(pu.produto_id);
+          if (categoriasIds.length > 0) {
+            if (!prod || !categoriasIds.includes(prod.categoria_id)) {
+              continue;
+            }
+          }
+
+          const q = Number(pu.quantidade || 0);
+          const custoProp = Number(pu.custo_proporcional || pu.custo_unitario || 0);
+          const totalCusto = q * custoProp;
+
+          totalConsumidoQty += q;
+          totalCustoConsumo += totalCusto;
+
+          consumos.push({
+            agendamento_id: ag.id,
+            agendamento_numero: ag.numero || ag.id,
+            data: ag.data_hora,
+            cliente_nome: ag.cliente_nome || 'Cliente Final',
+            servico_nome: item.nome || 'Serviço',
+            produto_id: pu.produto_id,
+            produto_nome: pu.produto_nome || (prod ? prod.nome : 'Produto'),
+            categoria_nome: prod ? (categoriesMap.get(prod.categoria_id) || prod.categoria || 'Sem Categoria') : 'Sem Categoria',
+            quantidade: q,
+            unidade_medida: prod ? (prod.unidade_medida || 'un') : 'un',
+            unidade_medida_insumo: pu.unidade_medida_insumo || (prod ? prod.unidade_medida_insumo : 'un') || 'un',
+            quantidade_por_unidade: prod ? (prod.quantidade_por_unidade || 0) : 0,
+            quantidade_por_embalagem: prod ? (prod.quantidade_por_unidade || 0) : 0,
+            custo_unitario: custoProp,
+            custo_total: totalCusto,
+            valor_total_custo: totalCusto
+          });
+        }
+      }
+    }
+
+    res.json({
+      consumos,
+      totais: {
+        total_itens: consumos.length,
+        total_quantidade: totalConsumidoQty,
+        total_custo: totalCustoConsumo
+      }
+    });
+  } catch (error) {
+    console.error('CONSUMO INSUMOS ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioEstoqueMaisMovimentados = async (req, res) => {
+  const { categorias, produto_id, data_inicio, data_fim } = req.query;
+  try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    const where = {};
+    if (produto_id) {
+      where.produto_id = produto_id;
+    }
+    if (data_inicio && data_fim) {
+      where.criado_em = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
+
+    const movimentacoes = await getMovimentacaoEstoqueModel().findAll({ where });
+
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+
+    const produtos = await getProdutoModel().findAll({ where: { deletado: 'N' } });
+    const produtosMap = new Map(produtos.map(p => [p.id, p]));
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    const agrupado = {};
+    for (const m of movimentacoes) {
+      const prod = produtosMap.get(m.produto_id);
+      if (!prod) continue;
+      if (categoriasIds.length > 0 && !categoriasIds.includes(prod.categoria_id)) {
+        continue;
+      }
+
+      if (!agrupado[m.produto_id]) {
+        agrupado[m.produto_id] = {
+          id: prod.id,
+          nome: prod.nome,
+          produto_nome: prod.nome,
+          categoria_nome: categoriesMap.get(prod.categoria_id) || prod.categoria || 'Sem Categoria',
+          entradas_qty: 0,
+          saidas_qty: 0,
+          ajustes_qty: 0,
+          total_qty: 0
+        };
+      }
+
+      const q = Math.abs(m.quantidade);
+      if (m.tipo === 'entrada') {
+        agrupado[m.produto_id].entradas_qty += q;
+      } else if (m.tipo === 'saida') {
+        agrupado[m.produto_id].saidas_qty += q;
+      } else if (m.tipo === 'ajuste') {
+        agrupado[m.produto_id].ajustes_qty += q;
+      }
+      agrupado[m.produto_id].total_qty += q;
+    }
+
+    const result = Object.values(agrupado).sort((a, b) => b.total_qty - a.total_qty);
+
+    res.json({
+      produtos: result,
+      totais: {
+        total_produtos: result.length,
+        total_movimentado: result.reduce((acc, r) => acc + r.total_qty, 0)
+      }
+    });
+  } catch (error) {
+    console.error('MAIS MOVIMENTADOS ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioEstoqueSemMovimentacao = async (req, res) => {
+  const { categorias, produto_id, data_inicio, data_fim } = req.query;
+  try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    const whereMov = {};
+    if (produto_id) {
+      whereMov.produto_id = produto_id;
+    }
+    if (data_inicio && data_fim) {
+      whereMov.criado_em = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
+
+    const movimentacoes = await getMovimentacaoEstoqueModel().findAll({
+      where: whereMov,
+      attributes: ['produto_id']
+    });
+    const movProdutoIds = new Set(movimentacoes.map(m => m.produto_id));
+
+    const whereProd = { deletado: 'N' };
+    if (produto_id) {
+      whereProd.id = produto_id;
+    }
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+    if (categoriasIds.length > 0) {
+      whereProd.categoria_id = { [Op.in]: categoriasIds };
+    }
+
+    const produtos = await getProdutoModel().findAll({
+      where: whereProd,
+      order: [['nome', 'ASC']]
+    });
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    const result = [];
+    for (const p of produtos) {
+      if (movProdutoIds.has(p.id)) continue;
+
+      const ultimaMov = await getMovimentacaoEstoqueModel().findOne({
+        where: { produto_id: p.id },
+        order: [['criado_em', 'DESC']]
+      });
+
+      const dataBase = ultimaMov ? new Date(ultimaMov.criado_em) : new Date(p.criado_em || new Date());
+      const diffTime = Math.abs(new Date() - dataBase);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      result.push({
+        id: p.id,
+        nome: p.nome,
+        produto_nome: p.nome,
+        categoria_nome: categoriesMap.get(p.categoria_id) || p.categoria || 'Sem Categoria',
+        quantidade_estoque: p.quantidade_estoque || 0,
+        custo_unitario: p.custo_unitario || 0,
+        valor_total_custo: (p.quantidade_estoque || 0) * (p.custo_unitario || 0),
+        data_ultima_mov: ultimaMov ? ultimaMov.criado_em : null,
+        data_ultima_movimentacao: ultimaMov ? ultimaMov.criado_em : null,
+        dias_sem_movimentacao: diffDays,
+        unidade_medida: p.unidade_medida || 'un',
+        quantidade_por_unidade: p.quantidade_por_unidade || 0,
+        quantidade_por_embalagem: p.quantidade_por_unidade || 0,
+        unidade_medida_insumo: p.unidade_medida_insumo || ''
+      });
+    }
+
+    res.json({
+      produtos: result,
+      totais: {
+        total_produtos: result.length,
+        total_valor_custo: result.reduce((acc, p) => acc + p.valor_total_custo, 0)
+      }
+    });
+  } catch (error) {
+    console.error('SEM MOVIMENTACAO ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioEstoqueHistoricoAjustes = async (req, res) => {
+  const { categorias, produto_id, data_inicio, data_fim } = req.query;
+  try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    const where = {
+      tipo: 'ajuste'
+    };
+    if (data_inicio && data_fim) {
+      where.criado_em = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
+    if (produto_id) {
+      where.produto_id = produto_id;
+    }
+
+    const movimentacoes = await getMovimentacaoEstoqueModel().findAll({
+      where,
+      order: [['criado_em', 'DESC']]
+    });
+
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+
+    const produtos = await getProdutoModel().findAll();
+    const produtosMap = new Map(produtos.map(p => [p.id, p]));
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    const filtradas = movimentacoes.filter(m => {
+      const prod = produtosMap.get(m.produto_id);
+      if (categoriasIds.length > 0) {
+        if (!prod || !categoriasIds.includes(prod.categoria_id)) {
+          return false;
+        }
+      }
+      return true;
+    }).map(m => {
+      const prod = produtosMap.get(m.produto_id);
+      return {
+        id: m.id,
+        data: m.criado_em,
+        criado_em: m.criado_em,
+        produto_nome: m.produto_nome || (prod ? prod.nome : 'Produto'),
+        categoria_nome: prod ? (categoriesMap.get(prod.categoria_id) || prod.categoria || 'Sem Categoria') : 'Sem Categoria',
+        quantidade_anterior: m.quantidade_anterior || 0,
+        quantidade_ajustada: m.quantidade,
+        quantidade_atual: m.quantidade_atual || 0,
+        motivo: m.motivo || '',
+        usuario_nome: m.usuario_nome || 'Sistema',
+        unidade_medida: prod ? (prod.unidade_medida || 'un') : 'un',
+        quantidade_por_unidade: prod ? (prod.quantidade_por_unidade || 0) : 0,
+        quantidade_por_embalagem: prod ? (prod.quantidade_por_unidade || 0) : 0,
+        unidade_medida_insumo: prod ? (prod.unidade_medida_insumo || '') : ''
+      };
+    });
+
+    res.json({
+      ajustes: filtradas,
+      totais: {
+        total_ajustes: filtradas.length
+      }
+    });
+  } catch (error) {
+    console.error('HISTORICO AJUSTES ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioEstoqueInventario = async (req, res) => {
+  const { categorias, produto_id } = req.query;
+  try {
+    const where = { deletado: 'N' };
+    if (produto_id) {
+      where.id = produto_id;
+    }
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+    if (categoriasIds.length > 0) {
+      where.categoria_id = { [Op.in]: categoriasIds };
+    }
+
+    const produtos = await getProdutoModel().findAll({
+      where,
+      order: [['nome', 'ASC']]
+    });
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    const mapped = produtos.map(p => ({
+      id: p.id,
+      nome: p.nome,
+      produto_nome: p.nome,
+      categoria_nome: categoriesMap.get(p.categoria_id) || p.categoria || 'Sem Categoria',
+      unidade_medida: p.unidade_medida || 'un',
+      quantidade_estoque: p.quantidade_estoque || 0,
+      custo_unitario: p.custo_unitario || 0,
+      valor_total_custo: (p.quantidade_estoque || 0) * (p.custo_unitario || 0),
+      quantidade_por_unidade: p.quantidade_por_unidade || 0,
+      quantidade_por_embalagem: p.quantidade_por_unidade || 0,
+      unidade_medida_insumo: p.unidade_medida_insumo || ''
+    }));
+
+    res.json({
+      produtos: mapped,
+      totais: {
+        total_produtos: mapped.length,
+        total_itens: mapped.reduce((acc, p) => acc + p.quantidade_estoque, 0),
+        total_custo: mapped.reduce((acc, p) => acc + p.valor_total_custo, 0)
+      }
+    });
+  } catch (error) {
+    console.error('INVENTARIO ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const relatorioEstoquePerdasQuebras = async (req, res) => {
+  const { categorias, produto_id, data_inicio, data_fim } = req.query;
+  try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    const where = {
+      tipo: 'ajuste',
+      quantidade: { [Op.lt]: 0 }
+    };
+    if (data_inicio && data_fim) {
+      where.criado_em = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
+    if (produto_id) {
+      where.produto_id = produto_id;
+    }
+
+    const movimentacoes = await getMovimentacaoEstoqueModel().findAll({
+      where,
+      order: [['criado_em', 'DESC']]
+    });
+
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+
+    const produtos = await getProdutoModel().findAll();
+    const produtosMap = new Map(produtos.map(p => [p.id, p]));
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    let totalPerdasQty = 0;
+    let totalPerdasValor = 0;
+
+    const filtradas = movimentacoes.filter(m => {
+      const prod = produtosMap.get(m.produto_id);
+      if (categoriasIds.length > 0) {
+        if (!prod || !categoriasIds.includes(prod.categoria_id)) {
+          return false;
+        }
+      }
+      return true;
+    }).map(m => {
+      const prod = produtosMap.get(m.produto_id);
+      const q = Math.abs(m.quantidade);
+      const custo = m.valor_unitario || (prod ? prod.custo_unitario : 0) || 0;
+      const vPerda = q * custo;
+
+      totalPerdasQty += q;
+      totalPerdasValor += vPerda;
+
+      return {
+        id: m.id,
+        data: m.criado_em,
+        criado_em: m.criado_em,
+        produto_nome: m.produto_nome || (prod ? prod.nome : 'Produto'),
+        categoria_nome: prod ? (categoriesMap.get(prod.categoria_id) || prod.categoria || 'Sem Categoria') : 'Sem Categoria',
+        quantidade: q,
+        quantidade_perdida: q,
+        custo_unitario: custo,
+        valor_total: vPerda,
+        motivo: m.motivo || '',
+        usuario_nome: m.usuario_nome || 'Sistema',
+        unidade_medida: prod ? (prod.unidade_medida || 'un') : 'un',
+        quantidade_por_unidade: prod ? (prod.quantidade_por_unidade || 0) : 0,
+        quantidade_por_embalagem: prod ? (prod.quantidade_por_unidade || 0) : 0,
+        unidade_medida_insumo: prod ? (prod.unidade_medida_insumo || '') : ''
+      };
+    });
+
+    res.json({
+      perdas: filtradas,
+      totais: {
+        total_itens: filtradas.length,
+        total_quantidade: totalPerdasQty,
+        total_valor: totalPerdasValor
+      }
+    });
+  } catch (error) {
+    console.error('PERDAS QUEBRAS ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export {
+  dashboard,
+  dashboardDetail,
+  relatorioCaixa,
+  relatorioDre,
+  relatorioProdutos,
+  relatorioServicos,
+  relatorioResultadoOperacional,
+  relatorioEstoque,
+  relatorioMovimentacaoEstoque,
+  relatorioEstoqueAbaixoMinimo,
+  relatorioEstoqueSemEstoque,
+  relatorioEstoqueValorizacao,
+  relatorioEstoqueConsumoInsumos,
+  relatorioEstoqueMaisMovimentados,
+  relatorioEstoqueSemMovimentacao,
+  relatorioEstoqueHistoricoAjustes,
+  relatorioEstoqueInventario,
+  relatorioEstoquePerdasQuebras
+};
 

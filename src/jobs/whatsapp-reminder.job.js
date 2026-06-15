@@ -36,15 +36,40 @@ function parseDateString(dateInput) {
 }
 
 /**
+ * Função utilitária para dividir um array em chunks.
+ */
+function chunkArray(array, size) {
+  const chunked = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunked.push(array.slice(i, i + size));
+  }
+  return chunked;
+}
+
+/**
  * Busca e envia todos os lembretes pendentes que estão na hora programada de envio.
  */
 export async function runSingleTenantProcessReminders(schema = 'default') {
   console.log(`[WhatsAppReminderJob] Processando lembretes pendentes [Schema: ${schema}] às ${new Date().toISOString()}`);
 
-
   try {
     const now = new Date();
-    // Buscar lembretes que estão Pendentes e que já deveriam ter sido enviados
+    
+    // 1. Liberar lembretes que ficaram presos no status "Processando" por mais de 5 minutos
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    await getWhatsappLembreteModel().update(
+      { status: 'Pendente' },
+      {
+        where: {
+          status: 'Processando',
+          atualizado_em: {
+            [Op.lte]: fiveMinutesAgo
+          }
+        }
+      }
+    );
+
+    // 2. Buscar lembretes que estão Pendentes e que já deveriam ter sido enviados
     const pendentes = await getWhatsappLembreteModel().findAll({
       where: {
         status: 'Pendente',
@@ -63,104 +88,151 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
 
     console.log(`[WhatsAppReminderJob] Encontrados ${pendentes.length} lembrete(s) para processar.`);
 
-    // Consultar as configurações do WhatsApp para verificar se o envio está ativo
+    // 3. Consultar as configurações do WhatsApp para verificar se o envio está ativo
     const config = await getWhatsappConfigModel().findOne();
     if (!config || Number(config.ativo) !== 1) {
       console.log('[WhatsAppReminderJob] Envio automático inativo nas configurações do sistema. Ignorando lote.');
       return;
     }
 
-    for (const reminder of pendentes) {
-      console.log(`[WhatsAppReminderJob] Processando lembrete ID ${reminder.id} (Tipo: ${reminder.tipo_lembrete})...`);
+    // 4. Aplicar o Lock (Trava) atualizando todos para 'Processando'
+    const pendentesIds = pendentes.map(p => p.id);
+    await getWhatsappLembreteModel().update(
+      { status: 'Processando' },
+      { where: { id: { [Op.in]: pendentesIds } } }
+    );
 
-      // Incrementar o número de tentativas
-      reminder.tentativas = (reminder.tentativas || 0) + 1;
-
-      try {
-        // Obter agendamento associado
-        const ag = await getAgendamentoModel().findByPk(reminder.agendamento_id);
-        if (!ag || ag.deletado === 'S') {
-          console.log(`[WhatsAppReminderJob] Agendamento ID ${reminder.agendamento_id} foi deletado ou não existe. Lembrete Cancelado.`);
-          reminder.status = 'Cancelado';
-          reminder.erro = 'Agendamento deletado ou inexistente';
-          await reminder.save();
-          continue;
-        }
-
-        // Se o agendamento foi cancelado
-        if (ag.status === 'cancelado') {
-          console.log(`[WhatsAppReminderJob] Agendamento ID ${reminder.agendamento_id} está com status cancelado. Lembrete Cancelado.`);
-          reminder.status = 'Cancelado';
-          reminder.erro = 'Agendamento cancelado';
-          await reminder.save();
-          continue;
-        }
-
-        // Obter cliente
-        const cliente = await getClienteModel().findByPk(ag.cliente_id);
-        if (!cliente || cliente.deletado === 'S') {
-          console.log(`[WhatsAppReminderJob] Cliente ID ${ag.cliente_id} deletado ou não encontrado.`);
-          reminder.status = 'Falhou';
-          reminder.erro = 'Cliente deletado ou não encontrado';
-          await reminder.save();
-          continue;
-        }
-
-        const phone = (cliente.telefone || '').trim();
-        if (!phone) {
-          console.log(`[WhatsAppReminderJob] Cliente ${cliente.nome} não possui telefone cadastrado.`);
-          reminder.status = 'Falhou';
-          reminder.erro = 'Cliente sem telefone cadastrado';
-          await reminder.save();
-          continue;
-        }
-
-        // Extrair nome dos profissionais
-        let colabNome = "Não informado";
-        if (Array.isArray(ag.profissionais) && ag.profissionais.length > 0) {
-          colabNome = ag.profissionais.map(p => p.nome).join(", ");
-        }
-
-        // Extrair nome dos serviços
-        let servicoNome = "Serviço";
-        if (Array.isArray(ag.itens) && ag.itens.length > 0) {
-          servicoNome = ag.itens.map(i => i.nome).join(", ");
-        }
-
-        // Formatar data e hora timezone-neutras
-        const { date: formattedDate, time: formattedTime } = parseDateString(ag.data_hora);
-
-        // Montar a mensagem
-        const messageText = formatMessage(config.modelo_mensagem, {
-          nome: cliente.nome,
-          data: formattedDate,
-          hora: formattedTime,
-          servico: servicoNome,
-          profissional: colabNome
-        });
-
-        // Enviar a mensagem via provedor WhatsApp
-        const result = await whatsappProvider.sendMessage(phone, messageText, config);
-
-        if (result.success) {
-          reminder.status = 'Enviado';
-          reminder.data_envio = new Date();
-          reminder.mensagem = messageText;
-          reminder.erro = null;
-          await reminder.save();
-          console.log(`[WhatsAppReminderJob] Lembrete ID ${reminder.id} enviado com sucesso via WhatsApp.`);
-        } else {
-          throw new Error(result.error || 'Erro reportado pelo provedor de envio.');
-        }
-
-      } catch (err) {
-        console.error(`[WhatsAppReminderJob] Erro ao enviar lembrete ID ${reminder.id}:`, err);
-        reminder.erro = err.message || 'Erro inesperado no envio.';
-        if (reminder.tentativas >= 3) {
-          reminder.status = 'Falhou';
-        }
-        await reminder.save();
+    // 5. Pre-fetching: Buscar todos os agendamentos e clientes de uma vez
+    const agendamentoIds = [...new Set(pendentes.map(p => p.agendamento_id))];
+    const agendamentosList = await getAgendamentoModel().findAll({
+      where: { id: { [Op.in]: agendamentoIds } }
+    });
+    
+    // Indexar agendamentos por ID para acesso rápido
+    const agendamentosMap = {};
+    const clienteIds = new Set();
+    
+    for (const ag of agendamentosList) {
+      agendamentosMap[ag.id] = ag;
+      if (ag.cliente_id) {
+        clienteIds.add(ag.cliente_id);
       }
+    }
+
+    // Buscar todos os clientes
+    const clientesList = await getClienteModel().findAll({
+      where: { id: { [Op.in]: Array.from(clienteIds) } }
+    });
+    
+    // Indexar clientes por ID para acesso rápido
+    const clientesMap = {};
+    for (const cli of clientesList) {
+      clientesMap[cli.id] = cli;
+    }
+
+    // 6. Processamento em Lotes (Chunking e Paralelismo)
+    // Usaremos blocos de 5 mensagens por vez para não sobrecarregar a Evolution API
+    const chunks = chunkArray(pendentes, 5);
+    
+    for (const chunk of chunks) {
+      const promises = chunk.map(async (reminder) => {
+        console.log(`[WhatsAppReminderJob] Processando lembrete ID ${reminder.id} (Tipo: ${reminder.tipo_lembrete})...`);
+        
+        // Incrementar o número de tentativas
+        reminder.tentativas = (reminder.tentativas || 0) + 1;
+
+        try {
+          const ag = agendamentosMap[reminder.agendamento_id];
+          
+          if (!ag || ag.deletado === 'S') {
+            console.log(`[WhatsAppReminderJob] Agendamento ID ${reminder.agendamento_id} foi deletado ou não existe. Lembrete Cancelado.`);
+            reminder.status = 'Cancelado';
+            reminder.erro = 'Agendamento deletado ou inexistente';
+            await reminder.save();
+            return;
+          }
+
+          if (ag.status === 'cancelado') {
+            console.log(`[WhatsAppReminderJob] Agendamento ID ${reminder.agendamento_id} está com status cancelado. Lembrete Cancelado.`);
+            reminder.status = 'Cancelado';
+            reminder.erro = 'Agendamento cancelado';
+            await reminder.save();
+            return;
+          }
+
+          const cliente = clientesMap[ag.cliente_id];
+          if (!cliente || cliente.deletado === 'S') {
+            console.log(`[WhatsAppReminderJob] Cliente ID ${ag.cliente_id} deletado ou não encontrado.`);
+            reminder.status = 'Falhou';
+            reminder.erro = 'Cliente deletado ou não encontrado';
+            await reminder.save();
+            return;
+          }
+
+          const phone = (cliente.telefone || '').trim();
+          if (!phone) {
+            console.log(`[WhatsAppReminderJob] Cliente ${cliente.nome} não possui telefone cadastrado.`);
+            reminder.status = 'Falhou';
+            reminder.erro = 'Cliente sem telefone cadastrado';
+            await reminder.save();
+            return;
+          }
+
+          // Extrair nome dos profissionais
+          let colabNome = "Não informado";
+          if (Array.isArray(ag.profissionais) && ag.profissionais.length > 0) {
+            colabNome = ag.profissionais.map(p => p.nome).join(", ");
+          }
+
+          // Extrair nome dos serviços
+          let servicoNome = "Serviço";
+          if (Array.isArray(ag.itens) && ag.itens.length > 0) {
+            servicoNome = ag.itens.map(i => i.nome).join(", ");
+          }
+
+          // Formatar data e hora timezone-neutras
+          const { date: formattedDate, time: formattedTime } = parseDateString(ag.data_hora);
+
+          // Montar a mensagem
+          const messageText = formatMessage(config.modelo_mensagem, {
+            nome: cliente.nome,
+            data: formattedDate,
+            hora: formattedTime,
+            servico: servicoNome,
+            profissional: colabNome
+          });
+
+          // Enviar a mensagem via provedor WhatsApp
+          const result = await whatsappProvider.sendMessage(phone, messageText, config);
+          console.log("result", result);
+            
+          if (result.success) {
+            reminder.status = 'Enviado';
+            reminder.data_envio = new Date();
+            reminder.mensagem = messageText;
+            reminder.erro = null;
+            await reminder.save();
+            console.log(`[WhatsAppReminderJob] Lembrete ID ${reminder.id} enviado com sucesso via WhatsApp.`);
+          } else {
+            throw new Error(result.error || 'Erro reportado pelo provedor de envio.');
+          }
+
+        } catch (err) {
+          console.error(`[WhatsAppReminderJob] Erro ao enviar lembrete ID ${reminder.id}:`, err);
+          reminder.erro = err.message || 'Erro inesperado no envio.';
+          
+          // Reverter para Pendente se ainda não excedeu tentativas
+          if (reminder.tentativas >= 3) {
+            reminder.status = 'Falhou';
+          } else {
+            reminder.status = 'Pendente';
+          }
+          await reminder.save();
+        }
+      });
+      
+      // Aguardar o término do processamento de todas as mensagens do chunk
+      await Promise.allSettled(promises);
     }
   } catch (error) {
     console.error('[WhatsAppReminderJob] Erro geral na execução do runSingleTenantProcessReminders:', error);
@@ -172,14 +244,6 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
  * Caso o dialeto não seja PostgreSQL (ex: SQLite), roda no contexto padrão.
  */
 export async function processReminders() {
-  const isPostgres = sequelize.options.dialect === 'postgres';
-
-  if (!isPostgres) {
-    // SQLite/development ou outros dialetos
-    await runSingleTenantProcessReminders('default');
-    return;
-  }
-
   // PostgreSQL: Iterar sobre todos os schemas ativos do banco
   try {
     const results = await sequelize.query(`

@@ -32,10 +32,22 @@ export async function getConfig() {
  */
 export async function saveConfig(data) {
   let config = await getWhatsappConfigModel().findOne();
+  console.log("config", config);
+
   if (!config) {
     config = await getWhatsappConfigModel().create(data);
   } else {
-    await config.update(data);
+    console.log("cheguei", config.id, data);
+
+    await getWhatsappConfigModel().update({
+      instancia: data.instancia,
+      token: data.token,
+    }, {
+      where: {
+        id: config.id
+      }
+    });
+
   }
   return config;
 }
