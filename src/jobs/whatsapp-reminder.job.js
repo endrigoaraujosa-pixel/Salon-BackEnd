@@ -69,38 +69,35 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
       }
     );
 
-    // 2. Buscar lembretes que estão Pendentes e que já deveriam ter sido enviados
-    const pendentes = await getWhatsappLembreteModel().findAll({
-      where: {
-        status: 'Pendente',
-        data_programada: {
-          [Op.lte]: now
-        },
-        tentativas: {
-          [Op.lt]: 3 // limite máximo para evitar retentativas infinitas
-        }
-      }
-    });
-
-    if (pendentes.length === 0) {
-      return;
-    }
-
-    console.log(`[WhatsAppReminderJob] Encontrados ${pendentes.length} lembrete(s) para processar.`);
-
-    // 3. Consultar as configurações do WhatsApp para verificar se o envio está ativo
+    // 2. Consultar as configurações do WhatsApp para verificar se o envio está ativo
     const config = await getWhatsappConfigModel().findOne();
     if (!config || Number(config.ativo) !== 1) {
       console.log('[WhatsAppReminderJob] Envio automático inativo nas configurações do sistema. Ignorando lote.');
       return;
     }
 
-    // 4. Aplicar o Lock (Trava) atualizando todos para 'Processando'
-    const pendentesIds = pendentes.map(p => p.id);
-    await getWhatsappLembreteModel().update(
+    // 3. Atualizar atomicamente os lembretes Pendentes para 'Processando' e retornar os registros afetados (Locking)
+    const [affectedCount, pendentes] = await getWhatsappLembreteModel().update(
       { status: 'Processando' },
-      { where: { id: { [Op.in]: pendentesIds } } }
+      {
+        where: {
+          status: 'Pendente',
+          data_programada: {
+            [Op.lte]: now
+          },
+          tentativas: {
+            [Op.lt]: 3
+          }
+        },
+        returning: true
+      }
     );
+
+    if (!pendentes || pendentes.length === 0) {
+      return;
+    }
+
+    console.log(`[WhatsAppReminderJob] Encontrados ${pendentes.length} lembrete(s) para processar.`);
 
     // 5. Pre-fetching: Buscar todos os agendamentos e clientes de uma vez
     const agendamentoIds = [...new Set(pendentes.map(p => p.agendamento_id))];
