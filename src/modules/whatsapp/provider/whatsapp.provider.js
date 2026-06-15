@@ -10,8 +10,6 @@ export class WhatsAppProvider {
    * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
    */
   async sendMessage(phone, message, config = null) {
-    console.log("config", config);
-
     // Se não tiver configurações de API, executa a simulação
     if (!config || !config.instancia) {
       return { success: false, error: "Configurações de WhatsApp não encontradas" };
@@ -30,7 +28,6 @@ export class WhatsAppProvider {
 
       // Suporta Evolution API /message/sendText/:instance
       const url = `${baseUrl}/message/sendText/${instance}`;
-      console.log("url", url);
 
       // Evolution API v2 Payload Structure
       const payload = {
@@ -38,7 +35,6 @@ export class WhatsAppProvider {
         text: message
       };
 
-      console.log("payload", payload);
       const response = await axios.post(url, payload, {
         headers: {
           'Content-Type': 'application/json',
@@ -46,10 +42,9 @@ export class WhatsAppProvider {
         },
         timeout: 15000 // 15 segundos timeout
       });
-      console.log("response", response);
+
       // Retorna sucesso com o messageId da Evolution API
       const keyId = response.data?.key?.id || response.data?.messageId || `sent_${Date.now()}`;
-      console.log("keyId", keyId);
       return {
         success: true,
         messageId: keyId
