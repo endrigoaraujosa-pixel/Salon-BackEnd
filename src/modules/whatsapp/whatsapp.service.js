@@ -1,13 +1,10 @@
-import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
-import { getWhatsappLembreteModel } from '../../models/WhatsappLembrete.js';
+import { QueryTypes } from 'sequelize';
 import { getAgendamentoModel } from '../../models/Agendamento.js';
 import { getClienteModel } from '../../models/Cliente.js';
-import { getColaboradorModel } from '../../models/Colaborador.js';
-import { sequelize } from '../../config/db.js';
+import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
+import { getWhatsappLembreteModel } from '../../models/WhatsappLembrete.js';
 import whatsappProvider from './provider/whatsapp.provider.js';
-import { formatMessage, DEFAULT_TEMPLATE } from './templates/reminder.template.js';
-import { QueryTypes } from 'sequelize';
-import { getTenantSchema } from '../../config/tenantContext.js';
+import { DEFAULT_TEMPLATE, formatMessage } from './templates/reminder.template.js';
 
 /**
  * Obtém a configuração do WhatsApp, criando-a com valores padrão caso não exista.
@@ -59,64 +56,80 @@ export async function saveConfig(data) {
  */
 export async function getHistory(filters = {}) {
   const { status, startDate, endDate, cliente, numero } = filters;
-
-  let query = `
-    SELECT 
-      l.id,
-      l.agendamento_id,
-      l.tipo_lembrete,
-      l.data_programada,
-      l.data_envio,
-      l.status,
-      l.mensagem,
-      l.erro,
-      l.tentativas,
-      a.numero AS agendamento_numero,
-      a.data_hora AS agendamento_data_hora,
-      COALESCE(c.nome, a.cliente_nome) AS cliente_nome,
-      COALESCE(c.telefone, '') AS cliente_telefone
-    FROM whatsapp_lembretes l
-    LEFT JOIN agendamentos a ON l.agendamento_id = a.id
-    LEFT JOIN clientes c ON a.cliente_id = c.id
-    WHERE 1=1
-  `;
-
-  const replacements = {};
-
+  const Lembrete = getWhatsappLembreteModel();
+  const Agendamento = getAgendamentoModel();
+  const Cliente = getClienteModel();
+  // 1. Definindo as associações dinamicamente (necessário apenas se não estiverem definidas nos Models)
+  // Como as tabelas não possuem a associação formalizada no arquivo, a gente "avisa" o Sequelize aqui:
+  if (!Lembrete.associations.Agendamento) {
+    Lembrete.belongsTo(Agendamento, { foreignKey: 'agendamento_id' });
+  }
+  if (!Agendamento.associations.Cliente) {
+    Agendamento.belongsTo(Cliente, { foreignKey: 'cliente_id' });
+  }
+  // 2. Construindo a cláusula WHERE da tabela principal (whatsapp_lembretes)
+  const whereClause = {};
   if (status) {
-    query += ` AND l.status = :status`;
-    replacements.status = status;
+    whereClause.status = status;
   }
-
-  if (startDate) {
-    query += ` AND l.data_programada >= :startDate`;
-    replacements.startDate = `${startDate}T00:00:00.000Z`;
+  if (startDate || endDate) {
+    whereClause.data_programada = {};
+    if (startDate) {
+      whereClause.data_programada[Op.gte] = new Date(`${startDate}T00:00:00.000Z`);
+    }
+    if (endDate) {
+      whereClause.data_programada[Op.lte] = new Date(`${endDate}T23:59:59.999Z`);
+    }
   }
-
-  if (endDate) {
-    query += ` AND l.data_programada <= :endDate`;
-    replacements.endDate = `${endDate}T23:59:59.999Z`;
-  }
-
+  // Se precisar filtrar cliente (com um OR entre o nome do Cliente E o cliente_nome gravado no agendamento)
   if (cliente) {
-    query += ` AND (c.nome LIKE :clientePattern OR a.cliente_nome LIKE :clientePattern)`;
-    replacements.clientePattern = `%${cliente}%`;
+    whereClause[Op.or] = [
+      { '$Agendamento.Cliente.nome$': { [Op.like]: `%${cliente}%` } },
+      { '$Agendamento.cliente_nome$': { [Op.like]: `%${cliente}%` } }
+    ];
   }
-
+  // Filtro de número no Agendamento
+  const agendamentoWhere = {};
   if (numero && !isNaN(parseInt(numero, 10))) {
-    query += ` AND a.numero = :numero`;
-    replacements.numero = parseInt(numero, 10);
+    agendamentoWhere.numero = parseInt(numero, 10);
   }
-
-  // Ordenar por data programada mais recente
-  query += ` ORDER BY l.data_programada DESC LIMIT 500`;
-
-  const results = await sequelize.query(query, {
-    replacements,
-    type: QueryTypes.SELECT,
-    searchPath: getTenantSchema()
+  // 3. Executando a consulta usando o ORM
+  const lembretes = await Lembrete.findAll({
+    where: whereClause,
+    include: [
+      {
+        model: Agendamento,
+        required: false, // Isso garante que seja um LEFT JOIN
+        where: Object.keys(agendamentoWhere).length > 0 ? agendamentoWhere : undefined,
+        include: [
+          {
+            model: Cliente,
+            required: false // LEFT JOIN
+          }
+        ]
+      }
+    ],
+    order: [['data_programada', 'DESC']],
+    limit: 500,
+    raw: true,  // Retorna um objeto JSON simples
+    nest: true  // Agrupa os joins (cria os objetos Agendamento e Cliente encadeados na resposta)
   });
-
+  // 4. Mapeando para o mesmo formato (achatado) que a query SQL raw retornava originalmente
+  const results = lembretes.map(l => ({
+    id: l.id,
+    agendamento_id: l.agendamento_id,
+    tipo_lembrete: l.tipo_lembrete,
+    data_programada: l.data_programada,
+    data_envio: l.data_envio,
+    status: l.status,
+    mensagem: l.mensagem,
+    erro: l.erro,
+    tentativas: l.tentativas,
+    agendamento_numero: l.Agendamento?.numero || null,
+    agendamento_data_hora: l.Agendamento?.data_hora || null,
+    cliente_nome: l.Agendamento?.Cliente?.nome || l.Agendamento?.cliente_nome || '',
+    cliente_telefone: l.Agendamento?.Cliente?.telefone || ''
+  }));
   return results;
 }
 
