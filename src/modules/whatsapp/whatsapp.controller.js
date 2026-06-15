@@ -114,7 +114,7 @@ export const getExternalStatus = async (req, res) => {
 
     const result = await response.json();
     if (response.ok) {
-      res.json({ result, message: "status consultado com sucesso", success: true });
+      res.json({ ...result, message: "status consultado com sucesso", success: true });
     } else {
       res.status(200).json({ message: result.error || "Erro ao consultar status", success: false });
     }

@@ -40,6 +40,7 @@ export async function saveConfig(data) {
     console.log("cheguei", config.id, data);
 
     await getWhatsappConfigModel().update({
+      ...data,
       instancia: data.instancia,
       token: data.token,
     }, {
