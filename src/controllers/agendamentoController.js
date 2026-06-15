@@ -18,6 +18,11 @@ export const adjustStock = async (ag, type, options = {}) => {
   const user = options.user || null;
   try {
     const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    
+    // Carregar configuracao do sistema
+    const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+    const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
+
     for (const item of ag.itens || []) {
       const utilized = item.produtos_utilizados || [];
       for (const pu of utilized) {
@@ -29,7 +34,11 @@ export const adjustStock = async (ag, type, options = {}) => {
           const qtdAnterior = prod.quantidade_estoque || 0;
 
           if (type === 'deduct') {
-            prod.quantidade_estoque = Number((qtdAnterior - stockAdjustment).toFixed(3));
+            const newQty = Number((qtdAnterior - stockAdjustment).toFixed(3));
+            if (newQty < 0 && !permitirEstoqueNegativo) {
+              throw new Error(`Estoque insuficiente para o insumo "${prod.nome}" no agendamento. Disponível: ${Number(qtdAnterior.toFixed(3))}`);
+            }
+            prod.quantidade_estoque = newQty;
           } else if (type === 'restore') {
             prod.quantidade_estoque = Number((qtdAnterior + stockAdjustment).toFixed(3));
           }
@@ -59,6 +68,7 @@ export const adjustStock = async (ag, type, options = {}) => {
     }
   } catch (error) {
     console.error(`Failed to adjust stock (${type}) for appointment ${ag?.id}:`, error);
+    throw error;
   }
 };
 

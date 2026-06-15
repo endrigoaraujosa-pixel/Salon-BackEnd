@@ -286,8 +286,12 @@ const registrarMovimentacao = async (req, res) => {
 
     const qtdAtual = Number((qtdAnterior + qtyChange).toFixed(3));
 
-    // Block negative stock
-    if (qtdAtual < 0) {
+    // Block negative stock if configuration is disabled
+    const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
+    const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+    const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
+
+    if (qtdAtual < 0 && !permitirEstoqueNegativo) {
       await transaction.rollback();
       return res.status(400).json({ detail: `Quantidade insuficiente em estoque. Saldo atual: ${qtdAnterior}` });
     }

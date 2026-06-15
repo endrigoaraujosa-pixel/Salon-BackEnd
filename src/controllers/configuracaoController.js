@@ -106,7 +106,8 @@ const getConfiguracaoSistema = async (req, res) => {
     let config = await getConfiguracaoSistemaModel().findOne();
     if (!config) {
       config = await getConfiguracaoSistemaModel().create({
-        bloquear_valor_agendamento_menor: false
+        bloquear_valor_agendamento_menor: false,
+        permitir_estoque_negativo: false
       });
     }
     res.json(config);
