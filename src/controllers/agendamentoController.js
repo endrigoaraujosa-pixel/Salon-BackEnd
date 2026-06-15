@@ -616,26 +616,28 @@ const updatePagamento = async (req, res) => {
 
   const transaction = await sequelize.transaction();
   try {
-    if (!password) {
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+    if (!ag) {
       await transaction.rollback();
-      return res.status(400).json({ detail: 'Senha é obrigatória' });
+      return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
-    const user = await getUserModel().findByPk(req.user.id, { transaction });
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      await transaction.rollback();
-      return res.status(401).json({ detail: 'Senha incorreta' });
+
+    if (ag.status === 'concluido') {
+      if (!password) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Senha é obrigatória' });
+      }
+      const user = await getUserModel().findByPk(req.user.id, { transaction });
+      if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+        await transaction.rollback();
+        return res.status(401).json({ detail: 'Senha incorreta' });
+      }
     }
 
     const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
     if (!pagamento) {
       await transaction.rollback();
       return res.status(404).json({ detail: 'Pagamento não encontrado' });
-    }
-
-    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
-    if (!ag) {
-      await transaction.rollback();
-      return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
 
     const otherPags = await getPagamentoModel().findAll({
@@ -706,18 +708,26 @@ const deletePagamento = async (req, res) => {
 
   const transaction = await sequelize.transaction();
   try {
-    if (!email || !password) {
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+    if (!ag) {
       await transaction.rollback();
-      return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+      return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
-    const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
-    if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
-      await transaction.rollback();
-      return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
-    }
-    if (!authUser.pode_excluir_pagamento) {
-      await transaction.rollback();
-      return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
+
+    if (ag.status === 'concluido') {
+      if (!email || !password) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+      }
+      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
+      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+        await transaction.rollback();
+        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
+      }
+      if (!authUser.pode_excluir_pagamento) {
+        await transaction.rollback();
+        return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
+      }
     }
 
     const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
@@ -732,7 +742,6 @@ const deletePagamento = async (req, res) => {
       deletado_em: new Date()
     }, { transaction });
 
-    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
     if (ag) {
       const oldStatus = ag.status;
       const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });

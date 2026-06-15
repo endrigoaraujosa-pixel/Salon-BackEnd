@@ -455,18 +455,27 @@ const deletePagamento = async (req, res) => {
 
   const transaction = await sequelize.transaction();
   try {
-    if (!email || !password) {
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
+    if (!venda) {
       await transaction.rollback();
-      return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+      return res.status(404).json({ detail: 'Venda não encontrada' });
     }
-    const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
-    if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
-      await transaction.rollback();
-      return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
-    }
-    if (!authUser.pode_excluir_pagamento) {
-      await transaction.rollback();
-      return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
+
+    const needsPassword = venda.status === 'pago';
+    if (needsPassword) {
+      if (!email || !password) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+      }
+      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
+      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+        await transaction.rollback();
+        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
+      }
+      if (!authUser.pode_excluir_pagamento) {
+        await transaction.rollback();
+        return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
+      }
     }
 
     const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
@@ -481,34 +490,31 @@ const deletePagamento = async (req, res) => {
     }, { transaction });
 
     // Recompute venda total paid and handle stock restoration if no longer paid
-    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
-    if (venda) {
-      const eraStatusAnteriorPago = venda.status === 'pago';
-      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
-      const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
-      venda.valor_pago = totalPago;
-      const ficouPago = totalPago >= venda.valor_total - 0.01;
-      if (ficouPago) {
-        venda.status = 'pago';
-      } else {
-        venda.status = 'pendente';
-      }
-      await venda.save({ transaction });
+    const eraStatusAnteriorPago = venda.status === 'pago';
+    const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
+    const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
+    venda.valor_pago = totalPago;
+    const ficouPago = totalPago >= venda.valor_total - 0.01;
+    if (ficouPago) {
+      venda.status = 'pago';
+    } else {
+      venda.status = 'pendente';
+    }
+    await venda.save({ transaction });
 
-      // Devolver estoque se a venda deixou de ser paga (ficou pendente)
-      if (eraStatusAnteriorPago && !ficouPago) {
-        const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
-          ? venda.itens
-          : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
-        for (const item of itensVenda) {
-          const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
-          if (produto) {
-            const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
-            const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
-            produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
-            await produto.save({ transaction });
-            await _registrarMovimentacaoVenda(produto, 'entrada', stockAdjustment, venda, transaction, req.user);
-          }
+    // Devolver estoque se a venda deixou de ser paga (ficou pendente)
+    if (eraStatusAnteriorPago && !ficouPago) {
+      const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
+        ? venda.itens
+        : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
+      for (const item of itensVenda) {
+        const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
+        if (produto) {
+          const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+          const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+          produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
+          await produto.save({ transaction });
+          await _registrarMovimentacaoVenda(produto, 'entrada', stockAdjustment, venda, transaction, req.user);
         }
       }
     }
