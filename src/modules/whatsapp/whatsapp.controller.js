@@ -112,12 +112,11 @@ export const getExternalStatus = async (req, res) => {
       }
     });
 
+    const result = await response.json();
     if (response.ok) {
-      const result = await response.json();
-      res.json(result);
+      res.json({ result, message: "status consultado com sucesso", success: true });
     } else {
-      const errorData = await response.json();
-      res.status(500).json({ detail: errorData.detail || "Erro ao consultar status" });
+      res.status(200).json({ message: result.error || "Erro ao consultar status", success: false });
     }
   } catch (error) {
     res.status(500).json({ detail: error.message });
