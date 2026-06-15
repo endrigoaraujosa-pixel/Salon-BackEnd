@@ -69,7 +69,7 @@ services:
       DB_PORT: ${DB_PORT}
       DB: ${DB}
       EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://evolution-api:8080}
-      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+      EVOLUTION_API_TOKEN: ${EVOLUTION_API_TOKEN}
       NODE_ENV: 'production'
     depends_on:
       - salon-postgre
