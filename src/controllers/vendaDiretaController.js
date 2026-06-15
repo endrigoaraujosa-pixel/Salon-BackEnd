@@ -10,6 +10,36 @@ import { getDescontoModel } from '../models/Desconto.js';
 import { getUserModel } from '../models/User.js';
 import { sequelize } from '../config/db.js';
 
+const _registrarMovimentacaoVenda = async (produto, tipo, quantidade, venda, transaction, user = null) => {
+  try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    const motivo = tipo === 'saida'
+      ? `Saída Venda - Código: ${String(venda.numero_venda || '').padStart(6, '0')} | V`
+      : `Devolução por alteração/cancelamento de venda`;
+
+    const qtdAtual = produto.quantidade_estoque;
+    const qtdAnterior = tipo === 'saida'
+      ? Number((qtdAtual + quantidade).toFixed(3))
+      : Number((qtdAtual - quantidade).toFixed(3));
+
+    await getMovimentacaoEstoqueModel().create({
+      produto_id: produto.id,
+      produto_nome: produto.nome,
+      tipo,
+      quantidade,
+      quantidade_anterior: qtdAnterior,
+      quantidade_atual: qtdAtual,
+      valor_unitario: produto.custo_unitario || 0,
+      motivo,
+      referencia_id: venda.id,
+      usuario_id: user ? user.id : null,
+      usuario_nome: user ? user.name : null
+    }, { transaction });
+  } catch (error) {
+    console.error('Erro ao registrar movimentação de estoque para venda:', error);
+  }
+};
+
 const listVendas = async (req, res) => {
   const { data_inicio, data_fim, cliente_id, status } = req.query;
   console.log('[DEBUG listVendas] Received query params:', { data_inicio, data_fim, cliente_id, status });
@@ -94,15 +124,18 @@ const createVenda = async (req, res) => {
       const qtd = Number(item.quantidade);
       const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
       const neededStock = qtyPerUnit > 0 ? (qtd * qtyPerUnit) : qtd;
-      if (produto.quantidade_estoque < neededStock) {
-        if (!req.body.forcar_venda) {
-          const dispQty = qtyPerUnit > 0 ? (produto.quantidade_estoque / qtyPerUnit) : produto.quantidade_estoque;
-          await transaction.rollback();
-          return res.status(400).json({
-            code: 'ESTOQUE_INSUFICIENTE',
-            detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${Number(dispQty.toFixed(3))}`
-          });
-        }
+
+      const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
+      const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+      const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
+
+      if (produto.quantidade_estoque < neededStock && !permitirEstoqueNegativo) {
+        const dispQty = qtyPerUnit > 0 ? (produto.quantidade_estoque / qtyPerUnit) : produto.quantidade_estoque;
+        await transaction.rollback();
+        return res.status(400).json({
+          code: 'ESTOQUE_INSUFICIENTE',
+          detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${Number(dispQty.toFixed(3))}`
+        });
       }
 
       const preco_unitario = Number(item.preco_unitario || produto.preco_venda);
@@ -244,16 +277,22 @@ const addPagamentos = async (req, res) => {
     }
 
     const existingPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
-    const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
-    const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-    let adjustedPagamentos = [...pagamentos];
-    let novoTotal = pagoAtual + novoValor;
+    const pagoAtual = existingPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    const novoValorBruto = pagamentos.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    let adjustedPagamentos = pagamentos.map(p => ({
+      ...p,
+      valor_recebido: Number(p.valor || 0),
+      troco: 0,
+      valor: Number(p.valor || 0)
+    }));
+    let novoTotal = pagoAtual + novoValorBruto;
 
     if (novoTotal > venda.valor_total + 0.01) {
       let excesso = novoTotal - venda.valor_total;
       let idxDinheiro = adjustedPagamentos.findIndex(p => p.forma_pagamento === 'dinheiro');
-      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor >= excesso) {
-        adjustedPagamentos[idxDinheiro].valor -= excesso;
+      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor_recebido >= excesso) {
+        adjustedPagamentos[idxDinheiro].valor = Number((adjustedPagamentos[idxDinheiro].valor_recebido - excesso).toFixed(2));
+        adjustedPagamentos[idxDinheiro].troco = Number(excesso.toFixed(2));
         adjustedPagamentos[idxDinheiro].observacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (adjustedPagamentos[idxDinheiro].observacao ? ` - ${adjustedPagamentos[idxDinheiro].observacao}` : '');
         novoTotal = venda.valor_total;
       } else {
@@ -267,6 +306,8 @@ const addPagamentos = async (req, res) => {
         id: uuidv4(),
         venda_direta_id: req.params.id,
         valor: p.valor,
+        valor_recebido: p.valor_recebido,
+        troco: p.troco,
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
         data_hora: new Date()
@@ -293,6 +334,7 @@ const addPagamentos = async (req, res) => {
           const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
           produto.quantidade_estoque = Number((produto.quantidade_estoque - stockAdjustment).toFixed(3));
           await produto.save({ transaction });
+          await _registrarMovimentacaoVenda(produto, 'saida', stockAdjustment, venda, transaction, req.user);
         }
       }
     }
@@ -316,54 +358,88 @@ const updatePagamento = async (req, res) => {
       return res.status(404).json({ detail: 'Pagamento não encontrado' });
     }
 
-    pagamento.valor = valor;
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
+    if (!venda) {
+      await transaction.rollback();
+      return res.status(404).json({ detail: 'Venda não encontrada' });
+    }
+
+    const otherPags = await getPagamentoModel().findAll({
+      where: {
+        venda_direta_id: req.params.id,
+        deletado: 'N',
+        id: { [Op.ne]: req.params.pid }
+      },
+      transaction
+    });
+    const pagoOutros = otherPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+
+    const novoValorRecebido = Number(valor || 0);
+    const novoTotal = pagoOutros + novoValorRecebido;
+    let novoTroco = 0;
+    let novoValorNet = novoValorRecebido;
+    let novaObservacao = observacao || '';
+
+    if (novoTotal > venda.valor_total + 0.01) {
+      let excesso = novoTotal - venda.valor_total;
+      if (forma_pagamento === 'dinheiro' && novoValorRecebido >= excesso) {
+        novoTroco = Number(excesso.toFixed(2));
+        novoValorNet = Number((novoValorRecebido - excesso).toFixed(2));
+        novaObservacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (observacao ? ` - ${observacao}` : '');
+      } else {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Valor excede o total devido' });
+      }
+    }
+
+    pagamento.valor = novoValorNet;
+    pagamento.valor_recebido = novoValorRecebido;
+    pagamento.troco = novoTroco;
     pagamento.forma_pagamento = forma_pagamento;
-    pagamento.observacao = observacao || '';
+    pagamento.observacao = novaObservacao;
     await pagamento.save({ transaction });
 
-    // Recompute venda total paid and handle stock adjustments on status transition
-    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
-    if (venda) {
-      const eraStatusAnteriorPago = venda.status === 'pago';
-      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
-      const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
-      venda.valor_pago = totalPago;
-      const ficouPago = totalPago >= venda.valor_total - 0.01;
-      if (ficouPago) {
-        venda.status = 'pago';
-      } else {
-        venda.status = 'pendente';
-      }
-      await venda.save({ transaction });
+    const eraStatusAnteriorPago = venda.status === 'pago';
+    const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
+    const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
+    venda.valor_pago = totalPago;
+    const ficouPago = totalPago >= venda.valor_total - 0.01;
+    if (ficouPago) {
+      venda.status = 'pago';
+    } else {
+      venda.status = 'pendente';
+    }
+    await venda.save({ transaction });
 
-      // Devolver estoque se a venda deixou de ser paga (ficou pendente)
-      if (eraStatusAnteriorPago && !ficouPago) {
-        const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
-          ? venda.itens
-          : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
-        for (const item of itensVenda) {
-          const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
-          if (produto) {
-            const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
-            const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
-            produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
-            await produto.save({ transaction });
-          }
+    // Devolver estoque se a venda deixou de ser paga (ficou pendente)
+    if (eraStatusAnteriorPago && !ficouPago) {
+      const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
+        ? venda.itens
+        : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
+      for (const item of itensVenda) {
+        const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
+        if (produto) {
+          const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+          const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+          produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
+          await produto.save({ transaction });
+          await _registrarMovimentacaoVenda(produto, 'entrada', stockAdjustment, venda, transaction, req.user);
         }
       }
-      // Deduzir estoque se a venda passou de pendente para paga
-      else if (!eraStatusAnteriorPago && ficouPago) {
-        const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
-          ? venda.itens
-          : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
-        for (const item of itensVenda) {
-          const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
-          if (produto) {
-            const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
-            const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
-            produto.quantidade_estoque = Number((produto.quantidade_estoque - stockAdjustment).toFixed(3));
-            await produto.save({ transaction });
-          }
+    }
+    // Deduzir estoque se a venda passou de pendente para paga
+    else if (!eraStatusAnteriorPago && ficouPago) {
+      const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
+        ? venda.itens
+        : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
+      for (const item of itensVenda) {
+        const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
+        if (produto) {
+          const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+          const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+          produto.quantidade_estoque = Number((produto.quantidade_estoque - stockAdjustment).toFixed(3));
+          await produto.save({ transaction });
+          await _registrarMovimentacaoVenda(produto, 'saida', stockAdjustment, venda, transaction, req.user);
         }
       }
     }
@@ -382,18 +458,27 @@ const deletePagamento = async (req, res) => {
 
   const transaction = await sequelize.transaction();
   try {
-    if (!email || !password) {
+    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
+    if (!venda) {
       await transaction.rollback();
-      return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+      return res.status(404).json({ detail: 'Venda não encontrada' });
     }
-    const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
-    if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
-      await transaction.rollback();
-      return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
-    }
-    if (!authUser.pode_excluir_pagamento) {
-      await transaction.rollback();
-      return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
+
+    const needsPassword = venda.status === 'pago';
+    if (needsPassword) {
+      if (!email || !password) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+      }
+      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
+      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+        await transaction.rollback();
+        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
+      }
+      if (!authUser.pode_excluir_pagamento) {
+        await transaction.rollback();
+        return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
+      }
     }
 
     const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
@@ -408,33 +493,31 @@ const deletePagamento = async (req, res) => {
     }, { transaction });
 
     // Recompute venda total paid and handle stock restoration if no longer paid
-    const venda = await getVendaDiretaModel().findByPk(req.params.id, { transaction });
-    if (venda) {
-      const eraStatusAnteriorPago = venda.status === 'pago';
-      const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
-      const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
-      venda.valor_pago = totalPago;
-      const ficouPago = totalPago >= venda.valor_total - 0.01;
-      if (ficouPago) {
-        venda.status = 'pago';
-      } else {
-        venda.status = 'pendente';
-      }
-      await venda.save({ transaction });
+    const eraStatusAnteriorPago = venda.status === 'pago';
+    const allPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
+    const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
+    venda.valor_pago = totalPago;
+    const ficouPago = totalPago >= venda.valor_total - 0.01;
+    if (ficouPago) {
+      venda.status = 'pago';
+    } else {
+      venda.status = 'pendente';
+    }
+    await venda.save({ transaction });
 
-      // Devolver estoque se a venda deixou de ser paga (ficou pendente)
-      if (eraStatusAnteriorPago && !ficouPago) {
-        const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
-          ? venda.itens
-          : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
-        for (const item of itensVenda) {
-          const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
-          if (produto) {
-            const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
-            const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
-            produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
-            await produto.save({ transaction });
-          }
+    // Devolver estoque se a venda deixou de ser paga (ficou pendente)
+    if (eraStatusAnteriorPago && !ficouPago) {
+      const itensVenda = Array.isArray(venda.itens) && venda.itens.length > 0
+        ? venda.itens
+        : [{ produto_id: venda.produto_id, quantidade: venda.quantidade }];
+      for (const item of itensVenda) {
+        const produto = await getProdutoModel().findByPk(item.produto_id, { transaction });
+        if (produto) {
+          const qtyPerUnit = Number(produto.quantidade_por_unidade || 0);
+          const stockAdjustment = qtyPerUnit > 0 ? (Number(item.quantidade) * qtyPerUnit) : Number(item.quantidade);
+          produto.quantidade_estoque = Number((produto.quantidade_estoque + stockAdjustment).toFixed(3));
+          await produto.save({ transaction });
+          await _registrarMovimentacaoVenda(produto, 'entrada', stockAdjustment, venda, transaction, req.user);
         }
       }
     }
@@ -588,15 +671,18 @@ const addItemCarrinho = async (req, res) => {
     const neededStock = qtyPerUnit > 0 ? (qtd * qtyPerUnit) : qtd;
     const stockJaNoCarrinho = qtyPerUnit > 0 ? (qtdJaNoCarrinho * qtyPerUnit) : qtdJaNoCarrinho;
     const estoqueDisponivel = produto.quantidade_estoque - stockJaNoCarrinho;
-    if (estoqueDisponivel < neededStock) {
-      if (!req.body.forcar_venda) {
-        const dispQty = qtyPerUnit > 0 ? (estoqueDisponivel / qtyPerUnit) : estoqueDisponivel;
-        await transaction.rollback();
-        return res.status(400).json({
-          code: 'ESTOQUE_INSUFICIENTE',
-          detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${Number(dispQty.toFixed(3))}`
-        });
-      }
+
+    const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
+    const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+    const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
+
+    if (estoqueDisponivel < neededStock && !permitirEstoqueNegativo) {
+      const dispQty = qtyPerUnit > 0 ? (estoqueDisponivel / qtyPerUnit) : estoqueDisponivel;
+      await transaction.rollback();
+      return res.status(400).json({
+        code: 'ESTOQUE_INSUFICIENTE',
+        detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${Number(dispQty.toFixed(3))}`
+      });
     }
 
     const precoUnit = Number(preco_unitario || produto.preco_venda);
@@ -686,15 +772,18 @@ const updateItemCarrinho = async (req, res) => {
     const neededStock = qtyPerUnit > 0 ? (qtd * qtyPerUnit) : qtd;
     const stockOutrosItens = qtyPerUnit > 0 ? (qtdOutrosItens * qtyPerUnit) : qtdOutrosItens;
     const estoqueDisponivel = produto.quantidade_estoque - stockOutrosItens;
-    if (estoqueDisponivel < neededStock) {
-      if (!req.body.forcar_venda) {
-        const dispQty = qtyPerUnit > 0 ? (estoqueDisponivel / qtyPerUnit) : estoqueDisponivel;
-        await transaction.rollback();
-        return res.status(400).json({
-          code: 'ESTOQUE_INSUFICIENTE',
-          detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${Number(dispQty.toFixed(3))}`
-        });
-      }
+
+    const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
+    const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+    const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
+
+    if (estoqueDisponivel < neededStock && !permitirEstoqueNegativo) {
+      const dispQty = qtyPerUnit > 0 ? (estoqueDisponivel / qtyPerUnit) : estoqueDisponivel;
+      await transaction.rollback();
+      return res.status(400).json({
+        code: 'ESTOQUE_INSUFICIENTE',
+        detail: `Estoque insuficiente para "${produto.nome}". Disponível: ${Number(dispQty.toFixed(3))}`
+      });
     }
 
     itens[itemIndex] = {

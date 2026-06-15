@@ -12,6 +12,11 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
     allowNull: false
+  },
+  permitir_estoque_negativo: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
   }
 }, {
   tableName: 'configuracao_sistema',

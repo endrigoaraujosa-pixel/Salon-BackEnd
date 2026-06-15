@@ -15,7 +15,14 @@ import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 
 export const adjustStock = async (ag, type, options = {}) => {
   const transaction = options.transaction;
+  const user = options.user || null;
   try {
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    
+    // Carregar configuracao do sistema
+    const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+    const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
+
     for (const item of ag.itens || []) {
       const utilized = item.produtos_utilizados || [];
       for (const pu of utilized) {
@@ -24,17 +31,44 @@ export const adjustStock = async (ag, type, options = {}) => {
           const qty = Number(pu.quantidade || 0);
           const stockAdjustment = qty;
 
+          const qtdAnterior = prod.quantidade_estoque || 0;
+
           if (type === 'deduct') {
-            prod.quantidade_estoque = Number((prod.quantidade_estoque - stockAdjustment).toFixed(3));
+            const newQty = Number((qtdAnterior - stockAdjustment).toFixed(3));
+            if (newQty < 0 && !permitirEstoqueNegativo) {
+              throw new Error(`Estoque insuficiente para o insumo "${prod.nome}" no agendamento. Disponível: ${Number(qtdAnterior.toFixed(3))}`);
+            }
+            prod.quantidade_estoque = newQty;
           } else if (type === 'restore') {
-            prod.quantidade_estoque = Number((prod.quantidade_estoque + stockAdjustment).toFixed(3));
+            prod.quantidade_estoque = Number((qtdAnterior + stockAdjustment).toFixed(3));
           }
           await prod.save({ transaction });
+
+          const qtdAtual = prod.quantidade_estoque;
+          const tipoMovimentacao = type === 'deduct' ? 'saida' : 'entrada';
+          const motivo = type === 'deduct'
+            ? `Consumo de insumos - Agendamento: ${ag.id}`
+            : `Devolução de insumos por cancelamento`;
+
+          await getMovimentacaoEstoqueModel().create({
+            produto_id: prod.id,
+            produto_nome: prod.nome,
+            tipo: tipoMovimentacao,
+            quantidade: stockAdjustment,
+            quantidade_anterior: qtdAnterior,
+            quantidade_atual: qtdAtual,
+            valor_unitario: prod.custo_unitario || 0,
+            motivo,
+            referencia_id: ag.id,
+            usuario_id: user ? user.id : null,
+            usuario_nome: user ? user.name : null
+          }, { transaction });
         }
       }
     }
   } catch (error) {
     console.error(`Failed to adjust stock (${type}) for appointment ${ag?.id}:`, error);
+    throw error;
   }
 };
 
@@ -302,7 +336,7 @@ const updateAgend = async (req, res) => {
 
     const wasConcluido = ag.status === 'concluido';
     if (wasConcluido) {
-      await adjustStock(ag, 'restore', { transaction });
+      await adjustStock(ag, 'restore', { transaction, user: req.user });
     }
 
     let isOnlyInsumos = req.query.only_insumos === 'true' || req.body.only_insumos === true;
@@ -381,7 +415,7 @@ const updateAgend = async (req, res) => {
 
     if (wasConcluido) {
       const updatedAg = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
-      await adjustStock(updatedAg, 'deduct', { transaction });
+      await adjustStock(updatedAg, 'deduct', { transaction, user: req.user });
     }
 
     await transaction.commit();
@@ -422,7 +456,7 @@ const deleteAgend = async (req, res) => {
       }
 
       if (ag.status === 'concluido') {
-        await adjustStock(ag, 'restore', { transaction });
+        await adjustStock(ag, 'restore', { transaction, user: req.user });
       }
       await ag.update({
         deletado: 'S',
@@ -483,9 +517,9 @@ const setStatus = async (req, res) => {
     const oldStatus = ag.status;
     if (oldStatus !== status) {
       if (status === 'concluido') {
-        await adjustStock(ag, 'deduct', { transaction });
+        await adjustStock(ag, 'deduct', { transaction, user: req.user });
       } else if (oldStatus === 'concluido') {
-        await adjustStock(ag, 'restore', { transaction });
+        await adjustStock(ag, 'restore', { transaction, user: req.user });
       }
     }
 
@@ -520,16 +554,22 @@ const addPagamentos = async (req, res) => {
     }
 
     const existingPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
-    const pagoAtual = existingPags.reduce((acc, p) => acc + p.valor, 0);
-    const novoValor = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-    let adjustedPagamentos = [...pagamentos];
-    let novoTotal = pagoAtual + novoValor;
+    const pagoAtual = existingPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    const novoValorBruto = pagamentos.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    let adjustedPagamentos = pagamentos.map(p => ({
+      ...p,
+      valor_recebido: Number(p.valor || 0),
+      troco: 0,
+      valor: Number(p.valor || 0)
+    }));
+    let novoTotal = pagoAtual + novoValorBruto;
 
     if (novoTotal > ag.valor_total + 0.01) {
       let excesso = novoTotal - ag.valor_total;
       let idxDinheiro = adjustedPagamentos.findIndex(p => p.forma_pagamento === 'dinheiro');
-      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor >= excesso) {
-        adjustedPagamentos[idxDinheiro].valor -= excesso;
+      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor_recebido >= excesso) {
+        adjustedPagamentos[idxDinheiro].valor = Number((adjustedPagamentos[idxDinheiro].valor_recebido - excesso).toFixed(2));
+        adjustedPagamentos[idxDinheiro].troco = Number(excesso.toFixed(2));
         adjustedPagamentos[idxDinheiro].observacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (adjustedPagamentos[idxDinheiro].observacao ? ` - ${adjustedPagamentos[idxDinheiro].observacao}` : '');
         novoTotal = ag.valor_total;
       } else {
@@ -543,6 +583,8 @@ const addPagamentos = async (req, res) => {
         id: uuidv4(),
         agendamento_id: req.params.aid,
         valor: p.valor,
+        valor_recebido: p.valor_recebido,
+        troco: p.troco,
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
         data_hora: new Date()
@@ -563,9 +605,9 @@ const addPagamentos = async (req, res) => {
 
     if (oldStatus !== ag.status) {
       if (ag.status === 'concluido') {
-        await adjustStock(ag, 'deduct', { transaction });
+        await adjustStock(ag, 'deduct', { transaction, user: req.user });
       } else if (oldStatus === 'concluido') {
-        await adjustStock(ag, 'restore', { transaction });
+        await adjustStock(ag, 'restore', { transaction, user: req.user });
       }
     }
     await ag.save({ transaction });
@@ -584,14 +626,22 @@ const updatePagamento = async (req, res) => {
 
   const transaction = await sequelize.transaction();
   try {
-    if (!password) {
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+    if (!ag) {
       await transaction.rollback();
-      return res.status(400).json({ detail: 'Senha é obrigatória' });
+      return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
-    const user = await getUserModel().findByPk(req.user.id, { transaction });
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      await transaction.rollback();
-      return res.status(401).json({ detail: 'Senha incorreta' });
+
+    if (ag.status === 'concluido') {
+      if (!password) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Senha é obrigatória' });
+      }
+      const user = await getUserModel().findByPk(req.user.id, { transaction });
+      if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+        await transaction.rollback();
+        return res.status(401).json({ detail: 'Senha incorreta' });
+      }
     }
 
     const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
@@ -600,32 +650,59 @@ const updatePagamento = async (req, res) => {
       return res.status(404).json({ detail: 'Pagamento não encontrado' });
     }
 
-    pagamento.valor = Number(valor || 0);
+    const otherPags = await getPagamentoModel().findAll({
+      where: {
+        agendamento_id: req.params.aid,
+        deletado: 'N',
+        id: { [Op.ne]: req.params.pid }
+      },
+      transaction
+    });
+    const pagoOutros = otherPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+
+    const novoValorRecebido = Number(valor || 0);
+    const novoTotal = pagoOutros + novoValorRecebido;
+    let novoTroco = 0;
+    let novoValorNet = novoValorRecebido;
+    let novaObservacao = observacao || '';
+
+    if (novoTotal > ag.valor_total + 0.01) {
+      let excesso = novoTotal - ag.valor_total;
+      if (forma_pagamento === 'dinheiro' && novoValorRecebido >= excesso) {
+        novoTroco = Number(excesso.toFixed(2));
+        novoValorNet = Number((novoValorRecebido - excesso).toFixed(2));
+        novaObservacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (observacao ? ` - ${observacao}` : '');
+      } else {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Valor excede o total devido' });
+      }
+    }
+
+    pagamento.valor = novoValorNet;
+    pagamento.valor_recebido = novoValorRecebido;
+    pagamento.troco = novoTroco;
     pagamento.forma_pagamento = forma_pagamento;
-    pagamento.observacao = observacao || '';
+    pagamento.observacao = novaObservacao;
     await pagamento.save({ transaction });
 
-    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
-    if (ag) {
-      const oldStatus = ag.status;
-      const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
-      const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
-      ag.valor_pago = totalPago;
-      if (totalPago >= ag.valor_total - 0.01) {
-        ag.status = 'concluido';
-      } else {
-        ag.status = 'agendado';
-      }
-
-      if (oldStatus !== ag.status) {
-        if (ag.status === 'concluido') {
-          await adjustStock(ag, 'deduct', { transaction });
-        } else if (oldStatus === 'concluido') {
-          await adjustStock(ag, 'restore', { transaction });
-        }
-      }
-      await ag.save({ transaction });
+    const oldStatus = ag.status;
+    const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
+    const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
+    ag.valor_pago = totalPago;
+    if (totalPago >= ag.valor_total - 0.01) {
+      ag.status = 'concluido';
+    } else {
+      ag.status = 'agendado';
     }
+
+    if (oldStatus !== ag.status) {
+      if (ag.status === 'concluido') {
+        await adjustStock(ag, 'deduct', { transaction, user: req.user });
+      } else if (oldStatus === 'concluido') {
+        await adjustStock(ag, 'restore', { transaction, user: req.user });
+      }
+    }
+    await ag.save({ transaction });
 
     await transaction.commit();
     res.json({ ok: true });
@@ -641,18 +718,26 @@ const deletePagamento = async (req, res) => {
 
   const transaction = await sequelize.transaction();
   try {
-    if (!email || !password) {
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+    if (!ag) {
       await transaction.rollback();
-      return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+      return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
-    const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
-    if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
-      await transaction.rollback();
-      return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
-    }
-    if (!authUser.pode_excluir_pagamento) {
-      await transaction.rollback();
-      return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
+
+    if (ag.status === 'concluido') {
+      if (!email || !password) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+      }
+      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
+      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
+        await transaction.rollback();
+        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
+      }
+      if (!authUser.pode_excluir_pagamento) {
+        await transaction.rollback();
+        return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
+      }
     }
 
     const pagamento = await getPagamentoModel().findByPk(req.params.pid, { transaction });
@@ -667,7 +752,6 @@ const deletePagamento = async (req, res) => {
       deletado_em: new Date()
     }, { transaction });
 
-    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
     if (ag) {
       const oldStatus = ag.status;
       const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
@@ -681,9 +765,9 @@ const deletePagamento = async (req, res) => {
 
       if (oldStatus !== ag.status) {
         if (ag.status === 'concluido') {
-          await adjustStock(ag, 'deduct', { transaction });
+          await adjustStock(ag, 'deduct', { transaction, user: req.user });
         } else if (oldStatus === 'concluido') {
-          await adjustStock(ag, 'restore', { transaction });
+          await adjustStock(ag, 'restore', { transaction, user: req.user });
         }
       }
       await ag.save({ transaction });
