@@ -10,8 +10,6 @@ export class WhatsAppProvider {
    * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
    */
   async sendMessage(phone, message, config = null) {
-    console.log("config", config);
-
     // Se não tiver configurações de API, executa a simulação
     if (!config || !config.instancia) {
       return { success: false, error: "Configurações de WhatsApp não encontradas" };
