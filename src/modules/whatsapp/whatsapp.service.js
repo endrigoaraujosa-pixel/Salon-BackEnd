@@ -1,4 +1,4 @@
-import { QueryTypes } from 'sequelize';
+import { Op } from 'sequelize';
 import { getAgendamentoModel } from '../../models/Agendamento.js';
 import { getClienteModel } from '../../models/Cliente.js';
 import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
