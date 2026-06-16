@@ -81,6 +81,7 @@ export const startLocalIntegration = async (req, res) => {
       const result = await response.json();
 
       await whatsappService.saveConfig({
+        api_url: 'external',
         instancia: result.instance.instanceName,
         token: result.hash,
       });

@@ -12,7 +12,22 @@ export class WhatsAppProvider {
   async sendMessage(phone, message, config = null) {
     // Se não tiver configurações de API, executa a simulação
     if (!config || !config.instancia) {
-      return { success: false, error: "Configurações de WhatsApp não encontradas" };
+      console.log(`[WhatsAppProvider - Simulação] Mensagem simulada para ${phone}: ${message}`);
+      return { success: true, messageId: `simulated_${Date.now()}` };
+    }
+
+    // Se for Modo Local
+    if (config.api_url === 'local' || config.instancia === 'local') {
+      try {
+        console.log(`[WhatsAppProvider] Enviando mensagem via WhatsApp Local para ${phone}`);
+        return await sendLocalMessage(phone, message);
+      } catch (err) {
+        console.error(`[WhatsAppProvider] Erro ao enviar mensagem via WhatsApp Local para ${phone}:`, err.message);
+        return {
+          success: false,
+          error: `Erro no WhatsApp Local: ${err.message}`
+        };
+      }
     }
 
     try {
