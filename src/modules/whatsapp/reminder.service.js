@@ -62,15 +62,17 @@ export async function generateReminders(agendamento) {
     if (Number(config.lembrete_24h) === 1) activeReminders.push({ type: '24h', hoursBefore: 24 });
     if (Number(config.lembrete_2h) === 1) activeReminders.push({ type: '2h', hoursBefore: 2 });
     if (Number(config.lembrete_1h) === 1) activeReminders.push({ type: '1h', hoursBefore: 1 });
-
-    const appointmentDate = new Date(agendamento.data_hora);
+    
+    const appointmentDate = new Date(`${agendamento.data_hora}`);
 
     for (const item of activeReminders) {
       // Calcular data_programada
       const scheduledTime = new Date(appointmentDate.getTime() - item.hoursBefore * 60 * 60 * 1000);
-
+      
+      // Ajustar o 'new Date()' para bater com a data "UTC Fake" do agendamento (retirando as 3 horas)
+      const nowFakeUtc = new Date(new Date().getTime() - (3 * 60 * 60 * 1000));
       // Apenas gera se a data_programada for no futuro
-      if (scheduledTime > new Date()) {
+      if (scheduledTime > nowFakeUtc) {
         try {
           // Prevenção de duplicidade: checar se já existe um lembrete idêntico ativo (por garantia)
           const existing = await getWhatsappLembreteModel().findOne({
