@@ -46,8 +46,6 @@ const dashboard = async (req, res) => {
       colabId = null;
     } else if (colaborador_id) {
       colabId = colaborador_id;
-    } else if (req.user && req.user.role === 'funcionario') {
-      colabId = userMappedColabId;
     }
 
     // Total de clientes sempre reflete o total geral do sistema (independente do filtro de colaborador)
@@ -264,8 +262,6 @@ const dashboardDetail = async (req, res) => {
         colabId = null;
       } else if (colaborador_id) {
         colabId = colaborador_id;
-      } else if (req.user && req.user.role === 'funcionario') {
-        colabId = userMappedColabId;
       }
 
     if (metric === 'faturamento') {
