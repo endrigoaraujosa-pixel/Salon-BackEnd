@@ -1,37 +1,37 @@
-import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
-import { getWhatsappConfigModel } from '../models/WhatsappConfig.js';
-import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
-import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
+import { format } from 'date-fns';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { tenantStorage } from '../config/tenantContext.js';
 import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getClienteModel } from '../models/Cliente.js';
-
+import { getWhatsappConfigModel } from '../models/WhatsappConfig.js';
+import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
+import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
+import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
 
 /**
  * Auxiliar para formatar data e hora de forma neutra de fuso horário.
  */
 function parseDateString(dateInput) {
   if (!dateInput) return { date: "", time: "" };
-  
+
   // Caso venha como objeto Date, converte para string ISO
   const isoStr = dateInput instanceof Date ? dateInput.toISOString() : String(dateInput);
-  
+
   const parts = isoStr.replace(' ', 'T').split('T');
   const datePart = parts[0]; // Ex: "2026-06-01"
   const timePart = parts[1] || '00:00:00'; // Ex: "12:00:00.000Z"
-  
+
   const dateParts = datePart.split('-');
-  const formattedDate = dateParts.length === 3 
-    ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` 
+  const formattedDate = dateParts.length === 3
+    ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`
     : datePart;
-    
+
   const timeParts = timePart.split(':');
-  const formattedTime = timeParts.length >= 2 
-    ? `${timeParts[0]}:${timeParts[1]}` 
+  const formattedTime = timeParts.length >= 2
+    ? `${timeParts[0]}:${timeParts[1]}`
     : '00:00';
-    
+
   return { date: formattedDate, time: formattedTime };
 }
 
@@ -54,7 +54,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
 
   try {
     const now = new Date();
-    
+
     // 1. Liberar lembretes que ficaram presos no status "Processando" por mais de 5 minutos
     const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
     await getWhatsappLembreteModel().update(
@@ -104,11 +104,11 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
     const agendamentosList = await getAgendamentoModel().findAll({
       where: { id: { [Op.in]: agendamentoIds } }
     });
-    
+
     // Indexar agendamentos por ID para acesso rápido
     const agendamentosMap = {};
     const clienteIds = new Set();
-    
+
     for (const ag of agendamentosList) {
       agendamentosMap[ag.id] = ag;
       if (ag.cliente_id) {
@@ -120,7 +120,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
     const clientesList = await getClienteModel().findAll({
       where: { id: { [Op.in]: Array.from(clienteIds) } }
     });
-    
+
     // Indexar clientes por ID para acesso rápido
     const clientesMap = {};
     for (const cli of clientesList) {
@@ -130,17 +130,17 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
     // 6. Processamento em Lotes (Chunking e Paralelismo)
     // Usaremos blocos de 5 mensagens por vez para não sobrecarregar a Evolution API
     const chunks = chunkArray(pendentes, 5);
-    
+
     for (const chunk of chunks) {
       const promises = chunk.map(async (reminder) => {
         console.log(`[WhatsAppReminderJob] Processando lembrete ID ${reminder.id} (Tipo: ${reminder.tipo_lembrete})...`);
-        
+
         // Incrementar o número de tentativas
         reminder.tentativas = (reminder.tentativas || 0) + 1;
 
         try {
           const ag = agendamentosMap[reminder.agendamento_id];
-          
+
           if (!ag || ag.deletado === 'S') {
             console.log(`[WhatsAppReminderJob] Agendamento ID ${reminder.agendamento_id} foi deletado ou não existe. Lembrete Cancelado.`);
             reminder.status = 'Cancelado';
@@ -201,11 +201,12 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
 
           // Enviar a mensagem via provedor WhatsApp
           const result = await whatsappProvider.sendMessage(phone, messageText, config);
-          console.log("result", result);
-            
+
           if (result.success) {
             reminder.status = 'Enviado';
-            reminder.data_envio = new Date();
+            reminder.data_envio = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'", {
+              timeZone: 'America/Sao_Paulo',
+            });
             reminder.mensagem = messageText;
             reminder.erro = null;
             await reminder.save();
@@ -217,7 +218,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
         } catch (err) {
           console.error(`[WhatsAppReminderJob] Erro ao enviar lembrete ID ${reminder.id}:`, err);
           reminder.erro = err.message || 'Erro inesperado no envio.';
-          
+
           // Reverter para Pendente se ainda não excedeu tentativas
           if (reminder.tentativas >= 3) {
             reminder.status = 'Falhou';
@@ -227,7 +228,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
           await reminder.save();
         }
       });
-      
+
       // Aguardar o término do processamento de todas as mensagens do chunk
       await Promise.allSettled(promises);
     }

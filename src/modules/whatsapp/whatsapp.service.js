@@ -29,17 +29,13 @@ export async function getConfig() {
  */
 export async function saveConfig(data) {
   let config = await getWhatsappConfigModel().findOne();
-  console.log("config", config);
-
   if (!config) {
     config = await getWhatsappConfigModel().create(data);
   } else {
-    console.log("cheguei", config.id, data);
-
     await getWhatsappConfigModel().update({
       ...data,
-      instancia: data.instancia,
-      token: data.token,
+      instancia: data.instancia ?? config.instancia,
+      token: data.token ?? config.token,
     }, {
       where: {
         id: config.id
