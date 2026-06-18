@@ -5,6 +5,8 @@ import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
 import { getWhatsappLembreteModel } from '../../models/WhatsappLembrete.js';
 import whatsappProvider from './provider/whatsapp.provider.js';
 import { DEFAULT_TEMPLATE, formatMessage } from './templates/reminder.template.js';
+import { TZDate } from '@date-fns/tz';
+import { format } from 'date-fns';
 
 /**
  * Obtém a configuração do WhatsApp, criando-a com valores padrão caso não exista.
@@ -192,8 +194,9 @@ export async function resendReminder(reminderId) {
   try {
     const result = await whatsappProvider.sendMessage(phone, messageText, config);
     if (result.success) {
-      reminder.status = "Enviado";
-      reminder.data_envio = new Date();
+      const date = TZDate.tz("America/Sao_Paulo");
+      reminder.status = 'Enviado';
+      reminder.data_envio = format(date, "yyyy-MM-dd HH:mm:ss'Z'");
       reminder.mensagem = messageText;
       reminder.erro = null;
       await reminder.save();
