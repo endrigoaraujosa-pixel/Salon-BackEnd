@@ -8,6 +8,7 @@ import { getWhatsappConfigModel } from '../models/WhatsappConfig.js';
 import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
+import { ptBR } from 'date-fns/locale';
 
 /**
  * Auxiliar para formatar data e hora de forma neutra de fuso horário.
@@ -204,7 +205,9 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
 
           if (result.success) {
             reminder.status = 'Enviado';
-            reminder.data_envio = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'");
+            reminder.data_envio = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'", {
+              locale: ptBR
+            });
             reminder.mensagem = messageText;
             reminder.erro = null;
             await reminder.save();
