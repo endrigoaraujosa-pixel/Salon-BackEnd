@@ -1,3 +1,4 @@
+import { TZDate } from '@date-fns/tz';
 import { format } from 'date-fns';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/db.js';
@@ -8,7 +9,6 @@ import { getWhatsappConfigModel } from '../models/WhatsappConfig.js';
 import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
-import { ptBR } from 'date-fns/locale';
 
 /**
  * Auxiliar para formatar data e hora de forma neutra de fuso horário.
@@ -204,10 +204,9 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
           const result = await whatsappProvider.sendMessage(phone, messageText, config);
 
           if (result.success) {
+            const date = TZDate.tz("America/Sao_Paulo");
             reminder.status = 'Enviado';
-            reminder.data_envio = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'", {
-              locale: ptBR
-            });
+            reminder.data_envio = format(date, "yyyy-MM-dd HH:mm:ss'Z'");
             reminder.mensagem = messageText;
             reminder.erro = null;
             await reminder.save();
