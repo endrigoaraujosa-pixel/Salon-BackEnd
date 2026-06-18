@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { sendLocalMessage } from '../local-client.js';
+import { formatPhoneNumber } from '../../../utils/index.js';
 
 export class WhatsAppProvider {
   /**
@@ -32,11 +33,7 @@ export class WhatsAppProvider {
 
     try {
       // Limpa caracteres especiais do telefone (mantendo apenas números)
-      let cleanPhone = phone.replace(/\D/g, "");
-
-      if (cleanPhone.length === 10 || cleanPhone.length === 11) {
-        cleanPhone = "55" + cleanPhone;
-      }
+      let cleanPhone = formatPhoneNumber(phone)
       // Monta a URL e os headers
       const baseUrl = process.env.EVOLUTION_API_URL
       const instance = config.instancia;
@@ -47,7 +44,17 @@ export class WhatsAppProvider {
       // Evolution API v2 Payload Structure
       const payload = {
         number: cleanPhone,
-        text: message
+        text: message,
+        buttons: [
+          {
+            id: 'confirmar',
+            text: '✅ Confirmar'
+          },
+          {
+            id: 'reagendar',
+            text: '📅 Reagendar'
+          }
+        ]
       };
 
       const response = await axios.post(url, payload, {

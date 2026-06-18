@@ -3,6 +3,8 @@ import { getWhatsappLembreteModel } from '../../models/WhatsappLembrete.js';
 import { getClienteModel } from '../../models/Cliente.js';
 import { DEFAULT_TEMPLATE } from './templates/reminder.template.js';
 import { sequelize } from '../../config/db.js';
+import { formatPhoneNumber } from '../../utils/index.js';
+import axios from 'axios';
 
 /**
  * Gera os lembretes automáticos na tabela whatsapp_lembretes para um agendamento.
@@ -35,10 +37,27 @@ export async function generateReminders(agendamento) {
       return;
     }
 
-    const phone = (client.telefone || "").trim();
+    const phone = formatPhoneNumber(client?.telefone || "");
+
     if (!phone) {
-      // Validação de Telefone: Caso o cliente não possua telefone cadastrado: Não gerar lembrete. Registrar ocorrência em log.
       console.warn(`[WhatsAppReminderService] O cliente ${client.nome} (ID: ${client.id}) não possui telefone cadastrado. Lembrete NÃO gerado para agendamento ${agendamento.id}.`);
+      return;
+    }
+
+    const instance = config?.instancia;
+    const baseUrl = process.env.EVOLUTION_API_URL;
+    const urlCheckNumber = `${baseUrl}/chat/whatsappNumbers/${instance}`;
+
+    const response = await axios.post(urlCheckNumber, {
+      numbers: [phone]
+    }, {
+      headers: {
+        "apikey": process.env.EVOLUTION_API_TOKEN,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.data[0].exists) {
       return;
     }
 
@@ -62,13 +81,13 @@ export async function generateReminders(agendamento) {
     if (Number(config.lembrete_24h) === 1) activeReminders.push({ type: '24h', hoursBefore: 24 });
     if (Number(config.lembrete_2h) === 1) activeReminders.push({ type: '2h', hoursBefore: 2 });
     if (Number(config.lembrete_1h) === 1) activeReminders.push({ type: '1h', hoursBefore: 1 });
-    
+
     const appointmentDate = new Date(`${agendamento.data_hora}`);
 
     for (const item of activeReminders) {
       // Calcular data_programada
       const scheduledTime = new Date(appointmentDate.getTime() - item.hoursBefore * 60 * 60 * 1000);
-      
+
       // Ajustar o 'new Date()' para bater com a data "UTC Fake" do agendamento (retirando as 3 horas)
       const nowFakeUtc = new Date(new Date().getTime() - (3 * 60 * 60 * 1000));
       // Apenas gera se a data_programada for no futuro
