@@ -39,7 +39,7 @@ services:
     labels:
       - "traefik.enable=true"
       # O Traefik agora escuta dinamicamente o domínio do frontend (e subdomínios dos salões) que você definir no Portainer
-      - "traefik.http.routers.salon-frontend.rule=Host(`${BASE_DOMAIN}`) || Host(`keilafrutuoso.${BASE_DOMAIN}`) || Host(`deboranails.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.salon-frontend.rule=Host(`${BASE_DOMAIN}`) || Host(`keilafrutuoso.${BASE_DOMAIN}`) || Host(`deboranails.${BASE_DOMAIN}`) || Host(`demostrativo.${BASE_DOMAIN}`)"
       - "traefik.http.routers.salon-frontend.entrypoints=websecure"
       - "traefik.http.routers.salon-frontend.tls=true"
       - "traefik.http.routers.salon-frontend.tls.certresolver=letsencryptresolver"
@@ -60,7 +60,7 @@ services:
     image: salonstudio/salon-backend:latest
     container_name: reminder-worker
     restart: always
-    command: ["node", "src/worker-runner.js"]
+    command: [ "node", "src/worker-runner.js" ]
     environment:
       DATABASE_URL: ${DATABASE_URL}
       DB_USENAME: ${DB_USENAME}
