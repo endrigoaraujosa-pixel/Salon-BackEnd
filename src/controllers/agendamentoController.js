@@ -378,12 +378,6 @@ const updateAgend = async (req, res) => {
         }
       }
 
-      console.log("[DEBUG UPDATE AGEND] Comparison results:");
-      console.log(`- sameCliente: ${sameCliente} (tempDoc: ${tempDoc.cliente_id}, ag: ${ag.cliente_id})`);
-      console.log(`- sameDataHora: ${sameDataHora} (tempDoc: ${new Date(tempDoc.data_hora).toISOString()}, ag: ${new Date(ag.data_hora).toISOString()})`);
-      console.log(`- sameObservacoes: ${sameObservacoes} (tempDoc: '${tempDoc.observacoes || ""}', ag: '${ag.observacoes || ""}')`);
-      console.log(`- sameItens: ${sameItens}`);
-
       if (!sameCliente || !sameDataHora || !sameObservacoes || !sameItens) {
         isOnlyInsumos = false;
       }
