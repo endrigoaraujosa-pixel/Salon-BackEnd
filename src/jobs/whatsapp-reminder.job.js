@@ -204,9 +204,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
 
           if (result.success) {
             reminder.status = 'Enviado';
-            reminder.data_envio = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'", {
-              timeZone: 'America/Sao_Paulo',
-            });
+            reminder.data_envio = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'");
             reminder.mensagem = messageText;
             reminder.erro = null;
             await reminder.save();
