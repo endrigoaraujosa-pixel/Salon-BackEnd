@@ -93,16 +93,22 @@ const requirePermission = (menu, acao) => {
 
     if (menu) {
       const menusPerm = perfil.permissoes.menus || {};
-      if (!menusPerm[menu]) {
+      const hasPermission = Array.isArray(menu)
+        ? menu.some(m => !!menusPerm[m])
+        : !!menusPerm[menu];
+
+      if (!hasPermission) {
         // Permitir listagem (GET) de entidades fundamentais caso possua permissão de Agenda ou Vendas
         const isGetRequest = req.method === 'GET';
-        const isFoundationalMenu = ['clientes', 'colaboradores', 'servicos', 'produtos'].includes(menu);
+        const menusList = Array.isArray(menu) ? menu : [menu];
+        const isFoundationalMenu = menusList.some(m => ['clientes', 'colaboradores', 'servicos', 'produtos'].includes(m));
         const hasAgendaOrVendas = !!(menusPerm.agenda || menusPerm.vendas);
 
         if (isGetRequest && isFoundationalMenu && hasAgendaOrVendas) {
           // Permissão concedida para uso funcional na Agenda/Vendas
         } else {
-          return res.status(403).json({ detail: `Você não tem permissão para acessar este módulo (${menu}).` });
+          const menuString = Array.isArray(menu) ? menu.join(' ou ') : menu;
+          return res.status(403).json({ detail: `Você não tem permissão para acessar este módulo (${menuString}).` });
         }
       }
     }

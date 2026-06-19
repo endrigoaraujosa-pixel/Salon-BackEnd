@@ -212,7 +212,7 @@ configRoutes.get('/empresa', protect, getEmpresa);
 configRoutes.post('/empresa', protect, requirePermission('configuracoes', 'editar'), saveEmpresa);
 configRoutes.get('/sistema', protect, requirePermission('configuracoes'), getConfiguracaoSistema);
 configRoutes.post('/sistema', protect, requirePermission('configuracoes', 'editar'), saveConfiguracaoSistema);
-configRoutes.get('/whatsapp', protect, requirePermission('configuracoes'), getWhatsappConfig);
+configRoutes.get('/whatsapp', protect, requirePermission(['configuracoes', 'agenda']), getWhatsappConfig);
 configRoutes.post('/whatsapp', protect, requirePermission('configuracoes', 'editar'), saveWhatsappConfig);
 configRoutes.get('/whatsapp/historico', protect, requirePermission('agenda'), getWhatsappHistory);
 configRoutes.post('/whatsapp/reenviar/:id', protect, requirePermission('agenda', 'editar'), postResendReminder);
