@@ -217,8 +217,8 @@ export async function generateThankYouReminder(agendamento) {
 
     // 6. Calcular data_programada = agora + tempo configurado em minutos
     const tempoMinutos = Number(config.agradecimento_tempo_minutos) || 30;
-    const now = new Date();
-    const scheduledTime = new Date(now.getTime() + tempoMinutos * 60 * 1000);
+    const nowFakeUtc = new Date(new Date().getTime() - (3 * 60 * 60 * 1000));
+    const scheduledTime = new Date(nowFakeUtc.getTime() + tempoMinutos * 60 * 1000);
 
     // 7. Criar o lembrete de agradecimento
     await getWhatsappLembreteModel().create({
