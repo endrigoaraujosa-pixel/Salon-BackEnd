@@ -17,6 +17,7 @@ import createDescontos from './src/migrations/20260603122000-create-descontos.js
 import addAuditFieldsToVendasDiretas from './src/migrations/20260603100000-add-audit-fields-to-vendas-diretas.js';
 import createConfiguracaoSistema from './src/migrations/20260611100000-create-configuracao-sistema.js';
 import addOcultarInsumosToProdutos from './src/migrations/20260611110000-add-ocultar-insumos-to-produtos.js';
+import addAgradecimentoToWhatsappConfig from './src/migrations/20260619150000-add-agradecimento-to-whatsapp-config.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -168,6 +169,14 @@ async function run() {
       console.log('Add ocultar_insumos to produtos migration completed.');
     } catch (e) {
       console.log('Add ocultar_insumos to produtos migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add agradecimento fields to whatsapp config migration (up)...');
+    try {
+      await addAgradecimentoToWhatsappConfig.up(queryInterface, Sequelize);
+      console.log('Add agradecimento fields to whatsapp config migration completed.');
+    } catch (e) {
+      console.log('Add agradecimento fields to whatsapp config migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');

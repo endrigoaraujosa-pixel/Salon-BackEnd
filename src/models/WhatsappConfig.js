@@ -39,6 +39,18 @@ const WhatsappConfig = sequelize.define('WhatsappConfig', {
   token: {
     type: DataTypes.STRING(500),
     allowNull: true
+  },
+  agradecimento_ativo: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  agradecimento_tempo_minutos: {
+    type: DataTypes.INTEGER,
+    defaultValue: 30
+  },
+  agradecimento_modelo_mensagem: {
+    type: DataTypes.TEXT,
+    allowNull: true
   }
 }, {
   tableName: 'whatsapp_config',
