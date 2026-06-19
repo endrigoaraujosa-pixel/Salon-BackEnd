@@ -3,6 +3,7 @@ import { getClienteModel } from '../models/Cliente.js';
 import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getVendaDiretaModel } from '../models/VendaDireta.js';
 import { getPagamentoModel } from '../models/Pagamento.js';
+import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 
 const listClientes = async (req, res) => {
   try {
@@ -22,18 +23,34 @@ const createCliente = async (req, res) => {
     if (!nome || !nome.trim()) {
       return res.status(400).json({ detail: 'O preenchimento do campo Nome é obrigatório para a conclusão do cadastro.' });
     }
-    if (telefone) {
-      const cleanInput = telefone.replace(/\D/g, "");
-      if (cleanInput.length > 0) {
-        const clientes = await getClienteModel().findAll({
-          where: { deletado: 'N' }
-        });
-        const duplicate = clientes.find(c => (c.telefone || "").replace(/\D/g, "") === cleanInput);
-        if (duplicate) {
-          return res.status(400).json({ detail: `Já existe um cliente ativo (${duplicate.nome}) cadastrado com este número de telefone.` });
+
+    const config = await getConfiguracaoSistemaModel().findOne();
+    const permitirDuplicado = config ? config.permitir_cliente_duplicado : false;
+
+    if (!permitirDuplicado) {
+      const clientes = await getClienteModel().findAll({
+        where: { deletado: 'N' }
+      });
+
+      // 1. Verify duplicate name (case-insensitive & trimmed)
+      const cleanName = nome.trim().toLowerCase();
+      const duplicateName = clientes.find(c => (c.nome || "").trim().toLowerCase() === cleanName);
+      if (duplicateName) {
+        return res.status(400).json({ detail: 'Já existe um cliente cadastrado com esse nome.' });
+      }
+
+      // 2. Verify duplicate telephone
+      if (telefone) {
+        const cleanInput = telefone.replace(/\D/g, "");
+        if (cleanInput.length > 0) {
+          const duplicatePhone = clientes.find(c => (c.telefone || "").replace(/\D/g, "") === cleanInput);
+          if (duplicatePhone) {
+            return res.status(400).json({ detail: `Já existe um cliente ativo (${duplicatePhone.nome}) cadastrado com este número de telefone.` });
+          }
         }
       }
     }
+
     const cliente = await getClienteModel().create(req.body);
     res.status(201).json(cliente);
   } catch (error) {
@@ -51,15 +68,31 @@ const updateCliente = async (req, res) => {
       return res.status(400).json({ detail: 'O preenchimento do campo Nome é obrigatório para a conclusão do cadastro.' });
     }
 
-    if (telefone) {
-      const cleanInput = telefone.replace(/\D/g, "");
-      if (cleanInput.length > 0) {
-        const clientes = await getClienteModel().findAll({
-          where: { deletado: 'N', id: { [Op.ne]: req.params.cid } }
-        });
-        const duplicate = clientes.find(c => (c.telefone || "").replace(/\D/g, "") === cleanInput);
-        if (duplicate) {
-          return res.status(400).json({ detail: `Já existe outro cliente ativo (${duplicate.nome}) cadastrado com este número de telefone.` });
+    const config = await getConfiguracaoSistemaModel().findOne();
+    const permitirDuplicado = config ? config.permitir_cliente_duplicado : false;
+
+    if (!permitirDuplicado) {
+      const clientes = await getClienteModel().findAll({
+        where: { deletado: 'N', id: { [Op.ne]: req.params.cid } }
+      });
+
+      // 1. Verify duplicate name (case-insensitive & trimmed)
+      if (nome !== undefined) {
+        const cleanName = nome.trim().toLowerCase();
+        const duplicateName = clientes.find(c => (c.nome || "").trim().toLowerCase() === cleanName);
+        if (duplicateName) {
+          return res.status(400).json({ detail: 'Já existe um cliente cadastrado com esse nome.' });
+        }
+      }
+
+      // 2. Verify duplicate telephone
+      if (telefone) {
+        const cleanInput = telefone.replace(/\D/g, "");
+        if (cleanInput.length > 0) {
+          const duplicatePhone = clientes.find(c => (c.telefone || "").replace(/\D/g, "") === cleanInput);
+          if (duplicatePhone) {
+            return res.status(400).json({ detail: `Já existe outro cliente ativo (${duplicatePhone.nome}) cadastrado com este número de telefone.` });
+          }
         }
       }
     }
