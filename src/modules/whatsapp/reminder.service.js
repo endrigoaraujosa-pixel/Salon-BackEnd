@@ -6,6 +6,8 @@ import { DEFAULT_THANKYOU_TEMPLATE } from './templates/thankyou.template.js';
 import { sequelize } from '../../config/db.js';
 import { formatPhoneNumber } from '../../utils/index.js';
 import axios from 'axios';
+import { TZDate } from '@date-fns/tz';
+import { format, addMinutes } from 'date-fns';
 
 /**
  * Gera os lembretes automáticos na tabela whatsapp_lembretes para um agendamento.
@@ -89,8 +91,9 @@ export async function generateReminders(agendamento) {
       // Calcular data_programada
       const scheduledTime = new Date(appointmentDate.getTime() - item.hoursBefore * 60 * 60 * 1000);
 
-      // Ajustar o 'new Date()' para bater com a data "UTC Fake" do agendamento (retirando as 3 horas)
-      const nowFakeUtc = new Date(new Date().getTime() - (3 * 60 * 60 * 1000));
+      // Ajustar o 'new Date()' para bater com a data "UTC Fake" do agendamento usando date-fns
+      const tzDate = TZDate.tz("America/Sao_Paulo");
+      const nowFakeUtc = new Date(format(tzDate, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"));
       // Apenas gera se a data_programada for no futuro
       if (scheduledTime > nowFakeUtc) {
         try {
@@ -215,10 +218,11 @@ export async function generateThankYouReminder(agendamento) {
       return;
     }
 
-    // 6. Calcular data_programada = agora + tempo configurado em minutos
+    // 6. Calcular data_programada = agora + tempo configurado em minutos usando a biblioteca date-fns
     const tempoMinutos = Number(config.agradecimento_tempo_minutos) || 30;
-    const nowFakeUtc = new Date(new Date().getTime() - (3 * 60 * 60 * 1000));
-    const scheduledTime = new Date(nowFakeUtc.getTime() + tempoMinutos * 60 * 1000);
+    const tzDate = TZDate.tz("America/Sao_Paulo");
+    const futureDate = addMinutes(tzDate, tempoMinutos);
+    const scheduledTime = new Date(format(futureDate, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"));
 
     // 7. Criar o lembrete de agradecimento
     await getWhatsappLembreteModel().create({
