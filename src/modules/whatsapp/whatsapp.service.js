@@ -210,3 +210,15 @@ export async function resendReminder(reminderId) {
     throw err;
   }
 }
+
+/**
+ * Verifica se um telefone está registrado no WhatsApp
+ * @param {string} phone 
+ */
+export async function checkWhatsappNumber(phone) {
+  if (!phone) {
+    throw new Error("Telefone não fornecido.");
+  }
+  const config = await getConfig();
+  return await whatsappProvider.checkNumber(phone, config);
+}
