@@ -5,7 +5,7 @@ import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
 import { getWhatsappLembreteModel } from '../../models/WhatsappLembrete.js';
 import whatsappProvider from './provider/whatsapp.provider.js';
 import { DEFAULT_TEMPLATE, formatMessage } from './templates/reminder.template.js';
-import { DEFAULT_THANKYOU_TEMPLATE } from './templates/thankyou.template.js';
+import { DEFAULT_THANKYOU_TEMPLATE, formatThankYouMessage } from './templates/thankyou.template.js';
 import { TZDate } from '@date-fns/tz';
 import { format } from 'date-fns';
 
@@ -189,18 +189,29 @@ export async function resendReminder(reminderId) {
     servicoNome = agendamento.itens.map(i => i.nome).join(", ");
   }
 
-  // Formatar data e hora
-  const dateObj = new Date(agendamento.data_hora);
-  const formattedDate = dateObj.toLocaleDateString("pt-BR", { timeZone: "UTC" });
-  const formattedTime = dateObj.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+  // Formatar data e hora usando a biblioteca date-fns
+  const tzDate = new TZDate(agendamento.data_hora, "UTC");
+  const formattedDate = format(tzDate, "dd/MM/yyyy");
+  const formattedTime = format(tzDate, "HH:mm");
 
-  const messageText = formatMessage(config.modelo_mensagem, {
-    nome: cliente.nome,
-    data: formattedDate,
-    hora: formattedTime,
-    servico: servicoNome,
-    profissional: colabNome
-  });
+  let messageText;
+  if (reminder.tipo_lembrete === 'agradecimento') {
+    messageText = formatThankYouMessage(config.agradecimento_modelo_mensagem, {
+      nome: cliente.nome,
+      data: formattedDate,
+      hora: formattedTime,
+      servico: servicoNome,
+      profissional: colabNome
+    });
+  } else {
+    messageText = formatMessage(config.modelo_mensagem, {
+      nome: cliente.nome,
+      data: formattedDate,
+      hora: formattedTime,
+      servico: servicoNome,
+      profissional: colabNome
+    });
+  }
 
   // Incrementar tentativa
   reminder.tentativas = (reminder.tentativas || 0) + 1;
