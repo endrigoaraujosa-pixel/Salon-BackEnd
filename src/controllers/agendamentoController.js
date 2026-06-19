@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
-import { generateReminders, cancelReminders } from '../modules/whatsapp/reminder.service.js';
+import { generateReminders, cancelReminders, generateThankYouReminder } from '../modules/whatsapp/reminder.service.js';
 import { getClienteModel } from '../models/Cliente.js';
 import { getColaboradorModel } from '../models/Colaborador.js';
 import { getProdutoModel } from '../models/Produto.js';
@@ -528,6 +528,8 @@ const setStatus = async (req, res) => {
       await cancelReminders(ag.id);
     } else if (status === 'agendado' || status === 'confirmado') {
       await generateReminders(ag);
+    } else if (status === 'concluido') {
+      await generateThankYouReminder(ag);
     }
 
     res.json({ ok: true });
@@ -608,6 +610,12 @@ const addPagamentos = async (req, res) => {
     await ag.save({ transaction });
 
     await transaction.commit();
+
+    // Gerar lembrete de agradecimento se status mudou para concluído
+    if (oldStatus !== 'concluido' && ag.status === 'concluido') {
+      await generateThankYouReminder(ag);
+    }
+
     res.json({ ok: true, total_pago: novoTotal, saldo: ag.valor_total - novoTotal });
   } catch (error) {
     await transaction.rollback();
@@ -700,6 +708,12 @@ const updatePagamento = async (req, res) => {
     await ag.save({ transaction });
 
     await transaction.commit();
+
+    // Gerar lembrete de agradecimento se status mudou para concluído
+    if (oldStatus !== 'concluido' && ag.status === 'concluido') {
+      await generateThankYouReminder(ag);
+    }
+
     res.json({ ok: true });
   } catch (error) {
     await transaction.rollback();

@@ -9,6 +9,7 @@ import { getWhatsappConfigModel } from '../models/WhatsappConfig.js';
 import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
+import { formatThankYouMessage } from '../modules/whatsapp/templates/thankyou.template.js';
 
 /**
  * Auxiliar para formatar data e hora de forma neutra de fuso horário.
@@ -191,14 +192,21 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
           // Formatar data e hora timezone-neutras
           const { date: formattedDate, time: formattedTime } = parseDateString(ag.data_hora);
 
-          // Montar a mensagem
-          const messageText = formatMessage(config.modelo_mensagem, {
+          // Montar a mensagem conforme o tipo de lembrete
+          const templateParams = {
             nome: cliente.nome,
             data: formattedDate,
             hora: formattedTime,
             servico: servicoNome,
             profissional: colabNome
-          });
+          };
+
+          let messageText;
+          if (reminder.tipo_lembrete === 'agradecimento') {
+            messageText = formatThankYouMessage(config.agradecimento_modelo_mensagem, templateParams);
+          } else {
+            messageText = formatMessage(config.modelo_mensagem, templateParams);
+          }
 
           // Enviar a mensagem via provedor WhatsApp
           const result = await whatsappProvider.sendMessage(phone, messageText, config);

@@ -5,6 +5,7 @@ import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
 import { getWhatsappLembreteModel } from '../../models/WhatsappLembrete.js';
 import whatsappProvider from './provider/whatsapp.provider.js';
 import { DEFAULT_TEMPLATE, formatMessage } from './templates/reminder.template.js';
+import { DEFAULT_THANKYOU_TEMPLATE } from './templates/thankyou.template.js';
 import { TZDate } from '@date-fns/tz';
 import { format } from 'date-fns';
 
@@ -19,7 +20,10 @@ export async function getConfig() {
       lembrete_24h: 1,
       lembrete_2h: 1,
       lembrete_1h: 1,
-      modelo_mensagem: DEFAULT_TEMPLATE
+      modelo_mensagem: DEFAULT_TEMPLATE,
+      agradecimento_ativo: 0,
+      agradecimento_tempo_minutos: 30,
+      agradecimento_modelo_mensagem: DEFAULT_THANKYOU_TEMPLATE
     });
   }
   return config;
