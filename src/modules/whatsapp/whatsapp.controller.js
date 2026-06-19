@@ -147,3 +147,16 @@ export const getExternalQrCode = async (req, res) => {
     res.status(500).json({ detail: error.message });
   }
 };
+
+export const postCheckWhatsappNumber = async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ detail: "Telefone não fornecido." });
+    }
+    const result = await whatsappService.checkWhatsappNumber(phone);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};

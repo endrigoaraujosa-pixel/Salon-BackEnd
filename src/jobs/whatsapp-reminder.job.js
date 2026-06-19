@@ -84,7 +84,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
         where: {
           status: 'Pendente',
           data_programada: {
-            [Op.lte]: now
+            [Op.lte]: format(TZDate.tz("America/Sao_Paulo"), "yyyy-MM-dd HH:mm:ss'Z'")
           },
           tentativas: {
             [Op.lt]: 3

@@ -44,17 +44,7 @@ export class WhatsAppProvider {
       // Evolution API v2 Payload Structure
       const payload = {
         number: cleanPhone,
-        text: message,
-        buttons: [
-          {
-            id: 'confirmar',
-            text: '✅ Confirmar'
-          },
-          {
-            id: 'reagendar',
-            text: '📅 Reagendar'
-          }
-        ]
+        text: message
       };
 
       const response = await axios.post(url, payload, {
@@ -79,6 +69,51 @@ export class WhatsAppProvider {
         success: false,
         error: `Erro na API de Envio: ${errorMsg}`
       };
+    }
+  }
+
+  /**
+   * Verifica se um número possui WhatsApp
+   * @param {string} phone - O telefone a ser verificado
+   * @param {object} config - Configurações de API (instancia)
+   * @returns {Promise<{ exists: boolean, jid?: string }>}
+   */
+  async checkNumber(phone, config = null) {
+    if (!config) {
+      return { exists: true };
+    }
+
+    try {
+      let cleanPhone = formatPhoneNumber(phone);
+      const baseUrl = process.env.EVOLUTION_API_URL;
+      const instance = config.instancia;
+
+      const url = `${baseUrl}/chat/whatsappNumbers/${instance}`;
+
+      const payload = {
+        numbers: [cleanPhone]
+      };
+
+      const response = await axios.post(url, payload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': process.env.EVOLUTION_API_TOKEN || ''
+        },
+        timeout: 10000
+      });
+
+      if (response.data && response.data.length > 0) {
+        return {
+          exists: response.data[0].exists,
+          jid: response.data[0].jid
+        };
+      }
+
+      return { exists: false };
+    } catch (error) {
+      console.error(`[WhatsAppProvider] Erro ao verificar número ${phone}:`, error.message);
+      // Em caso de erro de API, não podemos afirmar se não existe, mas retornamos false ou um indicador de erro
+      return { exists: false, error: true };
     }
   }
 }
