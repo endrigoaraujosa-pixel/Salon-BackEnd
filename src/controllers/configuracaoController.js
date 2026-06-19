@@ -107,7 +107,8 @@ const getConfiguracaoSistema = async (req, res) => {
     if (!config) {
       config = await getConfiguracaoSistemaModel().create({
         bloquear_valor_agendamento_menor: false,
-        permitir_estoque_negativo: false
+        permitir_estoque_negativo: false,
+        permitir_cliente_duplicado: false
       });
     }
     res.json(config);

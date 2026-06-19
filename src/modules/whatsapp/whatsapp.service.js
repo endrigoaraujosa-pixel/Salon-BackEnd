@@ -53,7 +53,11 @@ export async function saveConfig(data) {
  * @param {object} filters - Filtros de busca (status, startDate, endDate, cliente)
  */
 export async function getHistory(filters = {}) {
-  const { status, startDate, endDate, cliente, numero } = filters;
+  const { status, startDate, endDate, cliente, numero, page, limit } = filters;
+  const pageNum = parseInt(page, 10) || 1;
+  const limitNum = parseInt(limit, 10) || 50;
+  const offset = (pageNum - 1) * limitNum;
+
   const Lembrete = getWhatsappLembreteModel();
   const Agendamento = getAgendamentoModel();
   const Cliente = getClienteModel();
@@ -82,8 +86,8 @@ export async function getHistory(filters = {}) {
   // Se precisar filtrar cliente (com um OR entre o nome do Cliente E o cliente_nome gravado no agendamento)
   if (cliente) {
     whereClause[Op.or] = [
-      { '$Agendamento.Cliente.nome$': { [Op.like]: `%${cliente}%` } },
-      { '$Agendamento.cliente_nome$': { [Op.like]: `%${cliente}%` } }
+      { '$Agendamento.Cliente.nome$': { [Op.iLike]: `%${cliente}%` } },
+      { '$Agendamento.cliente_nome$': { [Op.iLike]: `%${cliente}%` } }
     ];
   }
   // Filtro de número no Agendamento
@@ -92,12 +96,12 @@ export async function getHistory(filters = {}) {
     agendamentoWhere.numero = parseInt(numero, 10);
   }
   // 3. Executando a consulta usando o ORM
-  const lembretes = await Lembrete.findAll({
+  const { count, rows: lembretes } = await Lembrete.findAndCountAll({
     where: whereClause,
     include: [
       {
         model: Agendamento,
-        required: false, // Isso garante que seja um LEFT JOIN
+        required: !!(numero || cliente), // Restringir resultados quando algum filtro dependente de Agendamento é aplicado
         where: Object.keys(agendamentoWhere).length > 0 ? agendamentoWhere : undefined,
         include: [
           {
@@ -108,7 +112,8 @@ export async function getHistory(filters = {}) {
       }
     ],
     order: [['data_programada', 'DESC']],
-    limit: 500,
+    limit: limitNum,
+    offset,
     raw: true,  // Retorna um objeto JSON simples
     nest: true  // Agrupa os joins (cria os objetos Agendamento e Cliente encadeados na resposta)
   });
@@ -128,7 +133,12 @@ export async function getHistory(filters = {}) {
     cliente_nome: l.Agendamento?.Cliente?.nome || l.Agendamento?.cliente_nome || '',
     cliente_telefone: l.Agendamento?.Cliente?.telefone || ''
   }));
-  return results;
+  return {
+    data: results,
+    total: count,
+    page: pageNum,
+    pages: Math.ceil(count / limitNum)
+  };
 }
 
 /**
