@@ -176,7 +176,8 @@ const listComissoes = async (req, res) => {
                 percentual_aplicado: pct,
                 valor_comissao: Number(val_com.toFixed(2)),
                 pago: !!item.comissao_paga,
-                insumos_pendentes
+                insumos_pendentes,
+                cliente_nome: ag.cliente_nome
               };
 
               if (item.comissao_paga) {
@@ -237,7 +238,8 @@ const listComissoes = async (req, res) => {
                 percentual_aplicado: pct,
                 valor_comissao: Number(val_com.toFixed(2)),
                 pago: !!item.comissao_paga_auxiliar,
-                insumos_pendentes
+                insumos_pendentes,
+                cliente_nome: ag.cliente_nome
               };
 
               const isPagoAux = !!item.comissao_paga_auxiliar;
@@ -310,7 +312,8 @@ const listComissoes = async (req, res) => {
               valor_movimentacao: val_item,
               percentual_aplicado: pct,
               valor_comissao: Number(val_com.toFixed(2)),
-              pago: !!venda.comissao_paga
+              pago: !!venda.comissao_paga,
+              cliente_nome: venda.cliente_nome
             };
 
             if (venda.comissao_paga) {
