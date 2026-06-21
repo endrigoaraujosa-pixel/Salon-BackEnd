@@ -91,10 +91,12 @@ const getPublicEmpresa = async (req, res) => {
     const empresa = await getEmpresaModel().findOne();
     if (empresa) {
       res.json({
-        nome_fantasia: empresa.nome_fantasia || ""
+        nome_fantasia: empresa.nome_fantasia || "",
+        logomarca: empresa.logomarca || null,
+        logomarca_dark: empresa.logomarca_dark || null
       });
     } else {
-      res.json({ nome_fantasia: "" });
+      res.json({ nome_fantasia: "", logomarca: null, logomarca_dark: null });
     }
   } catch (error) {
     res.status(500).json({ detail: error.message });

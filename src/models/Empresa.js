@@ -56,6 +56,16 @@ const Empresa = sequelize.define('Empresa', {
   endereco_uf: {
     type: DataTypes.STRING(10),
     defaultValue: ''
+  },
+  logomarca: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    defaultValue: null
+  },
+  logomarca_dark: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    defaultValue: null
   }
 }, {
   tableName: 'empresa'
