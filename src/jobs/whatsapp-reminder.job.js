@@ -185,8 +185,13 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
 
           // Extrair nome dos serviços
           let servicoNome = "Serviço";
+          let servicosValores = "";
           if (Array.isArray(ag.itens) && ag.itens.length > 0) {
             servicoNome = ag.itens.map(i => i.nome).join(", ");
+            servicosValores = ag.itens.map(i => {
+              const valor = parseFloat(i.valor || 0);
+              return `${i.nome} - R$ ${valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            }).join("\n");
           }
 
           // Formatar data e hora timezone-neutras
@@ -198,7 +203,8 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
             data: formattedDate,
             hora: formattedTime,
             servico: servicoNome,
-            profissional: colabNome
+            profissional: colabNome,
+            servicos_valores: servicosValores
           };
 
           let messageText;

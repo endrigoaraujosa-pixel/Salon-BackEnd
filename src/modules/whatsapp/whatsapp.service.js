@@ -185,8 +185,13 @@ export async function resendReminder(reminderId) {
 
   // Obter serviços
   let servicoNome = "Serviço";
+  let servicosValores = "";
   if (Array.isArray(agendamento.itens) && agendamento.itens.length > 0) {
     servicoNome = agendamento.itens.map(i => i.nome).join(", ");
+    servicosValores = agendamento.itens.map(i => {
+      const valor = parseFloat(i.valor || 0);
+      return `${i.nome} - R$ ${valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }).join("\n");
   }
 
   // Formatar data e hora usando a biblioteca date-fns
@@ -201,7 +206,8 @@ export async function resendReminder(reminderId) {
       data: formattedDate,
       hora: formattedTime,
       servico: servicoNome,
-      profissional: colabNome
+      profissional: colabNome,
+      servicos_valores: servicosValores
     });
   } else {
     messageText = formatMessage(config.modelo_mensagem, {
