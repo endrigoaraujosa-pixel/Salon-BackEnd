@@ -327,6 +327,32 @@ const addPagamentos = async (req, res) => {
 
     const dispositivo = `${req.ip || ''} - ${req.headers['user-agent'] || ''}`;
 
+    const existingPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
+    const pagoAtual = existingPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    const remainingSaldo = Number((venda.valor_total - pagoAtual).toFixed(2));
+
+    const hasCreditoCliente = pagamentos.some(p => p.forma_pagamento === 'credito_cliente');
+    const hasExistingCredito = existingPags.some(p => p.forma_pagamento === 'credito_cliente');
+
+    if (hasCreditoCliente) {
+      for (const p of pagamentos) {
+        if (p.forma_pagamento === 'credito_cliente' && Number(p.valor) > remainingSaldo + 0.01) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: 'O valor pago em crédito do cliente não pode ser superior ao saldo devedor.' });
+        }
+      }
+    }
+
+    const novoValorBruto = pagamentos.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+    let novoTotal = pagoAtual + novoValorBruto;
+
+    if (hasCreditoCliente || hasExistingCredito) {
+      if (novoTotal > venda.valor_total + 0.01) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'Não é permitido valor superior ao total para uma venda/atendimento que utiliza crédito do cliente como forma de pagamento.' });
+      }
+    }
+
     for (const p of pagamentos) {
       if (p.forma_pagamento === 'credito_cliente') {
         if (!trabalharCredito) {
@@ -353,10 +379,6 @@ const addPagamentos = async (req, res) => {
         }
       }
     }
-
-    const existingPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
-    const pagoAtual = existingPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
-    const novoValorBruto = pagamentos.reduce((acc, p) => acc + Number(p.valor || 0), 0);
     let adjustedPagamentos = pagamentos.map(p => ({
       ...p,
       valor_recebido: Number(p.valor || 0),
@@ -364,7 +386,7 @@ const addPagamentos = async (req, res) => {
       valor: Number(p.valor || 0),
       credito_gerado: 0
     }));
-    let novoTotal = pagoAtual + novoValorBruto;
+    novoTotal = pagoAtual + novoValorBruto;
 
     const gerarCreditoExcedente = req.body.gerar_credito_excedente === true;
 

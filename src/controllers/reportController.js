@@ -1026,7 +1026,7 @@ const relatorioCaixa = async (req, res) => {
       });
     }
 
-    const totais = { dinheiro: 0, pix: 0, cartao_credito: 0, cartao_debito: 0, vale: 0, geral: 0, troco: 0, bruto: 0 };
+    const totais = { dinheiro: 0, pix: 0, cartao_credito: 0, cartao_debito: 0, vale: 0, credito_cliente: 0, geral: 0, troco: 0, bruto: 0 };
     filteredPags.forEach(p => {
       const pValor = Number(p.valor || 0);
       const pTroco = Number(p.troco || 0);
@@ -1050,6 +1050,7 @@ const relatorioCaixa = async (req, res) => {
     totais.cartao_credito = Number(totais.cartao_credito.toFixed(2));
     totais.cartao_debito = Number(totais.cartao_debito.toFixed(2));
     totais.vale = Number(totais.vale.toFixed(2));
+    totais.credito_cliente = Number(totais.credito_cliente.toFixed(2));
 
     const pagamentosDetalhes = filteredPags.map(p => {
       let numero = '-';
