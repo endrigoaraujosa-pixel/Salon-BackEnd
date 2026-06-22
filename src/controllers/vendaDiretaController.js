@@ -42,8 +42,8 @@ const _registrarMovimentacaoVenda = async (produto, tipo, quantidade, venda, tra
 };
 
 const listVendas = async (req, res) => {
-  const { data_inicio, data_fim, cliente_id, status } = req.query;
-  console.log('[DEBUG listVendas] Received query params:', { data_inicio, data_fim, cliente_id, status });
+  const { data_inicio, data_fim, cliente_id, status, colaborador_id, produto_id, search, page, limit } = req.query;
+  console.log('[DEBUG listVendas] Received query params:', { data_inicio, data_fim, cliente_id, status, colaborador_id, produto_id, search, page, limit });
   try {
     const where = { deletado: 'N' };
     if (data_inicio && data_fim) {
@@ -51,18 +51,62 @@ const listVendas = async (req, res) => {
         [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
       };
     }
-    if (cliente_id) {
-      where.cliente_id = cliente_id;
+    if (cliente_id && cliente_id !== 'all') {
+      if (cliente_id === 'none') {
+        where.cliente_id = null;
+      } else {
+        where.cliente_id = cliente_id;
+      }
+    }
+    if (colaborador_id && colaborador_id !== 'all') {
+      where.colaborador_id = colaborador_id;
+    }
+    if (produto_id && produto_id !== 'all') {
+      where.produto_id = produto_id;
     }
     if (status) {
       where.status = status;
     }
+    if (search) {
+      const searchLike = `%${search}%`;
+      const parsedNum = parseInt(search, 10);
+      const orConditions = [
+        { produto_nome: { [Op.like]: searchLike } },
+        { cliente_nome: { [Op.like]: searchLike } },
+        { colaborador_nome: { [Op.like]: searchLike } }
+      ];
+      if (!isNaN(parsedNum)) {
+        orConditions.push({ numero_venda: parsedNum });
+      }
+      where[Op.or] = orConditions;
+    }
     console.log('[DEBUG listVendas] sequelize where:', where);
-    const vendas = await getVendaDiretaModel().findAll({
-      where,
-      order: [['data_venda', 'DESC']]
-    });
-    res.json(vendas);
+
+    if (page) {
+      const pageNum = parseInt(page, 10) || 1;
+      const limitNum = parseInt(limit, 10) || 50;
+      const offset = (pageNum - 1) * limitNum;
+
+      const { count, rows: vendas } = await getVendaDiretaModel().findAndCountAll({
+        where,
+        order: [['data_venda', 'DESC']],
+        limit: limitNum,
+        offset
+      });
+
+      res.json({
+        data: vendas,
+        page: pageNum,
+        pages: Math.ceil(count / limitNum),
+        total: count
+      });
+    } else {
+      const vendas = await getVendaDiretaModel().findAll({
+        where,
+        order: [['data_venda', 'DESC']]
+      });
+      res.json(vendas);
+    }
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
