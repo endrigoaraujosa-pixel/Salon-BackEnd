@@ -12,6 +12,7 @@ import { getUserModel } from '../models/User.js';
 import { getDescontoModel } from '../models/Desconto.js';
 import { sequelize } from '../config/db.js';
 import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
+import * as clienteCreditoService from '../services/clienteCreditoService.js';
 
 export const adjustStock = async (ag, type, options = {}) => {
   const transaction = options.transaction;
@@ -550,6 +551,39 @@ const addPagamentos = async (req, res) => {
       return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
 
+    const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
+    const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+    const trabalharCredito = systemConfig ? !!systemConfig.trabalhar_credito_cliente : false;
+
+    const dispositivo = `${req.ip || ''} - ${req.headers['user-agent'] || ''}`;
+
+    for (const p of pagamentos) {
+      if (p.forma_pagamento === 'credito_cliente') {
+        if (!trabalharCredito) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: 'A funcionalidade de Crédito de Clientes está desabilitada.' });
+        }
+        if (!ag.cliente_id) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: 'Para utilizar crédito é necessário identificar o cliente no agendamento.' });
+        }
+        try {
+          await clienteCreditoService.removerCredito(ag.cliente_id, {
+            valor: Number(p.valor),
+            tipo: 'CREDITO_UTILIZADO_VENDA',
+            motivo: 'Utilização de crédito em agendamento',
+            usuarioId: req.user.id,
+            usuarioNome: req.user.name,
+            origem: `agendamento:${ag.id}`,
+            dispositivo
+          }, { transaction });
+        } catch (err) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: err.message });
+        }
+      }
+    }
+
     const existingPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
     const pagoAtual = existingPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
     const novoValorBruto = pagamentos.reduce((acc, p) => acc + Number(p.valor || 0), 0);
@@ -557,21 +591,66 @@ const addPagamentos = async (req, res) => {
       ...p,
       valor_recebido: Number(p.valor || 0),
       troco: 0,
-      valor: Number(p.valor || 0)
+      valor: Number(p.valor || 0),
+      credito_gerado: 0
     }));
     let novoTotal = pagoAtual + novoValorBruto;
 
+    const gerarCreditoExcedente = req.body.gerar_credito_excedente === true;
+
     if (novoTotal > ag.valor_total + 0.01) {
       let excesso = novoTotal - ag.valor_total;
-      let idxDinheiro = adjustedPagamentos.findIndex(p => p.forma_pagamento === 'dinheiro');
-      if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor_recebido >= excesso) {
-        adjustedPagamentos[idxDinheiro].valor = Number((adjustedPagamentos[idxDinheiro].valor_recebido - excesso).toFixed(2));
-        adjustedPagamentos[idxDinheiro].troco = Number(excesso.toFixed(2));
-        adjustedPagamentos[idxDinheiro].observacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (adjustedPagamentos[idxDinheiro].observacao ? ` - ${adjustedPagamentos[idxDinheiro].observacao}` : '');
+
+      if (gerarCreditoExcedente) {
+        if (!ag.cliente_id) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: 'Para gerar crédito é necessário identificar o cliente no agendamento.' });
+        }
+        if (!trabalharCredito) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: 'A funcionalidade de Crédito de Clientes está desabilitada.' });
+        }
+
+        await clienteCreditoService.adicionarCredito(ag.cliente_id, {
+          valor: excesso,
+          tipo: 'CREDITO_GERADO_VENDA',
+          motivo: 'Crédito gerado por excedente no recebimento de agendamento',
+          usuarioId: req.user.id,
+          usuarioNome: req.user.name,
+          origem: `agendamento:${ag.id}`,
+          dispositivo
+        }, { transaction });
+
+        let remainingExcesso = excesso;
+        for (let i = adjustedPagamentos.length - 1; i >= 0; i--) {
+          const p = adjustedPagamentos[i];
+          if (p.valor_recebido >= remainingExcesso) {
+            p.valor = Number((p.valor_recebido - remainingExcesso).toFixed(2));
+            p.credito_gerado = Number(remainingExcesso.toFixed(2));
+            remainingExcesso = 0;
+            break;
+          } else {
+            p.credito_gerado = p.valor_recebido;
+            p.valor = 0;
+            remainingExcesso = Number((remainingExcesso - p.valor_recebido).toFixed(2));
+          }
+        }
         novoTotal = ag.valor_total;
       } else {
-        await transaction.rollback();
-        return res.status(400).json({ detail: 'Valor excede o total devido' });
+        let idxDinheiro = adjustedPagamentos.findIndex(p => p.forma_pagamento === 'dinheiro');
+        if (idxDinheiro !== -1 && adjustedPagamentos[idxDinheiro].valor_recebido >= excesso) {
+          adjustedPagamentos[idxDinheiro].valor = Number((adjustedPagamentos[idxDinheiro].valor_recebido - excesso).toFixed(2));
+          adjustedPagamentos[idxDinheiro].troco = Number(excesso.toFixed(2));
+          adjustedPagamentos[idxDinheiro].observacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (adjustedPagamentos[idxDinheiro].observacao ? ` - ${adjustedPagamentos[idxDinheiro].observacao}` : '');
+          novoTotal = ag.valor_total;
+        } else {
+          await transaction.rollback();
+          const isElectronic = pagamentos.some(p => ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(p.forma_pagamento));
+          const msg = isElectronic
+            ? 'Não é permitido informar valor superior ao total do agendamento para esta forma de pagamento. Utilize o valor exato ou gere crédito para o cliente.'
+            : 'Valor excede o total devido';
+          return res.status(400).json({ detail: msg });
+        }
       }
     }
 
@@ -582,6 +661,7 @@ const addPagamentos = async (req, res) => {
         valor: p.valor,
         valor_recebido: p.valor_recebido,
         troco: p.troco,
+        credito_gerado: p.credito_gerado || 0,
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
         data_hora: new Date()
@@ -611,7 +691,6 @@ const addPagamentos = async (req, res) => {
 
     await transaction.commit();
 
-    // Gerar lembrete de agradecimento se status mudou para concluído
     if (oldStatus !== 'concluido' && ag.status === 'concluido') {
       await generateThankYouReminder(ag);
     }
@@ -653,6 +732,63 @@ const updatePagamento = async (req, res) => {
       return res.status(404).json({ detail: 'Pagamento não encontrado' });
     }
 
+    const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
+    const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+    const trabalharCredito = systemConfig ? !!systemConfig.trabalhar_credito_cliente : false;
+
+    const dispositivo = `${req.ip || ''} - ${req.headers['user-agent'] || ''}`;
+
+    if (trabalharCredito && ag.cliente_id) {
+      // Revert old payment credit usage
+      if (pagamento.forma_pagamento === 'credito_cliente') {
+        await clienteCreditoService.adicionarCredito(ag.cliente_id, {
+          valor: pagamento.valor,
+          tipo: 'ESTORNO',
+          motivo: 'Reversão para atualização de pagamento em agendamento',
+          usuarioId: req.user.id,
+          usuarioNome: req.user.name,
+          origem: `agendamento:${ag.id}`,
+          dispositivo
+        }, { transaction });
+      }
+
+      // Revert old payment credit generation
+      if (Number(pagamento.credito_gerado) > 0) {
+        try {
+          await clienteCreditoService.removerCredito(ag.cliente_id, {
+            valor: pagamento.credito_gerado,
+            tipo: 'ESTORNO',
+            motivo: 'Reversão de crédito gerado para atualização em agendamento',
+            usuarioId: req.user.id,
+            usuarioNome: req.user.name,
+            origem: `agendamento:${ag.id}`,
+            dispositivo
+          }, { transaction });
+        } catch (err) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: `Não é permitido alterar este pagamento pois o crédito de R$ ${Number(pagamento.credito_gerado).toFixed(2)} gerado por ele já foi utilizado pelo cliente.` });
+        }
+      }
+
+      // Apply new payment credit usage if updated to credito_cliente
+      if (forma_pagamento === 'credito_cliente') {
+        try {
+          await clienteCreditoService.removerCredito(ag.cliente_id, {
+            valor: Number(valor),
+            tipo: 'CREDITO_UTILIZADO_VENDA',
+            motivo: 'Utilização de crédito em pagamento de agendamento atualizado',
+            usuarioId: req.user.id,
+            usuarioNome: req.user.name,
+            origem: `agendamento:${ag.id}`,
+            dispositivo
+          }, { transaction });
+        } catch (err) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: err.message });
+        }
+      }
+    }
+
     const otherPags = await getPagamentoModel().findAll({
       where: {
         agendamento_id: req.params.aid,
@@ -668,22 +804,55 @@ const updatePagamento = async (req, res) => {
     let novoTroco = 0;
     let novoValorNet = novoValorRecebido;
     let novaObservacao = observacao || '';
+    let novoCreditoGerado = 0;
+
+    const gerarCreditoExcedente = req.body.gerar_credito_excedente === true;
 
     if (novoTotal > ag.valor_total + 0.01) {
       let excesso = novoTotal - ag.valor_total;
-      if (forma_pagamento === 'dinheiro' && novoValorRecebido >= excesso) {
-        novoTroco = Number(excesso.toFixed(2));
+      if (gerarCreditoExcedente) {
+        if (!ag.cliente_id) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: 'Para gerar crédito é necessário identificar o cliente no agendamento.' });
+        }
+        if (!trabalharCredito) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: 'A funcionalidade de Crédito de Clientes está desabilitada.' });
+        }
+
+        await clienteCreditoService.adicionarCredito(ag.cliente_id, {
+          valor: excesso,
+          tipo: 'CREDITO_GERADO_VENDA',
+          motivo: 'Crédito gerado por atualização de pagamento em agendamento',
+          usuarioId: req.user.id,
+          usuarioNome: req.user.name,
+          origem: `agendamento:${ag.id}`,
+          dispositivo
+        }, { transaction });
+
         novoValorNet = Number((novoValorRecebido - excesso).toFixed(2));
-        novaObservacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (observacao ? ` - ${observacao}` : '');
+        novoCreditoGerado = excesso;
+        novoTroco = 0;
       } else {
-        await transaction.rollback();
-        return res.status(400).json({ detail: 'Valor excede o total devido' });
+        if (forma_pagamento === 'dinheiro' && novoValorRecebido >= excesso) {
+          novoTroco = Number(excesso.toFixed(2));
+          novoValorNet = Number((novoValorRecebido - excesso).toFixed(2));
+          novaObservacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (observacao ? ` - ${observacao}` : '');
+        } else {
+          await transaction.rollback();
+          const isElectronic = ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(forma_pagamento);
+          const msg = isElectronic
+            ? 'Não é permitido informar valor superior ao total do agendamento para esta forma de pagamento. Utilize o valor exato ou gere crédito para o cliente.'
+            : 'Valor excede o total devido';
+          return res.status(400).json({ detail: msg });
+        }
       }
     }
 
     pagamento.valor = novoValorNet;
     pagamento.valor_recebido = novoValorRecebido;
     pagamento.troco = novoTroco;
+    pagamento.credito_gerado = novoCreditoGerado;
     pagamento.forma_pagamento = forma_pagamento;
     pagamento.observacao = novaObservacao;
     await pagamento.save({ transaction });
@@ -709,7 +878,6 @@ const updatePagamento = async (req, res) => {
 
     await transaction.commit();
 
-    // Gerar lembrete de agradecimento se status mudou para concluído
     if (oldStatus !== 'concluido' && ag.status === 'concluido') {
       await generateThankYouReminder(ag);
     }
@@ -753,6 +921,45 @@ const deletePagamento = async (req, res) => {
     if (!pagamento) {
       await transaction.rollback();
       return res.status(404).json({ detail: 'Pagamento não encontrado' });
+    }
+
+    const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
+    const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+    const trabalharCredito = systemConfig ? !!systemConfig.trabalhar_credito_cliente : false;
+
+    if (trabalharCredito && ag.cliente_id) {
+      const dispositivo = `${req.ip || ''} - ${req.headers['user-agent'] || ''}`;
+
+      // If the deleted payment used credit
+      if (pagamento.forma_pagamento === 'credito_cliente') {
+        await clienteCreditoService.adicionarCredito(ag.cliente_id, {
+          valor: pagamento.valor,
+          tipo: 'ESTORNO',
+          motivo: 'Estorno de pagamento excluído em agendamento',
+          usuarioId: req.user.id,
+          usuarioNome: req.user.name,
+          origem: `agendamento:${ag.id}`,
+          dispositivo
+        }, { transaction });
+      }
+
+      // If the deleted payment generated credit
+      if (Number(pagamento.credito_gerado) > 0) {
+        try {
+          await clienteCreditoService.removerCredito(ag.cliente_id, {
+            valor: pagamento.credito_gerado,
+            tipo: 'ESTORNO',
+            motivo: 'Estorno de crédito gerado por pagamento excluído em agendamento',
+            usuarioId: req.user.id,
+            usuarioNome: req.user.name,
+            origem: `agendamento:${ag.id}`,
+            dispositivo
+          }, { transaction });
+        } catch (err) {
+          await transaction.rollback();
+          return res.status(400).json({ detail: `Não é permitido remover este pagamento pois o crédito de R$ ${Number(pagamento.credito_gerado).toFixed(2)} gerado por ele já foi utilizado pelo cliente e resultaria em saldo negativo.` });
+        }
+      }
     }
 
     await pagamento.update({

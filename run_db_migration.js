@@ -18,6 +18,7 @@ import addAuditFieldsToVendasDiretas from './src/migrations/20260603100000-add-a
 import createConfiguracaoSistema from './src/migrations/20260611100000-create-configuracao-sistema.js';
 import addOcultarInsumosToProdutos from './src/migrations/20260611110000-add-ocultar-insumos-to-produtos.js';
 import addAgradecimentoToWhatsappConfig from './src/migrations/20260619150000-add-agradecimento-to-whatsapp-config.js';
+import addCreditoClienteFields from './src/migrations/20260621220000-add-credito-cliente-fields.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -177,6 +178,14 @@ async function run() {
       console.log('Add agradecimento fields to whatsapp config migration completed.');
     } catch (e) {
       console.log('Add agradecimento fields to whatsapp config migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running add credito cliente fields migration (up)...');
+    try {
+      await addCreditoClienteFields.up(queryInterface, Sequelize);
+      console.log('Credito cliente fields migration completed.');
+    } catch (e) {
+      console.log('Credito cliente fields migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');
