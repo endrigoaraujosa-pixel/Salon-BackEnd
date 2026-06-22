@@ -129,7 +129,7 @@ export const estornarMovimentacao = async (req, res) => {
  */
 export const getExtrato = async (req, res) => {
   const { cid } = req.params;
-  const { cliente_id, data_inicio, data_fim } = req.query;
+  const { cliente_id, data_inicio, data_fim, page, limit } = req.query;
 
   const targetClienteId = cid || cliente_id;
 
@@ -146,10 +146,58 @@ export const getExtrato = async (req, res) => {
       where.criado_em = dateRange;
     }
 
-    const Movimentacoes = await getClienteCreditoMovimentacaoModel().findAll({
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 50;
+    const offset = (pageNum - 1) * limitNum;
+
+    const MovimentacaoModel = getClienteCreditoMovimentacaoModel();
+    const { getClienteModel } = await import('../models/Cliente.js');
+    const ClienteModel = getClienteModel();
+
+    if (!MovimentacaoModel.associations.Cliente) {
+      MovimentacaoModel.belongsTo(ClienteModel, { foreignKey: 'cliente_id' });
+    }
+
+    // Get paginated results
+    const { count, rows: Movimentacoes } = await MovimentacaoModel.findAndCountAll({
       where,
-      order: [['criado_em', 'DESC'], ['createdAt', 'DESC']]
+      include: [
+        {
+          model: ClienteModel,
+          attributes: ['nome'],
+          required: false
+        }
+      ],
+      order: [['criado_em', 'DESC'], ['createdAt', 'DESC']],
+      limit: limitNum,
+      offset
     });
+
+    // Calculate totalCreditos and totalDebitos on all matching records (without page pagination)
+    const stats = await MovimentacaoModel.findAll({
+      where,
+      attributes: [
+        'tipo_operacao',
+        'estornado',
+        [sequelize.fn('SUM', sequelize.col('valor')), 'total_valor']
+      ],
+      group: ['tipo_operacao', 'estornado'],
+      raw: true
+    });
+
+    let totalCreditos = 0;
+    let totalDebitos = 0;
+
+    for (const stat of stats) {
+      if (!stat.estornado) {
+        const val = Number(stat.total_valor || 0);
+        if (stat.tipo_operacao === 'C') {
+          totalCreditos += val;
+        } else if (stat.tipo_operacao === 'D') {
+          totalDebitos += val;
+        }
+      }
+    }
 
     // Enrich movements with resolved origin references (service/sale numbers)
     const { getAgendamentoModel } = await import('../models/Agendamento.js');
@@ -184,7 +232,14 @@ export const getExtrato = async (req, res) => {
       return movJSON;
     }));
 
-    res.json(enrichedMovs);
+    res.json({
+      data: enrichedMovs,
+      page: pageNum,
+      pages: Math.ceil(count / limitNum),
+      total: count,
+      totalCreditos,
+      totalDebitos
+    });
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
