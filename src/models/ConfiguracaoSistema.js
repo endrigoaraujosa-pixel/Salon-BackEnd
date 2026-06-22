@@ -22,6 +22,11 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
     allowNull: false
+  },
+  trabalhar_credito_cliente: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
   }
 }, {
   tableName: 'configuracao_sistema',

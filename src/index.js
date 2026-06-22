@@ -7,7 +7,8 @@ import { addPagamentos, createAgend, deleteAgend, deletePagamento as deleteAgend
 import { getDeletados, restoreRecord } from './controllers/auditController.js';
 import { login, logout, me, refreshToken } from './controllers/authController.js';
 import { createCategoria, deleteCategoria, listCategorias, updateCategoria } from './controllers/categoriaController.js';
-import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente, rankingClientes } from './controllers/clienteController.js';
+import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente, rankingClientes, getCliente } from './controllers/clienteController.js';
+import { adicionarCreditoManual, removerCreditoManual, estornarMovimentacao, getExtrato, recalcularSaldoCliente } from './controllers/clienteCreditoController.js';
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
 import { getTaxas, saveTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
@@ -92,10 +93,17 @@ app.use('/api/auth', authRoutes);
 const clienteRoutes = express.Router();
 clienteRoutes.get('/', protect, requirePermission('clientes'), listClientes);
 clienteRoutes.get('/ranking', protect, requirePermission('clientes'), rankingClientes);
+clienteRoutes.get('/credito/extrato', protect, requirePermission(null, 'credito.extrato'), getExtrato);
+clienteRoutes.get('/:cid', protect, requirePermission('clientes'), getCliente);
 clienteRoutes.post('/', protect, requirePermission('clientes', 'criar'), createCliente);
 clienteRoutes.put('/:cid', protect, requirePermission('clientes', 'editar'), updateCliente);
 clienteRoutes.delete('/:cid', protect, requirePermission('clientes', 'excluir'), deleteCliente);
 clienteRoutes.get('/:cid/historico', protect, requirePermission('clientes'), historicoCliente);
+clienteRoutes.get('/:cid/credito/extrato', protect, requirePermission(null, 'credito.extrato'), getExtrato);
+clienteRoutes.post('/:cid/credito/adicionar', protect, requirePermission(null, 'credito.adicionar'), adicionarCreditoManual);
+clienteRoutes.post('/:cid/credito/remover', protect, requirePermission(null, 'credito.remover'), removerCreditoManual);
+clienteRoutes.post('/:cid/credito/estornar/:mid', protect, requirePermission(null, 'credito.estornar'), estornarMovimentacao);
+clienteRoutes.post('/:cid/credito/recalcular', protect, admin, recalcularSaldoCliente);
 app.use('/api/clientes', clienteRoutes);
 
 // Colaboradores Routes

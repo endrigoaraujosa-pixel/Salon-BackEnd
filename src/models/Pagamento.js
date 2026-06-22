@@ -31,6 +31,11 @@ const Pagamento = sequelize.define('Pagamento', {
     allowNull: false,
     defaultValue: 0
   },
+  credito_gerado: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0
+  },
   forma_pagamento: {
     type: DataTypes.STRING(50),
     allowNull: false

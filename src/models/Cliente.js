@@ -37,6 +37,15 @@ const Cliente = sequelize.define('Cliente', {
     type: DataTypes.TEXT,
     allowNull: true
   },
+  saldo_credito: {
+    type: DataTypes.DECIMAL(10, 2),
+    defaultValue: 0.00,
+    allowNull: false
+  },
+  data_ultima_movimentacao_credito: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

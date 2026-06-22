@@ -4,6 +4,7 @@ import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getVendaDiretaModel } from '../models/VendaDireta.js';
 import { getPagamentoModel } from '../models/Pagamento.js';
 import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
+import { getClienteCreditoMovimentacaoModel } from '../models/ClienteCreditoMovimentacao.js';
 
 const listClientes = async (req, res) => {
   try {
@@ -106,6 +107,14 @@ const updateCliente = async (req, res) => {
 
 const deleteCliente = async (req, res) => {
   try {
+    const hasMovements = await getClienteCreditoMovimentacaoModel().count({
+      where: { cliente_id: req.params.cid }
+    });
+
+    if (hasMovements > 0) {
+      return res.status(400).json({ detail: 'Não é permitido excluir clientes que possuem histórico de movimentações de crédito.' });
+    }
+
     const cliente = await getClienteModel().findByPk(req.params.cid);
     if (cliente) {
       await cliente.update({
@@ -115,6 +124,18 @@ const deleteCliente = async (req, res) => {
       });
     }
     res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+const getCliente = async (req, res) => {
+  try {
+    const cliente = await getClienteModel().findByPk(req.params.cid);
+    if (!cliente || cliente.deletado === 'S') {
+      return res.status(404).json({ detail: 'Cliente não encontrado' });
+    }
+    res.json(cliente);
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
@@ -280,6 +301,7 @@ const rankingClientes = async (req, res) => {
 
 export {
   listClientes,
+  getCliente,
   createCliente,
   updateCliente,
   deleteCliente,
