@@ -340,6 +340,9 @@ const listComissoes = async (req, res) => {
               comissao_produtos_pendente += det.valor_comissao;
             }
           }
+          // Ordenar serviços/produtos por data de agendamento/venda em ordem cronológica
+          detalhes_pendente.sort((a, b) => new Date(a.data) - new Date(b.data));
+
           comissoesList.push({
             colaborador_id: colab.id,
             colaborador_nome: (colab.nome || '').trim(),
@@ -370,6 +373,9 @@ const listComissoes = async (req, res) => {
               comissao_produtos_pago += det.valor_comissao;
             }
           }
+          // Ordenar serviços/produtos por data de agendamento/venda em ordem cronológica
+          detalhes_pago.sort((a, b) => new Date(a.data) - new Date(b.data));
+
           comissoesList.push({
             colaborador_id: colab.id,
             colaborador_nome: (colab.nome || '').trim(),
