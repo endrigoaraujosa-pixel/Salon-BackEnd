@@ -19,6 +19,7 @@ import createConfiguracaoSistema from './src/migrations/20260611100000-create-co
 import addOcultarInsumosToProdutos from './src/migrations/20260611110000-add-ocultar-insumos-to-produtos.js';
 import addAgradecimentoToWhatsappConfig from './src/migrations/20260619150000-add-agradecimento-to-whatsapp-config.js';
 import addCreditoClienteFields from './src/migrations/20260621220000-add-credito-cliente-fields.js';
+import controlAdquirentesETaxas from './src/migrations/20260625000000-control-adquirentes-e-taxas.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -186,6 +187,14 @@ async function run() {
       console.log('Credito cliente fields migration completed.');
     } catch (e) {
       console.log('Credito cliente fields migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running control adquirentes e taxas migration (up)...');
+    try {
+      await controlAdquirentesETaxas.up(queryInterface, Sequelize);
+      console.log('Control adquirentes e taxas migration completed.');
+    } catch (e) {
+      console.log('Control adquirentes e taxas migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');

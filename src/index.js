@@ -11,7 +11,7 @@ import { createCliente, deleteCliente, historicoCliente, listClientes, updateCli
 import { adicionarCreditoManual, removerCreditoManual, estornarMovimentacao, getExtrato, recalcularSaldoCliente } from './controllers/clienteCreditoController.js';
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
-import { getTaxas, saveTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
+import { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
 import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect, startLocalIntegration, getExternalStatus, getExternalQrCode, postCheckWhatsappNumber } from './modules/whatsapp/whatsapp.controller.js';
 import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
@@ -35,7 +35,8 @@ import {
   relatorioEstoqueSemMovimentacao,
   relatorioEstoqueHistoricoAjustes,
   relatorioEstoqueInventario,
-  relatorioEstoquePerdasQuebras
+  relatorioEstoquePerdasQuebras,
+  relatorioCartoes
 } from './controllers/reportController.js';
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
 import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor } from './controllers/fornecedorController.js';
@@ -46,6 +47,7 @@ import { listMotivos, createMotivo, updateMotivo } from './controllers/motivoEst
 import { addItemCarrinho, addPagamentos as addVendaPagamentos, createVenda, deleteVenda, deletePagamento as deleteVendaPagamento, getCarrinho, getVenda, listVendas, removeItemCarrinho, updateItemCarrinho, updateCliente as updateVendaCliente, updatePagamento as updateVendaPagamento, aplicarDescontoVenda } from './controllers/vendaDiretaController.js';
 import { listDescontos, createDesconto, updateDesconto, deleteDesconto, validarDescontoAutorizacao } from './controllers/descontoController.js';
 import { admin, protect, requirePermission } from './middleware/auth.js';
+import { listAdquirentes, createAdquirente, updateAdquirente, deleteAdquirente } from './controllers/adquirenteController.js';
 import { connectDB } from './config/db.js';
 import { startReminderJob } from './jobs/whatsapp-reminder.job.js';
 import { tenantMiddleware } from './middleware/tenant.js';
@@ -149,6 +151,7 @@ app.use('/api/agendamentos', agendRoutes);
 app.get('/api/dashboard', protect, requirePermission('dashboard'), dashboard);
 app.get('/api/dashboard/detail', protect, requirePermission('dashboard'), dashboardDetail);
 app.get('/api/relatorios/dre', protect, admin, relatorioDre);
+app.get('/api/relatorios/cartoes', protect, admin, relatorioCartoes);
 app.get('/api/relatorios/caixa', protect, admin, relatorioCaixa);
 app.get('/api/relatorios/produtos', protect, admin, relatorioProdutos);
 app.get('/api/relatorios/servicos', protect, admin, relatorioServicos);
@@ -217,6 +220,7 @@ app.use('/api/comissoes', comissaoRoutes);
 const configRoutes = express.Router();
 configRoutes.get('/taxas-cartao', protect, requirePermission('cadastros'), getTaxas);
 configRoutes.post('/taxas-cartao', protect, requirePermission('cadastros', 'editar'), saveTaxa);
+configRoutes.delete('/taxas-cartao/:forma_pagamento', protect, requirePermission('cadastros', 'excluir'), deleteTaxa);
 configRoutes.get('/empresa', protect, getEmpresa);
 configRoutes.post('/empresa', protect, requirePermission('configuracoes', 'editar'), saveEmpresa);
 configRoutes.get('/sistema', protect, requirePermission('configuracoes'), getConfiguracaoSistema);
@@ -270,6 +274,14 @@ fornecedorRoutes.post('/', protect, requirePermission('cadastros', 'criar'), cre
 fornecedorRoutes.put('/:id', protect, requirePermission('cadastros', 'editar'), updateFornecedor);
 fornecedorRoutes.delete('/:id', protect, requirePermission('cadastros', 'excluir'), deleteFornecedor);
 app.use('/api/fornecedores', fornecedorRoutes);
+
+// Adquirentes Routes
+const adquirenteRoutes = express.Router();
+adquirenteRoutes.get('/', protect, requirePermission('cadastros'), listAdquirentes);
+adquirenteRoutes.post('/', protect, requirePermission('cadastros', 'criar'), createAdquirente);
+adquirenteRoutes.put('/:id', protect, requirePermission('cadastros', 'editar'), updateAdquirente);
+adquirenteRoutes.delete('/:id', protect, requirePermission('cadastros', 'excluir'), deleteAdquirente);
+app.use('/api/adquirentes', adquirenteRoutes);
 
 // Estoque Routes
 const estoqueRoutes = express.Router();

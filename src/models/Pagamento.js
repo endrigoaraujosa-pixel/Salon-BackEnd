@@ -40,6 +40,38 @@ const Pagamento = sequelize.define('Pagamento', {
     type: DataTypes.STRING(50),
     allowNull: false
   },
+  cartao_tipo: {
+    type: DataTypes.STRING(10),
+    allowNull: true
+  },
+  adquirente_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true
+  },
+  cartao_parcelas: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  cartao_taxa_percentual: {
+    type: DataTypes.FLOAT,
+    allowNull: true
+  },
+  cartao_taxa_valor: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true
+  },
+  cartao_bandeira: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  valor_liquido: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true
+  },
+  data_recebimento_prevista: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
   observacao: {
     type: DataTypes.TEXT,
     defaultValue: ''

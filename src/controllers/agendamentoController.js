@@ -73,6 +73,77 @@ export const adjustStock = async (ag, type, options = {}) => {
   }
 };
 
+export const recalculateAndFreezeCommissions = async (ag, transaction) => {
+  const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: ag.id, deletado: 'N' }, transaction });
+  
+  const totalTaxaCartao = allPags.reduce((acc, p) => acc + Number(p.cartao_taxa_valor || 0), 0);
+  const totalServicos = (ag.itens || []).reduce((acc, item) => acc + Number(item.valor || 0), 0);
+  
+  const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
+  const colaboradores = await getColaboradorModel().findAll({ transaction });
+  const produtos = await getProdutoModel().findAll({ transaction });
+
+  const updatedItens = [];
+  for (const item of (ag.itens || [])) {
+    const val_serv = Number(item.valor || 0);
+    
+    let val_serv_comissao = val_serv;
+    if (item.valor_original !== undefined && item.valor_original !== item.valor) {
+      let descontoMeta = ag.desconto_aplicado;
+      if (typeof descontoMeta === 'string') {
+        try {
+          descontoMeta = JSON.parse(descontoMeta);
+        } catch (e) {}
+      }
+      if (descontoMeta && descontoMeta.incide_comissao === false) {
+        val_serv_comissao = Number(item.valor_original || item.valor);
+      }
+    }
+
+    let custo_produtos = 0;
+    const produtos_utilizados = item.produtos_utilizados || [];
+    for (const pu of produtos_utilizados) {
+      let c_prop = pu.custo_proporcional;
+      if (c_prop === undefined || c_prop === null) {
+        const prodModel = produtos.find(p => p.id === pu.produto_id);
+        if (prodModel) {
+          c_prop = (prodModel.quantidade_por_unidade > 0)
+            ? (Number(prodModel.custo_unitario || 0) / prodModel.quantidade_por_unidade)
+            : Number(prodModel.custo_unitario || 0);
+        } else {
+          c_prop = Number(pu.custo_unitario || 0);
+        }
+      }
+      custo_produtos += Number(pu.quantidade || 0) * Number(c_prop);
+    }
+
+    const base_comissao_original = Math.max(0, val_serv_comissao - custo_produtos);
+    let taxa_cartao_descontada = 0;
+    const descontou = !!systemConfig?.descontar_taxa_cartao_comissao;
+
+    if (descontou && totalTaxaCartao > 0 && totalServicos > 0) {
+      const fracao = val_serv / totalServicos;
+      taxa_cartao_descontada = Number((fracao * totalTaxaCartao).toFixed(4));
+    }
+
+    const base_comissao_final = descontou 
+      ? Math.max(0, base_comissao_original - taxa_cartao_descontada) 
+      : base_comissao_original;
+    
+    updatedItens.push({
+      ...item,
+      base_comissao_original: Number(base_comissao_original.toFixed(2)),
+      taxa_cartao_descontada: Number(taxa_cartao_descontada.toFixed(2)),
+      base_comissao_final: Number(base_comissao_final.toFixed(2)),
+      descontou_taxa_cartao: descontou
+    });
+  }
+
+  ag.itens = updatedItens;
+  ag.changed('itens', true);
+};
+
+
 const buildAgendamentoDoc = async (body, excludeId = null) => {
   const cliente = await getClienteModel().findByPk(body.cliente_id);
   if (!cliente) throw new Error('Cliente inválido');
@@ -411,6 +482,8 @@ const updateAgend = async (req, res) => {
 
     if (wasConcluido) {
       const updatedAg = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+      await recalculateAndFreezeCommissions(updatedAg, transaction);
+      await updatedAg.save({ transaction });
       await adjustStock(updatedAg, 'deduct', { transaction, user: req.user });
     }
 
@@ -513,6 +586,7 @@ const setStatus = async (req, res) => {
     const oldStatus = ag.status;
     if (oldStatus !== status) {
       if (status === 'concluido') {
+        await recalculateAndFreezeCommissions(ag, transaction);
         await adjustStock(ag, 'deduct', { transaction, user: req.user });
       } else if (oldStatus === 'concluido') {
         await adjustStock(ag, 'restore', { transaction, user: req.user });
@@ -558,6 +632,9 @@ const addPagamentos = async (req, res) => {
     const dispositivo = `${req.ip || ''} - ${req.headers['user-agent'] || ''}`;
 
     const existingPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
+    const { getTaxaCartaoModel } = await import('../models/TaxaCartao.js');
+    const cardRates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' }, transaction });
+    const cardKeys = cardRates.map(r => r.forma_pagamento);
     const pagoAtual = existingPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
     const remainingSaldo = Number((ag.valor_total - pagoAtual).toFixed(2));
 
@@ -667,7 +744,7 @@ const addPagamentos = async (req, res) => {
           novoTotal = ag.valor_total;
         } else {
           await transaction.rollback();
-          const isElectronic = pagamentos.some(p => ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(p.forma_pagamento));
+          const isElectronic = pagamentos.some(p => ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(p.forma_pagamento) || cardKeys.includes(p.forma_pagamento));
           const msg = isElectronic
             ? 'Não é permitido informar valor superior ao total do agendamento para esta forma de pagamento. Utilize o valor exato ou gere crédito para o cliente.'
             : 'Valor excede o total devido';
@@ -677,6 +754,58 @@ const addPagamentos = async (req, res) => {
     }
 
     for (const p of adjustedPagamentos) {
+      let cartao_tipo = null;
+      let adquirente_id = null;
+      let cartao_parcelas = null;
+      let cartao_taxa_percentual = null;
+      let cartao_taxa_valor = null;
+      let valor_liquido = p.valor;
+      let data_recebimento_prevista = null;
+
+      const baseRate = cardRates.find(r => r.forma_pagamento === p.forma_pagamento);
+      const rate = baseRate || null;
+
+      if (rate) {
+        cartao_tipo = rate.tipo_cartao || (p.forma_pagamento === 'cartao_credito' ? 'credito' : p.forma_pagamento === 'cartao_debito' ? 'debito' : null);
+        adquirente_id = rate.adquirente_id || null;
+
+        if (cartao_tipo === 'credito') {
+          const selectedParcela = Math.min(12, Math.max(1, parseInt(p.parcelas) || 1));
+          cartao_parcelas = selectedParcela;
+          const taxaField = `taxa_${selectedParcela}x`;
+          cartao_taxa_percentual = rate[taxaField] !== undefined ? rate[taxaField] : (rate.percentual || 0);
+        } else if (cartao_tipo === 'debito') {
+          cartao_taxa_percentual = rate.percentual || 0;
+        }
+
+        if (cartao_taxa_percentual !== null) {
+          cartao_taxa_valor = Number(((p.valor * cartao_taxa_percentual) / 100).toFixed(2));
+          valor_liquido = Number((p.valor - cartao_taxa_valor).toFixed(2));
+        }
+
+        const dias = rate.dias_recebimento || 0;
+        const prevDate = new Date();
+        prevDate.setDate(prevDate.getDate() + dias);
+        data_recebimento_prevista = prevDate;
+      } else {
+        if (p.forma_pagamento === 'cartao_credito') {
+          cartao_tipo = 'credito';
+          cartao_parcelas = Math.min(12, Math.max(1, parseInt(p.parcelas) || 1));
+          cartao_taxa_percentual = 2.5;
+          cartao_taxa_valor = Number(((p.valor * 2.5) / 100).toFixed(2));
+          valor_liquido = Number((p.valor - cartao_taxa_valor).toFixed(2));
+          const prevDate = new Date();
+          data_recebimento_prevista = prevDate;
+        } else if (p.forma_pagamento === 'cartao_debito') {
+          cartao_tipo = 'debito';
+          cartao_taxa_percentual = 1.5;
+          cartao_taxa_valor = Number(((p.valor * 1.5) / 100).toFixed(2));
+          valor_liquido = Number((p.valor - cartao_taxa_valor).toFixed(2));
+          const prevDate = new Date();
+          data_recebimento_prevista = prevDate;
+        }
+      }
+
       await getPagamentoModel().create({
         id: uuidv4(),
         agendamento_id: req.params.aid,
@@ -686,7 +815,15 @@ const addPagamentos = async (req, res) => {
         credito_gerado: p.credito_gerado || 0,
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
-        data_hora: new Date()
+        data_hora: new Date(),
+        cartao_tipo,
+        adquirente_id,
+        cartao_parcelas,
+        cartao_taxa_percentual,
+        cartao_taxa_valor,
+        valor_liquido,
+        data_recebimento_prevista,
+        cartao_bandeira: rate ? rate.bandeira : null
       }, { transaction });
     }
 
@@ -700,6 +837,10 @@ const addPagamentos = async (req, res) => {
         }
       }
       ag.status = 'concluido';
+    }
+
+    if (ag.status === 'concluido') {
+      await recalculateAndFreezeCommissions(ag, transaction);
     }
 
     if (oldStatus !== ag.status) {
@@ -725,7 +866,7 @@ const addPagamentos = async (req, res) => {
 };
 
 const updatePagamento = async (req, res) => {
-  const { valor, forma_pagamento, observacao } = req.body;
+  const { valor, forma_pagamento, observacao, bandeira } = req.body;
   const password = req.body.password || req.body.auth_password || req.headers['x-auth-password'] || req.query.password;
 
   const transaction = await sequelize.transaction();
@@ -881,12 +1022,70 @@ const updatePagamento = async (req, res) => {
           novaObservacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (observacao ? ` - ${observacao}` : '');
         } else {
           await transaction.rollback();
-          const isElectronic = ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(forma_pagamento);
+          const { getTaxaCartaoModel } = await import('../models/TaxaCartao.js');
+          const cardRates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' }, transaction });
+          const cardKeys = cardRates.map(r => r.forma_pagamento);
+          const isElectronic = ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(forma_pagamento) || cardKeys.includes(forma_pagamento);
           const msg = isElectronic
             ? 'Não é permitido informar valor superior ao total do agendamento para esta forma de pagamento. Utilize o valor exato ou gere crédito para o cliente.'
             : 'Valor excede o total devido';
           return res.status(400).json({ detail: msg });
         }
+      }
+    }
+
+    const { getTaxaCartaoModel } = await import('../models/TaxaCartao.js');
+    const cardRates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' }, transaction });
+    
+    let cartao_tipo = null;
+    let adquirente_id = null;
+    let cartao_parcelas = null;
+    let cartao_taxa_percentual = null;
+    let cartao_taxa_valor = null;
+    let valor_liquido = novoValorNet;
+    let data_recebimento_prevista = null;
+
+    const baseRate = cardRates.find(r => r.forma_pagamento === forma_pagamento);
+    const rate = baseRate || null;
+
+    if (rate) {
+      cartao_tipo = rate.tipo_cartao || (forma_pagamento === 'cartao_credito' ? 'credito' : forma_pagamento === 'cartao_debito' ? 'debito' : null);
+      adquirente_id = rate.adquirente_id || null;
+
+      if (cartao_tipo === 'credito') {
+        const selectedParcela = Math.min(12, Math.max(1, parseInt(req.body.parcelas) || 1));
+        cartao_parcelas = selectedParcela;
+        const taxaField = `taxa_${selectedParcela}x`;
+        cartao_taxa_percentual = rate[taxaField] !== undefined ? rate[taxaField] : (rate.percentual || 0);
+      } else if (cartao_tipo === 'debito') {
+        cartao_taxa_percentual = rate.percentual || 0;
+      }
+
+      if (cartao_taxa_percentual !== null) {
+        cartao_taxa_valor = Number(((novoValorNet * cartao_taxa_percentual) / 100).toFixed(2));
+        valor_liquido = Number((novoValorNet - cartao_taxa_valor).toFixed(2));
+      }
+
+      const dias = rate.dias_recebimento || 0;
+      const prevDate = new Date();
+      prevDate.setDate(prevDate.getDate() + dias);
+      data_recebimento_prevista = prevDate;
+    } else {
+      if (forma_pagamento === 'cartao_credito') {
+        cartao_tipo = 'credito';
+        cartao_parcelas = Math.min(12, Math.max(1, parseInt(req.body.parcelas) || 1));
+        cartao_taxa_percentual = 2.5;
+        cartao_taxa_valor = Number(((novoValorNet * 2.5) / 100).toFixed(2));
+        valor_liquido = Number((novoValorNet - cartao_taxa_valor).toFixed(2));
+        const prevDate = new Date();
+        data_recebimento_prevista = prevDate;
+      } else if (forma_pagamento === 'cartao_debito') {
+        cartao_tipo = 'debito';
+        cartao_taxa_percentual = 1.5;
+        cartao_taxa_valor = Number(((novoValorNet * 1.5) / 100).toFixed(2));
+        valor_liquido = Number((novoValorNet - cartao_taxa_valor).toFixed(2));
+        const prevDate = new Date();
+        data_recebimento_prevista = prevDate;
       }
     }
 
@@ -896,16 +1095,28 @@ const updatePagamento = async (req, res) => {
     pagamento.credito_gerado = novoCreditoGerado;
     pagamento.forma_pagamento = forma_pagamento;
     pagamento.observacao = novaObservacao;
+    pagamento.cartao_tipo = cartao_tipo;
+    pagamento.adquirente_id = adquirente_id;
+    pagamento.cartao_parcelas = cartao_parcelas;
+    pagamento.cartao_taxa_percentual = cartao_taxa_percentual;
+    pagamento.cartao_taxa_valor = cartao_taxa_valor;
+    pagamento.valor_liquido = valor_liquido;
+    pagamento.data_recebimento_prevista = data_recebimento_prevista;
+    pagamento.cartao_bandeira = rate ? rate.bandeira : null;
     await pagamento.save({ transaction });
 
     const oldStatus = ag.status;
-    const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
-    const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
+    const allPagsInTransaction = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
+    const totalPago = allPagsInTransaction.reduce((acc, p) => acc + p.valor, 0);
     ag.valor_pago = totalPago;
     if (totalPago >= ag.valor_total - 0.01) {
       ag.status = 'concluido';
     } else {
       ag.status = 'agendado';
+    }
+
+    if (ag.status === 'concluido') {
+      await recalculateAndFreezeCommissions(ag, transaction);
     }
 
     if (oldStatus !== ag.status) {
@@ -1026,6 +1237,9 @@ const deletePagamento = async (req, res) => {
         } else if (oldStatus === 'concluido') {
           await adjustStock(ag, 'restore', { transaction, user: req.user });
         }
+      }
+      if (ag.status === 'concluido') {
+        await recalculateAndFreezeCommissions(ag, transaction);
       }
       await ag.save({ transaction });
     }

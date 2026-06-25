@@ -11,6 +11,9 @@ import { getDespesaModel } from '../models/Despesa.js';
 import { getOutrasReceitasModel } from '../models/OutrasReceitas.js';
 import { getCategoriaModel } from '../models/Categoria.js';
 import { getFornecedorModel } from '../models/Fornecedor.js';
+import { getAdquirenteModel } from '../models/Adquirente.js';
+import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
+import { sequelize } from '../config/db.js';
 
 const getDeletados = async (req, res) => {
   const { modulo } = req.query;
@@ -56,6 +59,9 @@ const getDeletados = async (req, res) => {
       case 'desconto':
         rawRecords = await getDescontoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
+      case 'adquirente':
+        rawRecords = await getAdquirenteModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
+        break;
       default:
         return res.status(400).json({ detail: 'Módulo inválido para consulta de auditoria.' });
     }
@@ -66,6 +72,8 @@ const getDeletados = async (req, res) => {
       
       if (modulo === 'cliente' || modulo === 'colaborador' || modulo === 'servico' || modulo === 'produto' || modulo === 'categoria') {
         descricao = r.nome;
+      } else if (modulo === 'adquirente') {
+        descricao = r.descricao;
       } else if (modulo === 'desconto') {
         descricao = `${r.codigo}${r.descricao ? ` - ${r.descricao}` : ''}`;
       } else if (modulo === 'fornecedor') {
@@ -143,6 +151,9 @@ const restoreRecord = async (req, res) => {
       case 'desconto':
         model = getDescontoModel();
         break;
+      case 'adquirente':
+        model = getAdquirenteModel();
+        break;
       default:
         return res.status(400).json({ detail: 'Módulo inválido para restauração.' });
     }
@@ -156,11 +167,55 @@ const restoreRecord = async (req, res) => {
       return res.status(409).json({ detail: 'Este registro já está ativo e não pode ser restaurado.' });
     }
 
-    await record.update({
-      deletado: 'N',
-      deletado_por: null,
-      deletado_em: null
-    });
+    if (modulo === 'adquirente') {
+      const transaction = await sequelize.transaction();
+      try {
+        const restoredRates = await getTaxaCartaoModel().findAll({ where: { adquirente_id: id }, transaction });
+        const { getHistoricoTaxasCartaoModel } = await import('../models/HistoricoTaxasCartao.js');
+        const { getTenantSchema } = await import('../config/tenantContext.js');
+        
+        for (const rate of restoredRates) {
+          const previousState = JSON.parse(JSON.stringify(rate));
+          const updatedRate = { ...previousState, deletado: 'N', deletado_por: null, deletado_em: null, ativo: true };
+          
+          await getHistoricoTaxasCartaoModel().create({
+            taxa_cartao_id: rate.forma_pagamento,
+            operacao: 'RESTORE',
+            schema: getTenantSchema(),
+            alterado_por_id: req.user ? req.user.id : null,
+            alterado_por_nome: req.user ? req.user.name : null,
+            valores_anteriores: previousState,
+            valores_novos: updatedRate,
+            ip_origem: req.ip || null
+          }, { transaction });
+        }
+
+        await record.update({
+          deletado: 'N',
+          deletado_por: null,
+          deletado_em: null,
+          ativo: true
+        }, { transaction });
+
+        await getTaxaCartaoModel().update({
+          deletado: 'N',
+          deletado_por: null,
+          deletado_em: null,
+          ativo: true
+        }, { where: { adquirente_id: id }, transaction });
+
+        await transaction.commit();
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
+    } else {
+      await record.update({
+        deletado: 'N',
+        deletado_por: null,
+        deletado_em: null
+      });
+    }
 
     res.json({ ok: true, detail: 'Registro restaurado com sucesso.' });
   } catch (error) {
