@@ -58,6 +58,10 @@ const listComissoes = async (req, res) => {
   }
 
   try {
+    const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
+    const systemConfig = await getConfiguracaoSistemaModel().findOne();
+    const descontar_taxa_cartao_comissao = systemConfig ? !!systemConfig.descontar_taxa_cartao_comissao : false;
+
     const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
     const produtos = await getProdutoModel().findAll({ where: { deletado: 'N' } });
     const servicos = await getServicoModel().findAll({ where: { deletado: 'N' } });
@@ -156,8 +160,20 @@ const listComissoes = async (req, res) => {
                 }
               }
 
-              const base_comissao = Math.max(0, val_serv_comissao - custo_produtos);
-              const val_com = base_comissao * (pct / 100);
+              const base_comissao_original = item.base_comissao_original !== undefined
+                ? Number(item.base_comissao_original)
+                : Math.max(0, val_serv_comissao - custo_produtos);
+              
+              const taxa_cartao_descontada = item.taxa_cartao_descontada !== undefined
+                ? Number(item.taxa_cartao_descontada)
+                : 0;
+
+              let base_comissao_final = base_comissao_original;
+              if (descontar_taxa_cartao_comissao) {
+                base_comissao_final = Math.max(0, base_comissao_original - taxa_cartao_descontada);
+              }
+
+              const val_com = Math.max(0, base_comissao_final * (pct / 100));
               
               const s_model = servicos.find(x => x.id === item.servico_id);
               const linkedCount = s_model?.produtos_vinculados?.length || 0;
@@ -172,12 +188,15 @@ const listComissoes = async (req, res) => {
                 data: ag.data_hora,
                 valor_movimentacao: val_serv,
                 custo_produtos: Number(custo_produtos.toFixed(2)),
-                base_comissao: Number(base_comissao.toFixed(2)),
+                base_comissao: Number(base_comissao_final.toFixed(2)),
                 percentual_aplicado: pct,
                 valor_comissao: Number(val_com.toFixed(2)),
                 pago: !!item.comissao_paga,
                 insumos_pendentes,
-                cliente_nome: ag.cliente_nome
+                cliente_nome: ag.cliente_nome,
+                base_comissao_original: base_comissao_original,
+                taxa_cartao_descontada: taxa_cartao_descontada,
+                descontou_taxa_cartao: descontar_taxa_cartao_comissao && (taxa_cartao_descontada > 0)
               };
 
               if (item.comissao_paga) {
@@ -218,8 +237,11 @@ const listComissoes = async (req, res) => {
                 }
               }
 
-              const base_comissao = Math.max(0, val_serv_comissao - custo_produtos);
-              const val_com = base_comissao * (pct / 100);
+              const base_comissao_original = item.base_comissao_original !== undefined
+                ? Number(item.base_comissao_original)
+                : Math.max(0, val_serv_comissao - custo_produtos);
+              
+              const val_com = Math.max(0, base_comissao_original * (pct / 100));
 
               const s_model = servicos.find(x => x.id === item.servico_id);
               const linkedCount = s_model?.produtos_vinculados?.length || 0;
@@ -234,12 +256,15 @@ const listComissoes = async (req, res) => {
                 data: ag.data_hora,
                 valor_movimentacao: val_serv,
                 custo_produtos: Number(custo_produtos.toFixed(2)),
-                base_comissao: Number(base_comissao.toFixed(2)),
+                base_comissao: Number(base_comissao_original.toFixed(2)),
                 percentual_aplicado: pct,
                 valor_comissao: Number(val_com.toFixed(2)),
                 pago: !!item.comissao_paga_auxiliar,
                 insumos_pendentes,
-                cliente_nome: ag.cliente_nome
+                cliente_nome: ag.cliente_nome,
+                base_comissao_original: base_comissao_original,
+                taxa_cartao_descontada: item.taxa_cartao_descontada !== undefined ? Number(item.taxa_cartao_descontada) : 0,
+                descontou_taxa_cartao: descontar_taxa_cartao_comissao && (item.taxa_cartao_descontada > 0)
               };
 
               const isPagoAux = !!item.comissao_paga_auxiliar;
@@ -440,6 +465,7 @@ const listComissoes = async (req, res) => {
       faturamento_bruto_total: Number(faturamentoBrutoTotal.toFixed(2)),
       custo_insumos_total: Number(totalInsumosTotal.toFixed(2)),
       atendimentos_total_count: uniqueAgendamentosPeriodo.size,
+      descontar_taxa_cartao_comissao,
       comissoes: comissoesList
     });
   } catch (error) {

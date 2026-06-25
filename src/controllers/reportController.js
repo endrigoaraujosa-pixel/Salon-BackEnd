@@ -876,11 +876,25 @@ const relatorioDre = async (req, res) => {
         deletado: 'N'
       }
     });
-    const creditoTotalVal = payments.filter(p => p.forma_pagamento === 'cartao_credito').reduce((acc, p) => acc + p.valor, 0);
-    const debitoTotalVal = payments.filter(p => p.forma_pagamento === 'cartao_debito').reduce((acc, p) => acc + p.valor, 0);
 
-    const taxasCredito = creditoTotalVal * (creditoRate / 100);
-    const taxasDebito = debitoTotalVal * (debitoRate / 100);
+    const taxasCredito = payments
+      .filter(p => p.cartao_tipo === 'credito' || p.forma_pagamento === 'cartao_credito')
+      .reduce((acc, p) => {
+        if (p.cartao_taxa_valor !== null && p.cartao_taxa_valor !== undefined) {
+          return acc + Number(p.cartao_taxa_valor);
+        }
+        return acc + (p.valor * (creditoRate / 100));
+      }, 0);
+
+    const taxasDebito = payments
+      .filter(p => p.cartao_tipo === 'debito' || p.forma_pagamento === 'cartao_debito')
+      .reduce((acc, p) => {
+        if (p.cartao_taxa_valor !== null && p.cartao_taxa_valor !== undefined) {
+          return acc + Number(p.cartao_taxa_valor);
+        }
+        return acc + (p.valor * (debitoRate / 100));
+      }, 0);
+
     const taxasTotal = taxasCredito + taxasDebito;
 
     // Calcular Prazo Médio de Recebimento (PMR) ponderado
@@ -888,9 +902,13 @@ const relatorioDre = async (req, res) => {
     let totalPaymentVolume = 0;
     payments.forEach(p => {
       let dias = 0;
-      if (p.forma_pagamento === 'cartao_credito') dias = creditoDias;
-      else if (p.forma_pagamento === 'cartao_debito') dias = debitoDias;
-      // dinheiro e pix são 0
+      if (p.cartao_tipo === 'credito' || p.forma_pagamento === 'cartao_credito') {
+        const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
+        dias = rate ? (rate.dias_recebimento || 0) : creditoDias;
+      } else if (p.cartao_tipo === 'debito' || p.forma_pagamento === 'cartao_debito') {
+        const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
+        dias = rate ? (rate.dias_recebimento || 0) : debitoDias;
+      }
       totalWeightedDays += p.valor * dias;
       totalPaymentVolume += p.valor;
     });
@@ -1036,7 +1054,11 @@ const relatorioCaixa = async (req, res) => {
       totais.troco += pTroco;
       totais.bruto += pRecebido;
 
-      if (totais.hasOwnProperty(p.forma_pagamento)) {
+      if (p.forma_pagamento === 'cartao_credito' || p.cartao_tipo === 'credito') {
+        totais.cartao_credito += pValor;
+      } else if (p.forma_pagamento === 'cartao_debito' || p.cartao_tipo === 'debito') {
+        totais.cartao_debito += pValor;
+      } else if (totais.hasOwnProperty(p.forma_pagamento)) {
         totais[p.forma_pagamento] += pValor;
       }
     });
@@ -1125,6 +1147,7 @@ const relatorioCaixa = async (req, res) => {
         troco: p.troco,
         data_hora: p.data_hora,
         forma_pagamento: p.forma_pagamento,
+        cartao_tipo: p.cartao_tipo || (p.forma_pagamento === 'cartao_credito' ? 'credito' : p.forma_pagamento === 'cartao_debito' ? 'debito' : null),
         tipo,
         profissional,
         usuario_recebimento,
@@ -1545,6 +1568,9 @@ const relatorioResultadoOperacional = async (req, res) => {
     const getTxFee = (pags) => {
       if (!pags) return 0;
       return pags.reduce((acc, p) => {
+        if (p.cartao_taxa_valor !== null && p.cartao_taxa_valor !== undefined) {
+          return acc + Number(p.cartao_taxa_valor);
+        }
         const rate = rateMap[p.forma_pagamento] || 0;
         return acc + (Number(p.valor || 0) * (rate / 100));
       }, 0);
@@ -1626,7 +1652,9 @@ const relatorioResultadoOperacional = async (req, res) => {
           }
         }
 
-        const baseCom = Math.max(0, val_serv_comissao - insumoCost);
+        const baseCom = item.base_comissao_final !== undefined
+          ? Number(item.base_comissao_final)
+          : Math.max(0, val_serv_comissao - insumoCost);
 
         // Calculate principal collaborator commission
         let comissaoVal = 0;
@@ -2809,6 +2837,147 @@ const relatorioEstoquePerdasQuebras = async (req, res) => {
   } catch (error) {
     console.error('PERDAS QUEBRAS ERROR:', error.message);
     res.status(500).json({ detail: error.message });
+    console.log('Finished rendering perdas quebras.');
+  }
+};
+
+const relatorioCartoes = async (req, res) => {
+  const { data_inicio, data_fim, adquirente_id, cartao_tipo, forma_pagamento } = req.query;
+
+  if (!data_inicio || !data_fim) {
+    return res.status(400).json({ detail: 'Defina o período de datas (data_inicio e data_fim)' });
+  }
+
+  try {
+    const { getAdquirenteModel } = await import('../models/Adquirente.js');
+    const { getTaxaCartaoModel } = await import('../models/TaxaCartao.js');
+
+    // Carregar catálogos auxiliares
+    const adquirentes = await getAdquirenteModel().findAll();
+    const adqMap = new Map(adquirentes.map(a => [a.id, a.descricao]));
+
+    const rates = await getTaxaCartaoModel().findAll();
+    const rateDescMap = new Map(rates.map(r => [r.forma_pagamento, r.descricao]));
+    const rateMap = {};
+    rates.forEach(r => {
+      rateMap[r.forma_pagamento] = Number(r.percentual || 0);
+    });
+
+    // 1. Fetch payments that are card payments in the period
+    const payments = await getPagamentoModel().findAll({
+      where: {
+        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
+        deletado: 'N',
+        [Op.or]: [
+          { cartao_tipo: { [Op.not]: null } },
+          { forma_pagamento: { [Op.in]: ['cartao_credito', 'cartao_debito'] } }
+        ]
+      },
+      order: [['data_hora', 'DESC']]
+    });
+
+    // 2. Map and apply defaults/fallbacks for legacy payments
+    let mapped = payments.map(p => {
+      let tipo = p.cartao_tipo;
+      let adqId = p.adquirente_id || null;
+      let parcelas = p.cartao_parcelas;
+      let percentual = p.cartao_taxa_percentual;
+      let taxaValor = p.cartao_taxa_valor !== null ? Number(p.cartao_taxa_valor) : null;
+      let liquido = p.valor_liquido !== null ? Number(p.valor_liquido) : Number(p.valor);
+      let dataPrevista = p.data_recebimento_prevista;
+
+      // Se for pagamento legado sem metadados salvos
+      if (!tipo) {
+        tipo = p.forma_pagamento === 'cartao_credito' ? 'credito' : 'debito';
+        parcelas = tipo === 'credito' ? 1 : null;
+        
+        const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
+        percentual = rate ? rate.percentual : (tipo === 'credito' ? 2.5 : 1.5);
+        taxaValor = Number(((p.valor * percentual) / 100).toFixed(2));
+        liquido = Number((p.valor - taxaValor).toFixed(2));
+
+        const dias = rate ? (rate.dias_recebimento || 0) : 0;
+        const prevDate = new Date(p.data_hora);
+        prevDate.setDate(prevDate.getDate() + dias);
+        dataPrevista = prevDate;
+      }
+
+      const adqNome = adqId ? (adqMap.get(adqId) || 'Não identificada') : 'Sem Adquirente';
+      const labelForma = rateDescMap.get(p.forma_pagamento) || (p.forma_pagamento === 'cartao_credito' ? 'Cartão Crédito' : p.forma_pagamento === 'cartao_debito' ? 'Cartão Débito' : p.forma_pagamento);
+
+      return {
+        id: p.id,
+        data_venda: p.data_hora,
+        forma_pagamento: p.forma_pagamento,
+        forma_pagamento_label: labelForma,
+        tipo_cartao: tipo,
+        adquirente_id: adqId,
+        adquirente_nome: adqNome,
+        parcelas: parcelas,
+        taxa_percentual: percentual,
+        taxa_valor: taxaValor,
+        valor_bruto: Number(p.valor),
+        valor_liquido: liquido,
+        data_recebimento_prevista: dataPrevista,
+        bandeira: p.cartao_bandeira || null
+      };
+    });
+
+    // 3. Aplicar filtros dinâmicos solicitados
+    if (adquirente_id && adquirente_id !== 'todos') {
+      if (adquirente_id === 'sem_adquirente') {
+        mapped = mapped.filter(item => item.adquirente_id === null);
+      } else {
+        mapped = mapped.filter(item => item.adquirente_id === adquirente_id);
+      }
+    }
+
+    if (cartao_tipo && cartao_tipo !== 'todos') {
+      mapped = mapped.filter(item => item.tipo_cartao === cartao_tipo);
+    }
+
+    if (forma_pagamento && forma_pagamento !== 'todos') {
+      mapped = mapped.filter(item => item.forma_pagamento === forma_pagamento);
+    }
+
+    // 4. Calcular consolidados
+    const totais = mapped.reduce((acc, item) => {
+      acc.bruto += item.valor_bruto;
+      acc.taxa += item.taxa_valor;
+      acc.liquido += item.valor_liquido;
+      return acc;
+    }, { bruto: 0, taxa: 0, liquido: 0 });
+
+    totais.bruto = Number(totais.bruto.toFixed(2));
+    totais.taxa = Number(totais.taxa.toFixed(2));
+    totais.liquido = Number(totais.liquido.toFixed(2));
+
+    // 5. Agrupado por adquirente (para o relatório comparativo de custos)
+    const porAdquirenteObj = {};
+    mapped.forEach(item => {
+      const nome = item.adquirente_nome;
+      if (!porAdquirenteObj[nome]) {
+        porAdquirenteObj[nome] = { adquirente: nome, bruto: 0, taxas: 0, liquido: 0 };
+      }
+      porAdquirenteObj[nome].bruto += item.valor_bruto;
+      porAdquirenteObj[nome].taxas += item.taxa_valor;
+      porAdquirenteObj[nome].liquido += item.valor_liquido;
+    });
+
+    const porAdquirente = Object.values(porAdquirenteObj).map(adq => ({
+      adquirente: adq.adquirente,
+      bruto: Number(adq.bruto.toFixed(2)),
+      taxas: Number(adq.taxas.toFixed(2)),
+      liquido: Number(adq.liquido.toFixed(2))
+    })).sort((a, b) => b.bruto - a.bruto);
+
+    res.json({
+      transacoes: mapped,
+      totais,
+      por_adquirente: porAdquirente
+    });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
   }
 };
 
@@ -2830,6 +2999,7 @@ export {
   relatorioEstoqueSemMovimentacao,
   relatorioEstoqueHistoricoAjustes,
   relatorioEstoqueInventario,
-  relatorioEstoquePerdasQuebras
+  relatorioEstoquePerdasQuebras,
+  relatorioCartoes
 };
 

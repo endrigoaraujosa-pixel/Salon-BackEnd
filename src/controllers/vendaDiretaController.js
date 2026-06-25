@@ -328,6 +328,9 @@ const addPagamentos = async (req, res) => {
     const dispositivo = `${req.ip || ''} - ${req.headers['user-agent'] || ''}`;
 
     const existingPags = await getPagamentoModel().findAll({ where: { venda_direta_id: req.params.id, deletado: 'N' }, transaction });
+    const { getTaxaCartaoModel } = await import('../models/TaxaCartao.js');
+    const cardRates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' }, transaction });
+    const cardKeys = cardRates.map(r => r.forma_pagamento);
     const pagoAtual = existingPags.reduce((acc, p) => acc + Number(p.valor || 0), 0);
     const remainingSaldo = Number((venda.valor_total - pagoAtual).toFixed(2));
 
@@ -437,7 +440,7 @@ const addPagamentos = async (req, res) => {
           novoTotal = venda.valor_total;
         } else {
           await transaction.rollback();
-          const isElectronic = pagamentos.some(p => ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(p.forma_pagamento));
+          const isElectronic = pagamentos.some(p => ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(p.forma_pagamento) || cardKeys.includes(p.forma_pagamento));
           const msg = isElectronic
             ? 'Não é permitido informar valor superior ao total da venda para esta forma de pagamento. Utilize o valor exato ou gere crédito para o cliente.'
             : 'Valor excede o total devido';
@@ -447,6 +450,58 @@ const addPagamentos = async (req, res) => {
     }
 
     for (const p of adjustedPagamentos) {
+      let cartao_tipo = null;
+      let adquirente_id = null;
+      let cartao_parcelas = null;
+      let cartao_taxa_percentual = null;
+      let cartao_taxa_valor = null;
+      let valor_liquido = p.valor;
+      let data_recebimento_prevista = null;
+
+      const baseRate = cardRates.find(r => r.forma_pagamento === p.forma_pagamento);
+      const rate = baseRate || null;
+
+      if (rate) {
+        cartao_tipo = rate.tipo_cartao || (p.forma_pagamento === 'cartao_credito' ? 'credito' : p.forma_pagamento === 'cartao_debito' ? 'debito' : null);
+        adquirente_id = rate.adquirente_id || null;
+
+        if (cartao_tipo === 'credito') {
+          const selectedParcela = Math.min(12, Math.max(1, parseInt(p.parcelas) || 1));
+          cartao_parcelas = selectedParcela;
+          const taxaField = `taxa_${selectedParcela}x`;
+          cartao_taxa_percentual = rate[taxaField] !== undefined ? rate[taxaField] : (rate.percentual || 0);
+        } else if (cartao_tipo === 'debito') {
+          cartao_taxa_percentual = rate.percentual || 0;
+        }
+
+        if (cartao_taxa_percentual !== null) {
+          cartao_taxa_valor = Number(((p.valor * cartao_taxa_percentual) / 100).toFixed(2));
+          valor_liquido = Number((p.valor - cartao_taxa_valor).toFixed(2));
+        }
+
+        const dias = rate.dias_recebimento || 0;
+        const prevDate = new Date();
+        prevDate.setDate(prevDate.getDate() + dias);
+        data_recebimento_prevista = prevDate;
+      } else {
+        if (p.forma_pagamento === 'cartao_credito') {
+          cartao_tipo = 'credito';
+          cartao_parcelas = Math.min(12, Math.max(1, parseInt(p.parcelas) || 1));
+          cartao_taxa_percentual = 2.5;
+          cartao_taxa_valor = Number(((p.valor * 2.5) / 100).toFixed(2));
+          valor_liquido = Number((p.valor - cartao_taxa_valor).toFixed(2));
+          const prevDate = new Date();
+          data_recebimento_prevista = prevDate;
+        } else if (p.forma_pagamento === 'cartao_debito') {
+          cartao_tipo = 'debito';
+          cartao_taxa_percentual = 1.5;
+          cartao_taxa_valor = Number(((p.valor * 1.5) / 100).toFixed(2));
+          valor_liquido = Number((p.valor - cartao_taxa_valor).toFixed(2));
+          const prevDate = new Date();
+          data_recebimento_prevista = prevDate;
+        }
+      }
+
       await getPagamentoModel().create({
         id: uuidv4(),
         venda_direta_id: req.params.id,
@@ -456,7 +511,15 @@ const addPagamentos = async (req, res) => {
         credito_gerado: p.credito_gerado || 0,
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
-        data_hora: new Date()
+        data_hora: new Date(),
+        cartao_tipo,
+        adquirente_id,
+        cartao_parcelas,
+        cartao_taxa_percentual,
+        cartao_taxa_valor,
+        valor_liquido,
+        data_recebimento_prevista,
+        cartao_bandeira: rate ? rate.bandeira : null
       }, { transaction });
     }
 
@@ -494,7 +557,7 @@ const addPagamentos = async (req, res) => {
 };
 
 const updatePagamento = async (req, res) => {
-  const { valor, forma_pagamento, observacao } = req.body;
+  const { valor, forma_pagamento, observacao, bandeira } = req.body;
   const transaction = await sequelize.transaction();
 
   try {
@@ -618,12 +681,70 @@ const updatePagamento = async (req, res) => {
           novaObservacao = `Troco: R$ ${excesso.toFixed(2).replace('.', ',')}` + (observacao ? ` - ${observacao}` : '');
         } else {
           await transaction.rollback();
-          const isElectronic = ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(forma_pagamento);
+          const { getTaxaCartaoModel } = await import('../models/TaxaCartao.js');
+          const cardRates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' }, transaction });
+          const cardKeys = cardRates.map(r => r.forma_pagamento);
+          const isElectronic = ['pix', 'cartao_credito', 'cartao_debito', 'vale'].includes(forma_pagamento) || cardKeys.includes(forma_pagamento);
           const msg = isElectronic
             ? 'Não é permitido informar valor superior ao total da venda para esta forma de pagamento. Utilize o valor exato ou gere crédito para o cliente.'
             : 'Valor excede o total devido';
           return res.status(400).json({ detail: msg });
         }
+      }
+    }
+
+    const { getTaxaCartaoModel } = await import('../models/TaxaCartao.js');
+    const cardRates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' }, transaction });
+    
+    let cartao_tipo = null;
+    let adquirente_id = null;
+    let cartao_parcelas = null;
+    let cartao_taxa_percentual = null;
+    let cartao_taxa_valor = null;
+    let valor_liquido = novoValorNet;
+    let data_recebimento_prevista = null;
+
+    const baseRate = cardRates.find(r => r.forma_pagamento === forma_pagamento);
+    const rate = baseRate || null;
+
+    if (rate) {
+      cartao_tipo = rate.tipo_cartao || (forma_pagamento === 'cartao_credito' ? 'credito' : forma_pagamento === 'cartao_debito' ? 'debito' : null);
+      adquirente_id = rate.adquirente_id || null;
+
+      if (cartao_tipo === 'credito') {
+        const selectedParcela = Math.min(12, Math.max(1, parseInt(req.body.parcelas) || 1));
+        cartao_parcelas = selectedParcela;
+        const taxaField = `taxa_${selectedParcela}x`;
+        cartao_taxa_percentual = rate[taxaField] !== undefined ? rate[taxaField] : (rate.percentual || 0);
+      } else if (cartao_tipo === 'debito') {
+        cartao_taxa_percentual = rate.percentual || 0;
+      }
+
+      if (cartao_taxa_percentual !== null) {
+        cartao_taxa_valor = Number(((novoValorNet * cartao_taxa_percentual) / 100).toFixed(2));
+        valor_liquido = Number((novoValorNet - cartao_taxa_valor).toFixed(2));
+      }
+
+      const dias = rate.dias_recebimento || 0;
+      const prevDate = new Date();
+      prevDate.setDate(prevDate.getDate() + dias);
+      data_recebimento_prevista = prevDate;
+    } else {
+      if (forma_pagamento === 'cartao_credito') {
+        cartao_tipo = 'credito';
+        cartao_parcelas = Math.min(12, Math.max(1, parseInt(req.body.parcelas) || 1));
+        cartao_taxa_percentual = 2.5;
+        cartao_taxa_valor = Number(((novoValorNet * 2.5) / 100).toFixed(2));
+        valor_liquido = Number((novoValorNet - cartao_taxa_valor).toFixed(2));
+        const prevDate = new Date();
+        data_recebimento_prevista = prevDate;
+      } else if (forma_pagamento === 'cartao_debito') {
+        cartao_tipo = 'debito';
+        cartao_taxa_percentual = 1.5;
+        cartao_taxa_valor = Number(((novoValorNet * 1.5) / 100).toFixed(2));
+        valor_liquido = Number((novoValorNet - cartao_taxa_valor).toFixed(2));
+        const prevDate = new Date();
+        data_recebimento_prevista = prevDate;
       }
     }
 
@@ -633,6 +754,14 @@ const updatePagamento = async (req, res) => {
     pagamento.credito_gerado = novoCreditoGerado;
     pagamento.forma_pagamento = forma_pagamento;
     pagamento.observacao = novaObservacao;
+    pagamento.cartao_tipo = cartao_tipo;
+    pagamento.adquirente_id = adquirente_id;
+    pagamento.cartao_parcelas = cartao_parcelas;
+    pagamento.cartao_taxa_percentual = cartao_taxa_percentual;
+    pagamento.cartao_taxa_valor = cartao_taxa_valor;
+    pagamento.valor_liquido = valor_liquido;
+    pagamento.data_recebimento_prevista = data_recebimento_prevista;
+    pagamento.cartao_bandeira = rate ? rate.bandeira : null;
     await pagamento.save({ transaction });
 
     const eraStatusAnteriorPago = venda.status === 'pago';

@@ -23,6 +23,11 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
     defaultValue: false,
     allowNull: false
   },
+  descontar_taxa_cartao_comissao: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
+  },
   trabalhar_credito_cliente: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
