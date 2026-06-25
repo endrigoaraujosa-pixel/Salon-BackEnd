@@ -22,6 +22,12 @@ const normalizeName = (name) => {
     .replace(/\s+/g, ' ');
 };
 
+const getQuantidadeCustoEstoque = (produto, quantidade = produto?.quantidade_estoque) => {
+  const qtd = Number(quantidade || 0);
+  const qtdPorUnidade = Number(produto?.quantidade_por_unidade || 0);
+  return qtdPorUnidade > 0 ? qtd / qtdPorUnidade : qtd;
+};
+
 const dashboard = async (req, res) => {
   try {
     const { data_inicio, data_fim, colaborador_id } = req.query;
@@ -1997,8 +2003,9 @@ const relatorioEstoque = async (req, res) => {
     const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
 
     const mappedProdutos = produtos.map(p => {
-      const valorTotalCusto = (p.quantidade_estoque || 0) * (p.custo_unitario || 0);
-      const valorTotalVenda = (p.quantidade_estoque || 0) * (p.preco_venda || 0);
+      const quantidadeCusto = getQuantidadeCustoEstoque(p);
+      const valorTotalCusto = quantidadeCusto * (p.custo_unitario || 0);
+      const valorTotalVenda = quantidadeCusto * (p.preco_venda || 0);
       const statusEstoque = (p.quantidade_estoque || 0) <= (p.estoque_minimo || 0) ? 'alerta' : 'normal';
 
       return {
@@ -2160,7 +2167,7 @@ const relatorioMovimentacaoEstoque = async (req, res) => {
         quantidade_anterior: m.quantidade_anterior,
         quantidade_atual: m.quantidade_atual,
         valor_unitario: m.valor_unitario || 0,
-        valor_total: Math.abs(m.quantidade) * (m.valor_unitario || 0),
+        valor_total: Math.abs(getQuantidadeCustoEstoque(prod, m.quantidade)) * (m.valor_unitario || 0),
         motivo: motivoFormatado,
         usuario_nome: m.usuario_nome || 'Sistema',
         unidade_medida: prod ? (prod.unidade_medida || 'un') : 'un',
@@ -2225,7 +2232,7 @@ const relatorioEstoqueAbaixoMinimo = async (req, res) => {
         estoque_minimo: p.estoque_minimo || 0,
         diferenca: diferenca > 0 ? diferenca : 0,
         custo_unitario: p.custo_unitario || 0,
-        valor_total_custo: (p.quantidade_estoque || 0) * (p.custo_unitario || 0),
+        valor_total_custo: getQuantidadeCustoEstoque(p) * (p.custo_unitario || 0),
         quantidade_por_unidade: p.quantidade_por_unidade || 0,
         quantidade_por_embalagem: p.quantidade_por_unidade || 0,
         unidade_medida_insumo: p.unidade_medida_insumo || ''
@@ -2341,8 +2348,9 @@ const relatorioEstoqueValorizacao = async (req, res) => {
     let totalItens = 0;
 
     const mapped = produtos.map(p => {
-      const vCusto = (p.quantidade_estoque || 0) * (p.custo_unitario || 0);
-      const vVenda = (p.quantidade_estoque || 0) * (p.preco_venda || 0);
+      const quantidadeCusto = getQuantidadeCustoEstoque(p);
+      const vCusto = quantidadeCusto * (p.custo_unitario || 0);
+      const vVenda = quantidadeCusto * (p.preco_venda || 0);
       const margemPotencial = vVenda - vCusto;
 
       totalCusto += vCusto;
@@ -2607,7 +2615,7 @@ const relatorioEstoqueSemMovimentacao = async (req, res) => {
         categoria_nome: categoriesMap.get(p.categoria_id) || p.categoria || 'Sem Categoria',
         quantidade_estoque: p.quantidade_estoque || 0,
         custo_unitario: p.custo_unitario || 0,
-        valor_total_custo: (p.quantidade_estoque || 0) * (p.custo_unitario || 0),
+        valor_total_custo: getQuantidadeCustoEstoque(p) * (p.custo_unitario || 0),
         data_ultima_mov: ultimaMov ? ultimaMov.criado_em : null,
         data_ultima_movimentacao: ultimaMov ? ultimaMov.criado_em : null,
         dias_sem_movimentacao: diffDays,
@@ -2734,7 +2742,7 @@ const relatorioEstoqueInventario = async (req, res) => {
       unidade_medida: p.unidade_medida || 'un',
       quantidade_estoque: p.quantidade_estoque || 0,
       custo_unitario: p.custo_unitario || 0,
-      valor_total_custo: (p.quantidade_estoque || 0) * (p.custo_unitario || 0),
+      valor_total_custo: getQuantidadeCustoEstoque(p) * (p.custo_unitario || 0),
       quantidade_por_unidade: p.quantidade_por_unidade || 0,
       quantidade_por_embalagem: p.quantidade_por_unidade || 0,
       unidade_medida_insumo: p.unidade_medida_insumo || ''
@@ -2802,7 +2810,7 @@ const relatorioEstoquePerdasQuebras = async (req, res) => {
       const prod = produtosMap.get(m.produto_id);
       const q = Math.abs(m.quantidade);
       const custo = m.valor_unitario || (prod ? prod.custo_unitario : 0) || 0;
-      const vPerda = q * custo;
+      const vPerda = Math.abs(getQuantidadeCustoEstoque(prod, m.quantidade)) * custo;
 
       totalPerdasQty += q;
       totalPerdasValor += vPerda;
