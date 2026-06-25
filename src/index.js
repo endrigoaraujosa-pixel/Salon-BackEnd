@@ -234,7 +234,7 @@ configRoutes.post('/whatsapp/iniciar-integracao', protect, requirePermission('co
 configRoutes.get('/whatsapp/status-integracao/:instance', protect, requirePermission('configuracoes'), getExternalStatus);
 configRoutes.get('/whatsapp/qr-code/:instance', protect, requirePermission('configuracoes'), getExternalQrCode);
 configRoutes.post('/whatsapp/local-disconnect', protect, requirePermission('configuracoes', 'editar'), postLocalDisconnect);
-configRoutes.post('/whatsapp/check-number', protect, requirePermission(['configuracoes', 'clientes', 'agenda']), postCheckWhatsappNumber);
+configRoutes.post('/whatsapp/check-number', protect, postCheckWhatsappNumber);
 app.get('/api/configuracoes/empresa/public', getPublicEmpresa);
 configRoutes.get('/motivos-estoque', protect, listMotivos);
 configRoutes.post('/motivos-estoque', protect, requirePermission('cadastros', 'editar'), createMotivo);
