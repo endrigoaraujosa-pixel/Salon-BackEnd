@@ -1175,7 +1175,21 @@ const relatorioCaixa = async (req, res) => {
 };
 
 const relatorioProdutos = async (req, res) => {
-  const { data_inicio, data_fim, colaborador_id, produto_id, categoria, forma_pagamento, cliente_id, status } = req.query;
+  const {
+    data_inicio,
+    data_fim,
+    colaborador_id,
+    produto_id,
+    categoria,
+    forma_pagamento,
+    cliente_id,
+    status,
+    page = 1,
+    limit = 50,
+    search = '',
+    sort_field = 'data_venda',
+    sort_direction = 'desc'
+  } = req.query;
 
   try {
     const where = { deletado: 'N' };
@@ -1287,6 +1301,41 @@ const relatorioProdutos = async (req, res) => {
       mappedVendas = mappedVendas.filter(v => v.formas_pagamento.includes(forma_pagamento));
     }
 
+    const normalizedSearch = String(search || '').trim().toLowerCase();
+    if (normalizedSearch) {
+      mappedVendas = mappedVendas.filter(v => {
+        const numStr = v.numero_venda ? String(v.numero_venda).padStart(6, '0') : '';
+        const formattedNum = v.numero_venda ? `${numStr} | V`.toLowerCase() : '';
+        return (
+          String(v.produto_nome || '').toLowerCase().includes(normalizedSearch) ||
+          String(v.colaborador_nome || '').toLowerCase().includes(normalizedSearch) ||
+          String(v.cliente_nome || '').toLowerCase().includes(normalizedSearch) ||
+          String(v.categoria || '').toLowerCase().includes(normalizedSearch) ||
+          numStr.includes(normalizedSearch) ||
+          formattedNum.includes(normalizedSearch)
+        );
+      });
+    }
+
+    const sortField = String(sort_field || 'data_venda');
+    const sortDirection = sort_direction === 'asc' ? 'asc' : 'desc';
+    mappedVendas.sort((a, b) => {
+      let valA = a[sortField];
+      let valB = b[sortField];
+
+      if (valA === undefined || valA === null) valA = '';
+      if (valB === undefined || valB === null) valB = '';
+
+      if (typeof valA === 'string') {
+        valA = valA.toLowerCase();
+        valB = String(valB).toLowerCase();
+      }
+
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
     // Totalizadores gerais
     let totalFaturamento = 0;
     let totalQuantidade = 0;
@@ -1322,8 +1371,21 @@ const relatorioProdutos = async (req, res) => {
 
     totalLucro = totalFaturamento - totalCusto;
 
+    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 50);
+    const totalRecords = mappedVendas.length;
+    const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+    const currentPage = Math.min(Math.max(parseInt(page, 10) || 1, 1), totalPages);
+    const startIndex = (currentPage - 1) * pageSize;
+    const paginatedVendas = mappedVendas.slice(startIndex, startIndex + pageSize);
+
     res.json({
-      vendas: mappedVendas,
+      vendas: paginatedVendas,
+      pagination: {
+        page: currentPage,
+        limit: pageSize,
+        total: totalRecords,
+        pages: totalPages
+      },
       totais: {
         total_faturamento: totalFaturamento,
         total_quantidade: totalQuantidade,
