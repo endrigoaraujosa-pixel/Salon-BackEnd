@@ -289,7 +289,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   return {
     cliente_id: body.cliente_id,
     cliente_nome: cliente.nome,
-    data_hora: body.data_hora.length === 16 ? body.data_hora + ':00.000Z' : body.data_hora,
+    data_hora: body.data_hora.length === 16 ? body.data_hora + ':00.000' : body.data_hora,
     itens,
     profissionais: Array.from(profsMap.values()),
     observacoes: body.observacoes || '',
