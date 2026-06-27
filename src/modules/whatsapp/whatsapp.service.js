@@ -137,7 +137,7 @@ export async function getHistory(filters = {}) {
     // Data e hora do agendamento formatadas para o fuso da agenda (America/Recife)
     agendamento_data_hora: l.Agendamento?.data_hora ? formatAgendaDate(l.Agendamento.data_hora) : null,
     agendamento_hora: l.Agendamento?.data_hora ? formatAgendaTime(l.Agendamento.data_hora) : null,
-    cliente_nome: l.Agendamento?.Cliente?.nome || l.Agendamento?.cliente_nome || ''
+    cliente_nome: l.Agendamento?.Cliente?.nome || l.Agendamento?.cliente_nome || '',
     cliente_telefone: l.Agendamento?.Cliente?.telefone || ''
   }));
   return {
