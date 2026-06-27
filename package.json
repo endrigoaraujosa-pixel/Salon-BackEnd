@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon --ignore *.sqlite --ignore *.sqlite-journal src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "echo \"No tests configured\"",
     "vercel-build": "npx sequelize-cli db:migrate",
     "migrate": "node scripts/migrate-all.js",
     "create-schema": "node scripts/createSchemaClient.js",
