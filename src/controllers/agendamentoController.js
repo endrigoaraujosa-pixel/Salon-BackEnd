@@ -1,5 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
+import { TZDate } from '@date-fns/tz';
+import { format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { generateReminders, cancelReminders, generateThankYouReminder } from '../modules/whatsapp/reminder.service.js';
 import { getClienteModel } from '../models/Cliente.js';
@@ -13,6 +15,46 @@ import { getDescontoModel } from '../models/Desconto.js';
 import { sequelize } from '../config/db.js';
 import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 import * as clienteCreditoService from '../services/clienteCreditoService.js';
+
+const AGENDA_TIME_ZONE = 'America/Recife';
+
+const normalizeAgendaDateTime = (value) => {
+  if (!value) return value;
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  const rawValue = String(value).trim();
+
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(rawValue)) {
+    return new Date(rawValue);
+  }
+
+  const match = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?/);
+
+  if (!match) {
+    return new Date(rawValue);
+  }
+
+  const [, year, month, day, hour, minute, second = '0', millisecond = '0'] = match;
+  const agendaDate = new TZDate(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    Number(millisecond.padEnd(3, '0')),
+    AGENDA_TIME_ZONE
+  );
+
+  return new Date(agendaDate.getTime());
+};
+
+const formatAgendaDate = (value) => format(new TZDate(value, AGENDA_TIME_ZONE), 'yyyy-MM-dd');
+const formatAgendaTime = (value) => format(new TZDate(value, AGENDA_TIME_ZONE), 'HH:mm');
+
 
 export const adjustStock = async (ag, type, options = {}) => {
   const transaction = options.transaction;
@@ -246,11 +288,12 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
     }
   }
 
-  const novoInicio = new Date(body.data_hora);
+  const dataHoraNormalizada = normalizeAgendaDateTime(body.data_hora);
+  const novoInicio = dataHoraNormalizada;
   const novoFim = new Date(novoInicio.getTime() + duracaoTotal * 60000);
-  const dataBusca = body.data_hora.split('T')[0];
-  const dataInicioDia = `${dataBusca}T00:00:00`;
-  const dataFimDia = `${dataBusca}T23:59:59`;
+  const dataBusca = formatAgendaDate(dataHoraNormalizada);
+  const dataInicioDia = normalizeAgendaDateTime(`${dataBusca}T00:00:00`);
+  const dataFimDia = normalizeAgendaDateTime(`${dataBusca}T23:59:59`);
 
   const where = {
     data_hora: { [Op.between]: [dataInicioDia, dataFimDia] },
@@ -279,7 +322,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
 
           if (conflito) {
             const profConflito = (await getColaboradorModel().findByPk(idsVerificar.find(id => profsNoExistente.includes(id))))?.nome;
-            throw new Error(`Conflito de horário: O profissional ${profConflito} já possui um agendamento entre ${agInicio.toLocaleTimeString()} e ${agFim.toLocaleTimeString()}`);
+            throw new Error(`Conflito de horário: O profissional ${profConflito} já possui um agendamento entre ${formatAgendaTime(agInicio)} e ${formatAgendaTime(agFim)}`);
           }
         }
       }
@@ -289,7 +332,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   return {
     cliente_id: body.cliente_id,
     cliente_nome: cliente.nome,
-    data_hora: body.data_hora.length === 16 ? body.data_hora + ':00.000' : body.data_hora,
+    data_hora: dataHoraNormalizada,
     itens,
     profissionais: Array.from(profsMap.values()),
     observacoes: body.observacoes || '',
@@ -323,13 +366,13 @@ const listAgend = async (req, res) => {
       { [Op.like]: `%${searchVal}%` }
     );
   } else if (data) {
-    where.data_hora = { [Op.between]: [`${data}T00:00:00`, `${data}T23:59:59`] };
+    where.data_hora = { [Op.between]: [normalizeAgendaDateTime(`${data}T00:00:00`), normalizeAgendaDateTime(`${data}T23:59:59`)] };
   } else if (mes) {
     const [year, month] = mes.split('-').map(Number);
     const lastDay = new Date(year, month, 0).getDate();
-    where.data_hora = { [Op.between]: [`${mes}-01T00:00:00`, `${mes}-${String(lastDay).padStart(2, '0')}T23:59:59`] };
+    where.data_hora = { [Op.between]: [normalizeAgendaDateTime(`${mes}-01T00:00:00`), normalizeAgendaDateTime(`${mes}-${String(lastDay).padStart(2, '0')}T23:59:59`)] };
   } else if (data_inicio && data_fim) {
-    where.data_hora = { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] };
+    where.data_hora = { [Op.between]: [normalizeAgendaDateTime(`${data_inicio}T00:00:00`), normalizeAgendaDateTime(`${data_fim}T23:59:59`)] };
   }
 
   try {
