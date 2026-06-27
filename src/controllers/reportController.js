@@ -11,6 +11,7 @@ import { getCategoriaModel } from '../models/Categoria.js';
 import { getDespesaModel } from '../models/Despesa.js';
 import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
 import { getServicoModel } from '../models/Servico.js';
+import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 
 const normalizeName = (name) => {
   if (!name) return '';
@@ -1552,6 +1553,9 @@ const relatorioResultadoOperacional = async (req, res) => {
   }
 
   try {
+    const systemConfig = await getConfiguracaoSistemaModel().findOne();
+    const descontar_taxa_cartao_comissao = systemConfig ? !!systemConfig.descontar_taxa_cartao_comissao : false;
+
     // 1. Fetch auxiliary catalogs
     const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
     const colabMap = new Map(colaboradores.map(c => [c.id, c]));
@@ -1720,9 +1724,18 @@ const relatorioResultadoOperacional = async (req, res) => {
           }
         }
 
-        const baseCom = item.base_comissao_final !== undefined
-          ? Number(item.base_comissao_final)
+        const baseComOriginal = item.base_comissao_original !== undefined
+          ? Number(item.base_comissao_original)
           : Math.max(0, val_serv_comissao - insumoCost);
+
+        const taxa_cartao_descontada = item.taxa_cartao_descontada !== undefined
+          ? Number(item.taxa_cartao_descontada)
+          : 0;
+
+        let baseCom = baseComOriginal;
+        if (descontar_taxa_cartao_comissao) {
+          baseCom = Math.max(0, baseComOriginal - taxa_cartao_descontada);
+        }
 
         // Calculate principal collaborator commission
         let comissaoVal = 0;

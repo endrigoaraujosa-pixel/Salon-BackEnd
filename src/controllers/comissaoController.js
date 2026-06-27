@@ -241,7 +241,16 @@ const listComissoes = async (req, res) => {
                 ? Number(item.base_comissao_original)
                 : Math.max(0, val_serv_comissao - custo_produtos);
               
-              const val_com = Math.max(0, base_comissao_original * (pct / 100));
+              const taxa_cartao_descontada = item.taxa_cartao_descontada !== undefined
+                ? Number(item.taxa_cartao_descontada)
+                : 0;
+
+              let base_comissao_final = base_comissao_original;
+              if (descontar_taxa_cartao_comissao) {
+                base_comissao_final = Math.max(0, base_comissao_original - taxa_cartao_descontada);
+              }
+
+              const val_com = Math.max(0, base_comissao_final * (pct / 100));
 
               const s_model = servicos.find(x => x.id === item.servico_id);
               const linkedCount = s_model?.produtos_vinculados?.length || 0;
@@ -256,7 +265,7 @@ const listComissoes = async (req, res) => {
                 data: ag.data_hora,
                 valor_movimentacao: val_serv,
                 custo_produtos: Number(custo_produtos.toFixed(2)),
-                base_comissao: Number(base_comissao_original.toFixed(2)),
+                base_comissao: Number(base_comissao_final.toFixed(2)),
                 percentual_aplicado: pct,
                 valor_comissao: Number(val_com.toFixed(2)),
                 pago: !!item.comissao_paga_auxiliar,
