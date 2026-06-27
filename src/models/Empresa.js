@@ -73,7 +73,8 @@ const Empresa = sequelize.define('Empresa', {
 
 export const getEmpresaModel = () => {
   const tenant = getTenantSchema();
-  return Empresa.schema(tenant);
+  // If no tenant schema is set (e.g., public routes), use the base model.
+  return tenant ? Empresa.schema(tenant) : Empresa;
 };
 
 export default Empresa;
