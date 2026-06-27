@@ -8,6 +8,7 @@ import { DEFAULT_TEMPLATE, formatMessage } from './templates/reminder.template.j
 import { DEFAULT_THANKYOU_TEMPLATE, formatThankYouMessage } from './templates/thankyou.template.js';
 import { TZDate } from '@date-fns/tz';
 import { format } from 'date-fns';
+import { formatAgendaDate, formatAgendaTime } from '../../utils/agendaDateTime.js';
 
 /**
  * Obtém a configuração do WhatsApp, criando-a com valores padrão caso não exista.
@@ -194,10 +195,9 @@ export async function resendReminder(reminderId) {
     }).join("\n");
   }
 
-  // Formatar data e hora usando a biblioteca date-fns
-  const tzDate = new TZDate(agendamento.data_hora, "UTC");
-  const formattedDate = format(tzDate, "dd/MM/yyyy");
-  const formattedTime = format(tzDate, "HH:mm");
+    // Formatar data e hora usando a zona de agenda (America/Recife)
+    const formattedDate = formatAgendaDate(agendamento.data_hora);
+    const formattedTime = formatAgendaTime(agendamento.data_hora);
 
   let messageText;
   if (reminder.tipo_lembrete === 'agradecimento') {
