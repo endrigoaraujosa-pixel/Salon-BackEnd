@@ -1,7 +1,5 @@
 import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
-import { TZDate } from '@date-fns/tz';
-import { format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { generateReminders, cancelReminders, generateThankYouReminder } from '../modules/whatsapp/reminder.service.js';
 import { getClienteModel } from '../models/Cliente.js';
@@ -15,46 +13,7 @@ import { getDescontoModel } from '../models/Desconto.js';
 import { sequelize } from '../config/db.js';
 import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 import * as clienteCreditoService from '../services/clienteCreditoService.js';
-
-const AGENDA_TIME_ZONE = 'America/Recife';
-
-const normalizeAgendaDateTime = (value) => {
-  if (!value) return value;
-
-  if (value instanceof Date) {
-    return value;
-  }
-
-  const rawValue = String(value).trim();
-
-  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(rawValue)) {
-    return new Date(rawValue);
-  }
-
-  const match = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?/);
-
-  if (!match) {
-    return new Date(rawValue);
-  }
-
-  const [, year, month, day, hour, minute, second = '0', millisecond = '0'] = match;
-  const agendaDate = new TZDate(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
-    Number(millisecond.padEnd(3, '0')),
-    AGENDA_TIME_ZONE
-  );
-
-  return new Date(agendaDate.getTime());
-};
-
-const formatAgendaDate = (value) => format(new TZDate(value, AGENDA_TIME_ZONE), 'yyyy-MM-dd');
-const formatAgendaTime = (value) => format(new TZDate(value, AGENDA_TIME_ZONE), 'HH:mm');
-
+import { buildAgendaDayRange, formatAgendaDate, formatAgendaTime, normalizeAgendaDateTime } from '../utils/agendaDateTime.js';
 
 export const adjustStock = async (ag, type, options = {}) => {
   const transaction = options.transaction;
@@ -292,8 +251,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   const novoInicio = dataHoraNormalizada;
   const novoFim = new Date(novoInicio.getTime() + duracaoTotal * 60000);
   const dataBusca = formatAgendaDate(dataHoraNormalizada);
-  const dataInicioDia = normalizeAgendaDateTime(`${dataBusca}T00:00:00`);
-  const dataFimDia = normalizeAgendaDateTime(`${dataBusca}T23:59:59`);
+  const { start: dataInicioDia, end: dataFimDia } = buildAgendaDayRange(dataBusca);
 
   const where = {
     data_hora: { [Op.between]: [dataInicioDia, dataFimDia] },
@@ -366,13 +324,18 @@ const listAgend = async (req, res) => {
       { [Op.like]: `%${searchVal}%` }
     );
   } else if (data) {
-    where.data_hora = { [Op.between]: [normalizeAgendaDateTime(`${data}T00:00:00`), normalizeAgendaDateTime(`${data}T23:59:59`)] };
+    const { start, end } = buildAgendaDayRange(data);
+    where.data_hora = { [Op.between]: [start, end] };
   } else if (mes) {
     const [year, month] = mes.split('-').map(Number);
     const lastDay = new Date(year, month, 0).getDate();
-    where.data_hora = { [Op.between]: [normalizeAgendaDateTime(`${mes}-01T00:00:00`), normalizeAgendaDateTime(`${mes}-${String(lastDay).padStart(2, '0')}T23:59:59`)] };
+    const start = normalizeAgendaDateTime(`${mes}-01T00:00:00`);
+    const end = normalizeAgendaDateTime(`${mes}-${String(lastDay).padStart(2, '0')}T23:59:59`);
+    where.data_hora = { [Op.between]: [start, end] };
   } else if (data_inicio && data_fim) {
-    where.data_hora = { [Op.between]: [normalizeAgendaDateTime(`${data_inicio}T00:00:00`), normalizeAgendaDateTime(`${data_fim}T23:59:59`)] };
+    const start = normalizeAgendaDateTime(`${data_inicio}T00:00:00`);
+    const end = normalizeAgendaDateTime(`${data_fim}T23:59:59`);
+    where.data_hora = { [Op.between]: [start, end] };
   }
 
   try {
