@@ -150,6 +150,62 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
             return;
           }
 
+          // 1. Validar elegibilidade baseada no tipo de lembrete e status do agendamento
+          if (reminder.tipo_lembrete === 'agradecimento') {
+            if (ag.status !== 'concluido') {
+              console.log(`[WhatsAppReminderJob] Lembrete agradecimento ID ${reminder.id} cancelado pois agendamento ${ag.id} está com status ${ag.status}.`);
+              reminder.status = 'Cancelado';
+              reminder.erro = 'Agendamento não concluído';
+              await reminder.save();
+              return;
+            }
+          } else {
+            if (ag.status === 'concluido') {
+              console.log(`[WhatsAppReminderJob] Lembrete padrão ID ${reminder.id} cancelado pois agendamento ${ag.id} está concluído.`);
+              reminder.status = 'Cancelado';
+              reminder.erro = 'Agendamento concluído';
+              await reminder.save();
+              return;
+            }
+            if (ag.status !== 'agendado' && ag.status !== 'confirmado') {
+              console.log(`[WhatsAppReminderJob] Lembrete padrão ID ${reminder.id} cancelado pois agendamento ${ag.id} está com status ${ag.status}.`);
+              reminder.status = 'Cancelado';
+              reminder.erro = `Agendamento com status ${ag.status}`;
+              await reminder.save();
+              return;
+            }
+          }
+
+          // 2. Validar se a configuração específica está ativa (marca como 'Ignorado' para histórico)
+          if (reminder.tipo_lembrete === '24h' && Number(config.lembrete_24h) !== 1) {
+            console.log(`[WhatsAppReminderJob] Lembrete 24h desativado na configuração. Marcando ID ${reminder.id} como Ignorado.`);
+            reminder.status = 'Ignorado';
+            reminder.erro = 'Configuração lembrete 24h desativada';
+            await reminder.save();
+            return;
+          }
+          if (reminder.tipo_lembrete === '2h' && Number(config.lembrete_2h) !== 1) {
+            console.log(`[WhatsAppReminderJob] Lembrete 2h desativado na configuração. Marcando ID ${reminder.id} como Ignorado.`);
+            reminder.status = 'Ignorado';
+            reminder.erro = 'Configuração lembrete 2h desativada';
+            await reminder.save();
+            return;
+          }
+          if (reminder.tipo_lembrete === '1h' && Number(config.lembrete_1h) !== 1) {
+            console.log(`[WhatsAppReminderJob] Lembrete 1h desativado na configuração. Marcando ID ${reminder.id} como Ignorado.`);
+            reminder.status = 'Ignorado';
+            reminder.erro = 'Configuração lembrete 1h desativada';
+            await reminder.save();
+            return;
+          }
+          if (reminder.tipo_lembrete === 'agradecimento' && Number(config.agradecimento_ativo) !== 1) {
+            console.log(`[WhatsAppReminderJob] Lembrete agradecimento desativado na configuração. Marcando ID ${reminder.id} como Ignorado.`);
+            reminder.status = 'Ignorado';
+            reminder.erro = 'Configuração agradecimento desativada';
+            await reminder.save();
+            return;
+          }
+
           const cliente = clientesMap[ag.cliente_id];
           if (!cliente || cliente.deletado === 'S') {
             console.log(`[WhatsAppReminderJob] Cliente ID ${ag.cliente_id} deletado ou não encontrado.`);

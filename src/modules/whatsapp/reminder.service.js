@@ -80,26 +80,6 @@ export async function generateReminders(agendamento) {
     if (Number(config.lembrete_2h) === 1) activeReminders.push({ type: '2h', hoursBefore: 2 });
     if (Number(config.lembrete_1h) === 1) activeReminders.push({ type: '1h', hoursBefore: 1 });
 
-    const activeTypes = activeReminders.map(r => r.type);
-
-    // Cancelar e arquivar/renomear lembretes pendentes que foram desativados nas configurações
-    const inactivePendentes = await getWhatsappLembreteModel().findAll({
-      where: {
-        agendamento_id: agendamento.id,
-        status: 'Pendente',
-        tipo_lembrete: {
-          [Op.notIn]: activeTypes
-        }
-      }
-    });
-
-    for (const rem of inactivePendentes) {
-      rem.status = 'Cancelado';
-      rem.tipo_lembrete = `${rem.tipo_lembrete}_cancelado_${rem.id}`;
-      await rem.save();
-      console.log(`[WhatsAppReminderService] Lembrete desativado ${rem.tipo_lembrete} cancelado para agendamento ${agendamento.id}.`);
-    }
-
     const appointmentDate = normalizeAgendaDateTime(agendamento.data_hora);
 
     for (const item of activeReminders) {
@@ -157,15 +137,7 @@ export async function generateReminders(agendamento) {
           console.error(`[WhatsAppReminderService] Erro ao criar/atualizar lembrete ${item.type} para agendamento ${agendamento.id}:`, err);
         }
       } else {
-        // Se a nova data programada é no passado, mas há um lembrete pendente antigo, ele deve ser cancelado
-        if (existing && existing.status !== 'Enviado') {
-          existing.status = 'Cancelado';
-          existing.tipo_lembrete = `${existing.tipo_lembrete}_cancelado_${existing.id}`;
-          await existing.save();
-          console.log(`[WhatsAppReminderService] Lembrete ${item.type} cancelado pois o novo horário programado seria no passado (${scheduledTime.toISOString()}).`);
-        } else {
-          console.log(`[WhatsAppReminderService] Lembrete ${item.type} para agendamento ${agendamento.id} não gerado pois a data programada (${scheduledTime.toISOString()}) seria no passado.`);
-        }
+        console.log(`[WhatsAppReminderService] Lembrete ${item.type} para agendamento ${agendamento.id} não processado pois a data programada (${scheduledTime.toISOString()}) seria no passado.`);
       }
     }
   } catch (error) {
