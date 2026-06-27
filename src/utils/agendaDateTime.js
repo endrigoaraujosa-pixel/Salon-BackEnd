@@ -44,6 +44,9 @@ export const formatAgendaDate = (value) => format(new TZDate(value, AGENDA_TIME_
 
 export const formatAgendaTime = (value) => format(new TZDate(value, AGENDA_TIME_ZONE), 'HH:mm');
 
+export const formatAgendaDateTime = (value) => format(new TZDate(value, AGENDA_TIME_ZONE), "yyyy-MM-dd'T'HH:mm:ss");
+
+
 export const buildAgendaDayRange = (date) => ({
   start: normalizeAgendaDateTime(`${date}T00:00:00`),
   end: normalizeAgendaDateTime(`${date}T23:59:59`)

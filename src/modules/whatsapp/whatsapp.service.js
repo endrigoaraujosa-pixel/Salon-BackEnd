@@ -8,7 +8,7 @@ import { DEFAULT_TEMPLATE, formatMessage } from './templates/reminder.template.j
 import { DEFAULT_THANKYOU_TEMPLATE, formatThankYouMessage } from './templates/thankyou.template.js';
 import { TZDate } from '@date-fns/tz';
 import { format } from 'date-fns';
-import { formatAgendaDate, formatAgendaTime } from '../../utils/agendaDateTime.js';
+import { formatAgendaDate, formatAgendaTime, formatAgendaDateTime } from '../../utils/agendaDateTime.js';
 
 /**
  * Obtém a configuração do WhatsApp, criando-a com valores padrão caso não exista.
@@ -127,15 +127,15 @@ export async function getHistory(filters = {}) {
     id: l.id,
     agendamento_id: l.agendamento_id,
     tipo_lembrete: l.tipo_lembrete,
-    data_programada: l.data_programada,
-    data_envio: l.data_envio,
+    data_programada: l.data_programada ? formatAgendaDateTime(l.data_programada) : null,
+    data_envio: l.data_envio ? formatAgendaDateTime(l.data_envio) : null,
     status: l.status,
     mensagem: l.mensagem,
     erro: l.erro,
     tentativas: l.tentativas,
     agendamento_numero: l.Agendamento?.numero || null,
     // Data e hora do agendamento formatadas para o fuso da agenda (America/Recife)
-    agendamento_data_hora: l.Agendamento?.data_hora ? formatAgendaDate(l.Agendamento.data_hora) : null,
+    agendamento_data_hora: l.Agendamento?.data_hora ? formatAgendaDateTime(l.Agendamento.data_hora) : null,
     agendamento_hora: l.Agendamento?.data_hora ? formatAgendaTime(l.Agendamento.data_hora) : null,
     cliente_nome: l.Agendamento?.Cliente?.nome || l.Agendamento?.cliente_nome || '',
     cliente_telefone: l.Agendamento?.Cliente?.telefone || ''
