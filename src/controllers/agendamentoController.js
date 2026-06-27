@@ -829,7 +829,15 @@ const addPagamentos = async (req, res) => {
 
     const oldStatus = ag.status;
     ag.valor_pago = novoTotal;
-    if (finalizar && novoTotal >= ag.valor_total - 0.01) {
+
+    let shouldConclude = false;
+    if (Number(ag.valor_total) === 0) {
+      shouldConclude = true;
+    } else if (finalizar && novoTotal >= ag.valor_total - 0.01) {
+      shouldConclude = true;
+    }
+
+    if (shouldConclude) {
       for (const item of ag.itens || []) {
         if (!item.colaborador_id || item.colaborador_id === "none") {
           await transaction.rollback();
