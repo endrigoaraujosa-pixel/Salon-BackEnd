@@ -1741,18 +1741,22 @@ const relatorioResultadoOperacional = async (req, res) => {
         let comissaoVal = 0;
         const colabPrincipal = colabMap.get(item.colaborador_id);
         if (colabPrincipal) {
-          const temAuxiliar = !!(item.auxiliar_id && String(item.auxiliar_id).trim() !== "" && String(item.auxiliar_id).trim() !== "null");
-          const pct = temAuxiliar
-            ? Number(colabPrincipal.comissao_ajuda != null ? colabPrincipal.comissao_ajuda : 30)
-            : Number(colabPrincipal.comissao_sozinho != null ? colabPrincipal.comissao_sozinho : (colabPrincipal.comissao_principal || 0));
-          comissaoVal += baseCom * (pct / 100);
+          if (!colaborador_id || colaborador_id === 'todos' || String(item.colaborador_id) === String(colaborador_id)) {
+            const temAuxiliar = !!(item.auxiliar_id && String(item.auxiliar_id).trim() !== "" && String(item.auxiliar_id).trim() !== "null");
+            const pct = temAuxiliar
+              ? Number(colabPrincipal.comissao_ajuda != null ? colabPrincipal.comissao_ajuda : 30)
+              : Number(colabPrincipal.comissao_sozinho != null ? colabPrincipal.comissao_sozinho : (colabPrincipal.comissao_principal || 0));
+            comissaoVal += baseCom * (pct / 100);
+          }
         }
 
         // Calculate auxiliary collaborator commission
         const colabAuxiliar = colabMap.get(item.auxiliar_id);
         if (colabAuxiliar) {
-          const pct = Number(colabAuxiliar.comissao_auxiliar || 0);
-          comissaoVal += baseCom * (pct / 100);
+          if (!colaborador_id || colaborador_id === 'todos' || String(item.auxiliar_id) === String(colaborador_id)) {
+            const pct = Number(colabAuxiliar.comissao_auxiliar || 0);
+            comissaoVal += baseCom * (pct / 100);
+          }
         }
 
         // Calculate proportional fee
