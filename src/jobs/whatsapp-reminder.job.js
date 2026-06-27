@@ -12,29 +12,20 @@ import { formatMessage } from '../modules/whatsapp/templates/reminder.template.j
 import { formatThankYouMessage } from '../modules/whatsapp/templates/thankyou.template.js';
 
 /**
- * Auxiliar para formatar data e hora de forma neutra de fuso horário.
+ * Auxiliar para formatar data e hora no fuso horário da agenda (America/Recife).
  */
 function parseDateString(dateInput) {
   if (!dateInput) return { date: "", time: "" };
 
-  // Caso venha como objeto Date, converte para string ISO
-  const isoStr = dateInput instanceof Date ? dateInput.toISOString() : String(dateInput);
-
-  const parts = isoStr.replace(' ', 'T').split('T');
-  const datePart = parts[0]; // Ex: "2026-06-01"
-  const timePart = parts[1] || '00:00:00'; // Ex: "12:00:00.000Z"
-
-  const dateParts = datePart.split('-');
-  const formattedDate = dateParts.length === 3
-    ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`
-    : datePart;
-
-  const timeParts = timePart.split(':');
-  const formattedTime = timeParts.length >= 2
-    ? `${timeParts[0]}:${timeParts[1]}`
-    : '00:00';
-
-  return { date: formattedDate, time: formattedTime };
+  try {
+    const tzDate = new TZDate(dateInput, 'America/Recife');
+    const formattedDate = format(tzDate, 'dd/MM/yyyy');
+    const formattedTime = format(tzDate, 'HH:mm');
+    return { date: formattedDate, time: formattedTime };
+  } catch (err) {
+    console.error("[WhatsAppReminderJob] Erro ao converter data/hora para o fuso horário da agenda:", err);
+    return { date: "", time: "" };
+  }
 }
 
 /**
@@ -85,7 +76,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
         where: {
           status: 'Pendente',
           data_programada: {
-            [Op.lte]: format(TZDate.tz("America/Sao_Paulo"), "yyyy-MM-dd HH:mm:ss'Z'")
+            [Op.lte]: new Date()
           },
           tentativas: {
             [Op.lt]: 3
@@ -218,9 +209,8 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
           const result = await whatsappProvider.sendMessage(phone, messageText, config);
 
           if (result.success) {
-            const date = TZDate.tz("America/Sao_Paulo");
             reminder.status = 'Enviado';
-            reminder.data_envio = format(date, "yyyy-MM-dd HH:mm:ss'Z'");
+            reminder.data_envio = new Date();
             reminder.mensagem = messageText;
             reminder.erro = null;
             await reminder.save();

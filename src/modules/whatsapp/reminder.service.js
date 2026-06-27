@@ -8,6 +8,7 @@ import { formatPhoneNumber } from '../../utils/index.js';
 import { normalizeAgendaDateTime } from '../../utils/agendaDateTime.js';
 import axios from 'axios';
 import { addMinutes } from 'date-fns';
+import { Op } from 'sequelize';
 
 /**
  * Gera os lembretes automáticos na tabela whatsapp_lembretes para um agendamento.
@@ -49,35 +50,29 @@ export async function generateReminders(agendamento) {
 
     const instance = config?.instancia;
     const baseUrl = process.env.EVOLUTION_API_URL;
-    const urlCheckNumber = `${baseUrl}/chat/whatsappNumbers/${instance}`;
+    
+    // Apenas verifica se o número existe se estiver no modo provedor externo e com configurações
+    if (config.api_url === 'external' && baseUrl && instance) {
+      const urlCheckNumber = `${baseUrl}/chat/whatsappNumbers/${instance}`;
+      try {
+        const response = await axios.post(urlCheckNumber, {
+          numbers: [phone]
+        }, {
+          headers: {
+            "apikey": process.env.EVOLUTION_API_TOKEN,
+            'Content-Type': 'application/json'
+          }
+        });
 
-    const response = await axios.post(urlCheckNumber, {
-      numbers: [phone]
-    }, {
-      headers: {
-        "apikey": process.env.EVOLUTION_API_TOKEN,
-        'Content-Type': 'application/json'
+        if (!response.data || !response.data[0] || !response.data[0].exists) {
+          console.log(`[WhatsAppReminderService] O número ${phone} não está cadastrado no WhatsApp. Lembrete não gerado.`);
+          return;
+        }
+      } catch (err) {
+        console.error(`[WhatsAppReminderService] Erro ao verificar número na API externa:`, err.message);
+        // Em caso de falha da API externa de verificação, não impedimos a criação do lembrete localmente
       }
-    });
-
-    if (!response.data[0].exists) {
-      return;
     }
-
-    // Cancelar/renomear lembretes antigos pendentes para evitar violação do índice único
-    // "Ao alterar data ou hora: 1. Cancelar lembretes antigos. 2. Gerar novos lembretes com base na nova data."
-    // await getWhatsappLembreteModel().update(
-    //   {
-    //     status: 'Cancelado',
-    //     tipo_lembrete: sequelize.literal("tipo_lembrete || '_cancelado_' || id")
-    //   },
-    //   {
-    //     where: {
-    //       agendamento_id: agendamento.id,
-    //       status: 'Pendente'
-    //     }
-    //   }
-    // );
 
     // 3. Identificar lembretes habilitados.
     const activeReminders = [];
@@ -85,23 +80,43 @@ export async function generateReminders(agendamento) {
     if (Number(config.lembrete_2h) === 1) activeReminders.push({ type: '2h', hoursBefore: 2 });
     if (Number(config.lembrete_1h) === 1) activeReminders.push({ type: '1h', hoursBefore: 1 });
 
+    const activeTypes = activeReminders.map(r => r.type);
+
+    // Cancelar e arquivar/renomear lembretes pendentes que foram desativados nas configurações
+    const inactivePendentes = await getWhatsappLembreteModel().findAll({
+      where: {
+        agendamento_id: agendamento.id,
+        status: 'Pendente',
+        tipo_lembrete: {
+          [Op.notIn]: activeTypes
+        }
+      }
+    });
+
+    for (const rem of inactivePendentes) {
+      rem.status = 'Cancelado';
+      rem.tipo_lembrete = `${rem.tipo_lembrete}_cancelado_${rem.id}`;
+      await rem.save();
+      console.log(`[WhatsAppReminderService] Lembrete desativado ${rem.tipo_lembrete} cancelado para agendamento ${agendamento.id}.`);
+    }
+
     const appointmentDate = normalizeAgendaDateTime(agendamento.data_hora);
 
     for (const item of activeReminders) {
       // Calcular data_programada
       const scheduledTime = new Date(appointmentDate.getTime() - item.hoursBefore * 60 * 60 * 1000);
 
+      // Prevenção de duplicidade: checar se já existe um lembrete ativo
+      const existing = await getWhatsappLembreteModel().findOne({
+        where: {
+          agendamento_id: agendamento.id,
+          tipo_lembrete: item.type
+        }
+      });
+
       // Apenas gera se a data_programada for no futuro
       if (scheduledTime > new Date()) {
         try {
-          // Prevenção de duplicidade: checar se já existe um lembrete idêntico ativo (por garantia)
-          const existing = await getWhatsappLembreteModel().findOne({
-            where: {
-              agendamento_id: agendamento.id,
-              tipo_lembrete: item.type
-            }
-          });
-
           if (!existing) {
             await getWhatsappLembreteModel().create({
               agendamento_id: agendamento.id,
@@ -112,7 +127,7 @@ export async function generateReminders(agendamento) {
             });
             console.log(`[WhatsAppReminderService] Lembrete ${item.type} criado para agendamento ${agendamento.id} para ${scheduledTime.toISOString()}.`);
           } else {
-            // Se já existe e não foi enviado, atualiza
+            // Se já existe e não foi enviado, atualiza a data e redefine
             if (existing.status !== 'Enviado') {
               existing.data_programada = scheduledTime;
               existing.status = 'Pendente';
@@ -121,13 +136,36 @@ export async function generateReminders(agendamento) {
               existing.erro = null;
               await existing.save();
               console.log(`[WhatsAppReminderService] Lembrete ${item.type} atualizado para agendamento ${agendamento.id} para ${scheduledTime.toISOString()}.`);
+            } else {
+              // Se já foi enviado, mas o horário agendado mudou, precisamos arquivar o antigo e criar um novo
+              if (existing.data_programada.getTime() !== scheduledTime.getTime()) {
+                existing.tipo_lembrete = `${existing.tipo_lembrete}_enviado_${existing.id}`;
+                await existing.save();
+
+                await getWhatsappLembreteModel().create({
+                  agendamento_id: agendamento.id,
+                  tipo_lembrete: item.type,
+                  data_programada: scheduledTime,
+                  status: 'Pendente',
+                  tentativas: 0
+                });
+                console.log(`[WhatsAppReminderService] Lembrete ${item.type} enviado anteriormente foi arquivado. Novo lembrete gerado para ${scheduledTime.toISOString()}.`);
+              }
             }
           }
         } catch (err) {
-          console.error(`[WhatsAppReminderService] Erro ao criar lembrete ${item.type} para agendamento ${agendamento.id}:`, err);
+          console.error(`[WhatsAppReminderService] Erro ao criar/atualizar lembrete ${item.type} para agendamento ${agendamento.id}:`, err);
         }
       } else {
-        console.log(`[WhatsAppReminderService] Lembrete ${item.type} para agendamento ${agendamento.id} não criado pois a data programada (${scheduledTime.toISOString()}) seria no passado.`);
+        // Se a nova data programada é no passado, mas há um lembrete pendente antigo, ele deve ser cancelado
+        if (existing && existing.status !== 'Enviado') {
+          existing.status = 'Cancelado';
+          existing.tipo_lembrete = `${existing.tipo_lembrete}_cancelado_${existing.id}`;
+          await existing.save();
+          console.log(`[WhatsAppReminderService] Lembrete ${item.type} cancelado pois o novo horário programado seria no passado (${scheduledTime.toISOString()}).`);
+        } else {
+          console.log(`[WhatsAppReminderService] Lembrete ${item.type} para agendamento ${agendamento.id} não gerado pois a data programada (${scheduledTime.toISOString()}) seria no passado.`);
+        }
       }
     }
   } catch (error) {

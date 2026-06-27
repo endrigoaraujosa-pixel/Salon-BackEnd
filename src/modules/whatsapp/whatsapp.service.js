@@ -196,8 +196,9 @@ export async function resendReminder(reminderId) {
   }
 
     // Formatar data e hora usando a zona de agenda (America/Recife)
-    const formattedDate = formatAgendaDate(agendamento.data_hora);
-    const formattedTime = formatAgendaTime(agendamento.data_hora);
+    const tzDate = new TZDate(agendamento.data_hora, 'America/Recife');
+    const formattedDate = format(tzDate, 'dd/MM/yyyy');
+    const formattedTime = format(tzDate, 'HH:mm');
 
   let messageText;
   if (reminder.tipo_lembrete === 'agradecimento') {
@@ -225,9 +226,8 @@ export async function resendReminder(reminderId) {
   try {
     const result = await whatsappProvider.sendMessage(phone, messageText, config);
     if (result.success) {
-      const date = TZDate.tz("America/Sao_Paulo");
       reminder.status = 'Enviado';
-      reminder.data_envio = format(date, "yyyy-MM-dd HH:mm:ss'Z'");
+      reminder.data_envio = new Date();
       reminder.mensagem = messageText;
       reminder.erro = null;
       await reminder.save();

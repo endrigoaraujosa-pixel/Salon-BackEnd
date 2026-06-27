@@ -14,7 +14,7 @@ export class WhatsAppProvider {
     // Se não tiver configurações de API, executa a simulação
     if (!config || !config.instancia) {
       console.log(`[WhatsAppProvider - Simulação] Mensagem simulada para ${phone}: ${message}`);
-      return { success: false, messageId: `simulated_${Date.now()}` };
+      return { success: true, messageId: `simulated_${Date.now()}` };
     }
 
     // Se for Modo Local
