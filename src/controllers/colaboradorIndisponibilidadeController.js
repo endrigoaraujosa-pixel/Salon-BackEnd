@@ -5,7 +5,6 @@ import { sequelize } from '../config/db.js';
 import { normalizeAgendaDateTime, buildAgendaDayRange } from '../utils/agendaDateTime.js';
 
 export const createIndisponibilidade = async (req, res) => {
-  const isAdmin = req.user && req.user.role === 'admin';
   const { colaborador_id, data_hora_inicio, data_hora_fim, motivo } = req.body;
 
   if (!colaborador_id) {
@@ -69,7 +68,6 @@ export const createIndisponibilidade = async (req, res) => {
 };
 
 export const updateIndisponibilidade = async (req, res) => {
-  const isAdmin = req.user && req.user.role === 'admin';
   const { id } = req.params;
   const { colaborador_id, data_hora_inicio, data_hora_fim, motivo } = req.body;
 
@@ -171,7 +169,6 @@ export const listIndisponibilidades = async (req, res) => {
 };
 
 export const deleteIndisponibilidade = async (req, res) => {
-  const isAdmin = req.user && req.user.role === 'admin';
   const { id } = req.params;
 
   try {
@@ -180,10 +177,7 @@ export const deleteIndisponibilidade = async (req, res) => {
       return res.status(404).json({ detail: 'Registro de indisponibilidade não encontrado.' });
     }
 
-    // Allow admin to delete any record; otherwise restrict to own records
-    if (!isAdmin && record.colaborador_id !== req.user?.colaborador_id) {
-      return res.status(403).json({ detail: 'Você não tem permissão para excluir a indisponibilidade de outro colaborador.' });
-    }
+    // All users can delete any indisponibilidade record
 
     await record.update({
       deletado: 'S',

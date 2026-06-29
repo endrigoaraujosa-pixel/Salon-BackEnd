@@ -255,6 +255,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
 
   const where = {
     data_hora: { [Op.between]: [dataInicioDia, dataFimDia] },
+    deletado: 'N',
   };
 
   if (excludeId) {
