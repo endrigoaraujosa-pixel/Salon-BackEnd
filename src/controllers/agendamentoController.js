@@ -255,6 +255,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
 
   const where = {
     data_hora: { [Op.between]: [dataInicioDia, dataFimDia] },
+    deletado: 'N',
   };
 
   if (excludeId) {
@@ -283,6 +284,42 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
             throw new Error(`Conflito de horário: O profissional ${profConflito} já possui um agendamento entre ${formatAgendaTime(agInicio)} e ${formatAgendaTime(agFim)}`);
           }
         }
+      }
+    }
+  }
+
+  // Validação de indisponibilidade de colaboradores (principal ou auxiliar)
+  if (!body.ignorar_conflito) {
+    const idsVerificar = Array.from(profsMap.keys());
+    if (idsVerificar.length > 0) {
+      const { getColaboradorIndisponibilidadeModel } = await import('../models/ColaboradorIndisponibilidade.js');
+      const indispList = await getColaboradorIndisponibilidadeModel().findAll({
+        where: {
+          colaborador_id: { [Op.in]: idsVerificar },
+          deletado: 'N',
+          data_hora_inicio: { [Op.lt]: novoFim },
+          data_hora_fim: { [Op.gt]: novoInicio }
+        }
+      });
+
+      if (indispList.length > 0) {
+        const { TZDate } = await import('@date-fns/tz');
+        const { format } = await import('date-fns');
+        const { AGENDA_TIME_ZONE } = await import('../utils/agendaDateTime.js');
+
+        const conflitos = [];
+        for (const indisp of indispList) {
+          const colab = await getColaboradorModel().findByPk(indisp.colaborador_id);
+          const colabNome = colab ? colab.nome : 'Colaborador';
+          
+          const dateStr = format(new TZDate(indisp.data_hora_inicio, AGENDA_TIME_ZONE), 'dd/MM/yyyy');
+          const startStr = format(new TZDate(indisp.data_hora_inicio, AGENDA_TIME_ZONE), 'HH:mm');
+          const endStr = format(new TZDate(indisp.data_hora_fim, AGENDA_TIME_ZONE), 'HH:mm');
+          
+          const motivoStr = indisp.motivo ? indisp.motivo : 'indisponibilidade registrada sem motivo específico';
+          conflitos.push(`O colaborador ${colabNome} possui uma indisponibilidade cadastrada para o período selecionado (${dateStr} ${startStr} - ${endStr}). Motivo: ${motivoStr}`);
+        }
+        throw new Error(`Conflito de indisponibilidade: ${conflitos.join('; ')}`);
       }
     }
   }

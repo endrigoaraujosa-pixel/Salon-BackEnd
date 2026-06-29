@@ -10,6 +10,7 @@ import { createCategoria, deleteCategoria, listCategorias, updateCategoria } fro
 import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente, rankingClientes, getCliente } from './controllers/clienteController.js';
 import { adicionarCreditoManual, removerCreditoManual, estornarMovimentacao, getExtrato, recalcularSaldoCliente } from './controllers/clienteCreditoController.js';
 import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
+import { createIndisponibilidade, listIndisponibilidades, updateIndisponibilidade, deleteIndisponibilidade } from './controllers/colaboradorIndisponibilidadeController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
 import { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
 import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect, startLocalIntegration, getExternalStatus, getExternalQrCode, postCheckWhatsappNumber } from './modules/whatsapp/whatsapp.controller.js';
@@ -110,6 +111,10 @@ app.use('/api/clientes', clienteRoutes);
 
 // Colaboradores Routes
 const colabRoutes = express.Router();
+colabRoutes.get('/indisponibilidade', protect, listIndisponibilidades);
+colabRoutes.post('/indisponibilidade', protect, createIndisponibilidade);
+colabRoutes.put('/indisponibilidade/:id', protect, updateIndisponibilidade);
+colabRoutes.delete('/indisponibilidade/:id', protect, deleteIndisponibilidade);
 colabRoutes.get('/', protect, requirePermission('colaboradores'), listColab);
 colabRoutes.post('/', protect, requirePermission('colaboradores', 'criar'), createColab);
 colabRoutes.put('/:cid', protect, requirePermission('colaboradores', 'editar'), updateColab);

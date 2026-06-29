@@ -13,6 +13,7 @@ import { getCategoriaModel } from '../models/Categoria.js';
 import { getFornecedorModel } from '../models/Fornecedor.js';
 import { getAdquirenteModel } from '../models/Adquirente.js';
 import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
+import { getColaboradorIndisponibilidadeModel } from '../models/ColaboradorIndisponibilidade.js';
 import { sequelize } from '../config/db.js';
 
 const getDeletados = async (req, res) => {
@@ -37,9 +38,46 @@ const getDeletados = async (req, res) => {
       case 'usuario':
         rawRecords = await getUserModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
         break;
-      case 'agendamento':
-        rawRecords = await getAgendamentoModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
-        break;
+      case 'agendamento': {
+        const agendamentos = await getAgendamentoModel().findAll({ where: { deletado: 'S' } });
+        const indispModel = getColaboradorIndisponibilidadeModel();
+        const indisps = await indispModel.findAll({ where: { deletado: 'S' } });
+
+        const collaborators = await getColaboradorModel().findAll();
+        const colabMap = {};
+        collaborators.forEach(c => {
+          colabMap[c.id] = c.nome;
+        });
+
+        const formattedAgendamentos = agendamentos.map(r => {
+          const numServico = r.numero ? `${String(r.numero).padStart(6, '0')} | S` : 'N/A';
+          const dataHora = r.data_hora ? new Date(r.data_hora).toLocaleString('pt-BR') : 'N/A';
+          const descricao = `${numServico} - Cliente: ${r.cliente_nome || 'N/A'} - Data: ${dataHora} - Total: R$ ${Number(r.valor_total).toFixed(2)}`;
+          return {
+            id: r.id,
+            descricao,
+            deletado_por: r.deletado_por || 'Sistema',
+            deletado_em: r.deletado_em
+          };
+        });
+
+        const formattedIndisps = indisps.map(r => {
+          const colabNome = colabMap[r.colaborador_id] || 'Colaborador';
+          const inicio = r.data_hora_inicio ? new Date(r.data_hora_inicio).toLocaleString('pt-BR') : 'N/A';
+          const fim = r.data_hora_fim ? new Date(r.data_hora_fim).toLocaleString('pt-BR') : 'N/A';
+          const descricao = `Indisponibilidade - Colaborador: ${colabNome} - Período: ${inicio} a ${fim}${r.motivo ? ` - Motivo: ${r.motivo}` : ''}`;
+          return {
+            id: r.id,
+            descricao,
+            deletado_por: r.deletado_por || 'Sistema',
+            deletado_em: r.deletado_em
+          };
+        });
+
+        const combined = [...formattedAgendamentos, ...formattedIndisps];
+        combined.sort((a, b) => new Date(b.deletado_em) - new Date(a.deletado_em));
+        return res.json(combined);
+      }
       case 'venda_direta':
       case 'venda':
         rawRecords = await getVendaDiretaModel().findAll({ where: { deletado: 'S' }, order: [['deletado_em', 'DESC']] });
@@ -158,7 +196,11 @@ const restoreRecord = async (req, res) => {
         return res.status(400).json({ detail: 'Módulo inválido para restauração.' });
     }
 
-    const record = await model.findByPk(id);
+    let record = await model.findByPk(id);
+    if (!record && modulo === 'agendamento') {
+      const indispModel = getColaboradorIndisponibilidadeModel();
+      record = await indispModel.findByPk(id);
+    }
     if (!record) {
       return res.status(404).json({ detail: 'Registro não encontrado.' });
     }
