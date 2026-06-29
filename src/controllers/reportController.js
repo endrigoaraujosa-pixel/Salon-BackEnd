@@ -999,22 +999,54 @@ const relatorioDre = async (req, res) => {
 const relatorioCaixa = async (req, res) => {
   const { data_inicio, data_fim, colaborador_id } = req.query;
   try {
-    const pagsAg = await getPagamentoModel().findAll({
+    // Buscar agendamentos cujas datas/horas estão no período selecionado
+    const agendamentosNoPeriodo = await getAgendamentoModel().findAll({
       where: {
         data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
         deletado: 'N'
       }
     });
+    const agendamentoIds = agendamentosNoPeriodo.map(a => a.id);
 
-    const agendamentoIds = [...new Set(pagsAg.map(p => p.agendamento_id).filter(Boolean))];
-    const vendaDiretaIds = [...new Set(pagsAg.map(p => p.venda_direta_id).filter(Boolean))];
+    // Buscar vendas diretas cujas datas estão no período selecionado
+    const vendasNoPeriodo = await getVendaDiretaModel().findAll({
+      where: {
+        data_venda: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
+        deletado: 'N'
+      }
+    });
+    const vendaDiretaIds = vendasNoPeriodo.map(v => v.id);
 
-    const agendamentos = agendamentoIds.length > 0 
-      ? await getAgendamentoModel().findAll({ where: { id: { [Op.in]: agendamentoIds }, deletado: 'N' } })
+    // Buscar pagamentos correspondentes a esses agendamentos ou vendas diretas, ou sem vínculo mas no período
+    const orConditions = [];
+    if (agendamentoIds.length > 0) {
+      orConditions.push({ agendamento_id: { [Op.in]: agendamentoIds } });
+    }
+    if (vendaDiretaIds.length > 0) {
+      orConditions.push({ venda_direta_id: { [Op.in]: vendaDiretaIds } });
+    }
+    orConditions.push({
+      agendamento_id: null,
+      venda_direta_id: null,
+      data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] }
+    });
+
+    const pagsAg = await getPagamentoModel().findAll({
+      where: {
+        deletado: 'N',
+        [Op.or]: orConditions
+      }
+    });
+
+    const allAgendamentoIds = [...new Set(pagsAg.map(p => p.agendamento_id).filter(Boolean))];
+    const allVendaDiretaIds = [...new Set(pagsAg.map(p => p.venda_direta_id).filter(Boolean))];
+
+    const agendamentos = allAgendamentoIds.length > 0 
+      ? await getAgendamentoModel().findAll({ where: { id: { [Op.in]: allAgendamentoIds }, deletado: 'N' } })
       : [];
       
-    const vendas = vendaDiretaIds.length > 0
-      ? await getVendaDiretaModel().findAll({ where: { id: { [Op.in]: vendaDiretaIds }, deletado: 'N' } })
+    const vendas = allVendaDiretaIds.length > 0
+      ? await getVendaDiretaModel().findAll({ where: { id: { [Op.in]: allVendaDiretaIds }, deletado: 'N' } })
       : [];
 
     const agMap = new Map(agendamentos.map(a => [a.id, a]));
@@ -1090,6 +1122,7 @@ const relatorioCaixa = async (req, res) => {
       let usuario_recebimento = 'Sistema';
       let valor_total_operacao = 0;
       let status_operacao = '-';
+      let data_hora = p.data_hora;
       
       if (p.agendamento_id) {
         const ag = agMap.get(p.agendamento_id);
@@ -1100,6 +1133,7 @@ const relatorioCaixa = async (req, res) => {
           valor_total_operacao = ag.valor_total || 0;
           status_operacao = ag.status || '-';
           usuario_recebimento = ag.criado_por_nome || 'Sistema';
+          data_hora = ag.data_hora;
           
           let parsedItens = [];
           try {
@@ -1141,6 +1175,7 @@ const relatorioCaixa = async (req, res) => {
           status_operacao = v.status || '-';
           usuario_recebimento = v.criado_por_nome || 'Sistema';
           profissional = v.colaborador_nome || (v.colaborador_id && colabMap.get(v.colaborador_id)) || '-';
+          data_hora = v.data_venda;
         }
       }
 
@@ -1152,7 +1187,7 @@ const relatorioCaixa = async (req, res) => {
         valor: p.valor,
         valor_recebido: p.valor_recebido,
         troco: p.troco,
-        data_hora: p.data_hora,
+        data_hora,
         forma_pagamento: p.forma_pagamento,
         cartao_tipo: p.cartao_tipo || (p.forma_pagamento === 'cartao_credito' ? 'credito' : p.forma_pagamento === 'cartao_debito' ? 'debito' : null),
         tipo,
@@ -1162,6 +1197,9 @@ const relatorioCaixa = async (req, res) => {
         status_operacao
       };
     });
+
+    // Ordenar pagamentos cronologicamente pela data do agendamento/venda correspondente
+    pagamentosDetalhes.sort((a, b) => new Date(a.data_hora) - new Date(b.data_hora));
 
     res.json({
       data_inicio,
