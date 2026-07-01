@@ -75,7 +75,18 @@ app.use(cors({
     }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID', 'x-tenant-id', 'x-is-mobile', 'X-Is-Mobile'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Tenant-ID',
+    'x-tenant-id',
+    'x-is-mobile',
+    'X-Is-Mobile',
+    'x-auth-email',
+    'x-auth-password',
+    'X-Auth-Email',
+    'X-Auth-Password'
+  ],
   credentials: true
 }));
 app.use(cookieParser());

@@ -393,18 +393,6 @@ const getAgend = async (req, res) => {
     const ag = await getAgendamentoModel().findByPk(req.params.aid);
     if (!ag || ag.deletado === 'S') return res.status(404).json({ detail: 'Não encontrado' });
 
-    const email = req.body.auth_email || req.headers['x-auth-email'] || req.query.email;
-    const password = req.body.auth_password || req.body.password || req.headers['x-auth-password'] || req.query.password;
-    if (email && password) {
-      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
-      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
-        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
-      }
-      if (!authUser.pode_alterar_concluido) {
-        return res.status(403).json({ detail: 'Este usuário não possui permissão para alterar agendamentos concluídos.' });
-      }
-    }
-
     const pagamentos = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' } });
     const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
 
@@ -499,21 +487,10 @@ const updateAgend = async (req, res) => {
     }
 
     if (ag.status === 'concluido' && !isOnlyInsumos) {
-      const email = req.body.auth_email || req.headers['x-auth-email'] || req.query.email;
-      const password = req.body.auth_password || req.body.password || req.headers['x-auth-password'] || req.query.password;
-      if (!email || !password) {
-        await transaction.rollback();
-        return res.status(400).json({ detail: 'Para alterar um agendamento concluído, é necessária a autorização de um administrador (usuário e senha).' });
-      }
-      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' }, transaction });
-      if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
-        await transaction.rollback();
-        return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
-      }
-      if (!authUser.pode_alterar_concluido) {
-        await transaction.rollback();
-        return res.status(403).json({ detail: 'Este usuário não possui permissão para alterar agendamentos concluídos.' });
-      }
+      await transaction.rollback();
+      return res.status(400).json({
+        detail: 'Não é permitido editar um agendamento concluído. Reabra o agendamento (removendo ou estornando o pagamento) antes de realizar alterações.'
+      });
     }
 
     const doc = await buildAgendamentoDoc(req.body, req.params.aid);
@@ -527,7 +504,9 @@ const updateAgend = async (req, res) => {
       const updatedAg = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
       await recalculateAndFreezeCommissions(updatedAg, transaction);
       await updatedAg.save({ transaction });
-      await adjustStock(updatedAg, 'deduct', { transaction, user: req.user });
+      if (updatedAg.status === 'concluido') {
+        await adjustStock(updatedAg, 'deduct', { transaction, user: req.user });
+      }
     }
 
     await transaction.commit();
@@ -695,6 +674,13 @@ const addPagamentos = async (req, res) => {
 
     const novoValorBruto = pagamentos.reduce((acc, p) => acc + Number(p.valor || 0), 0);
     let novoTotal = pagoAtual + novoValorBruto;
+
+    if (ag.status === 'concluido' && Math.abs(novoTotal - ag.valor_total) > 0.01) {
+      await transaction.rollback();
+      return res.status(400).json({
+        detail: `Não é possível adicionar pagamentos a um agendamento concluído porque o novo total pago (R$ ${novoTotal.toFixed(2)}) seria diferente do valor total do agendamento (R$ ${ag.valor_total.toFixed(2)}).`
+      });
+    }
 
     if (hasCreditoCliente || hasExistingCredito) {
       if (novoTotal > ag.valor_total + 0.01) {
@@ -976,6 +962,13 @@ const updatePagamento = async (req, res) => {
     const novoValorRecebido = Number(valor || 0);
     const novoTotal = pagoOutros + novoValorRecebido;
 
+    if (ag.status === 'concluido' && novoTotal > ag.valor_total + 0.01) {
+      await transaction.rollback();
+      return res.status(400).json({
+        detail: `Não é possível alterar o valor do pagamento de um agendamento concluído para um valor superior ao total do agendamento.`
+      });
+    }
+
     if (hasCreditoCliente || hasExistingCredito) {
       if (novoTotal > ag.valor_total + 0.01) {
         await transaction.rollback();
@@ -1207,9 +1200,9 @@ const deletePagamento = async (req, res) => {
     if (ag.status === 'concluido') {
       if (!email || !password) {
         await transaction.rollback();
-        return res.status(400).json({ detail: 'Usuário e senha são obrigatórios' });
+        return res.status(400).json({ detail: 'Usuário e senha são obrigatórios para alterar pagamentos de agendamento concluído.' });
       }
-      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim() }, transaction });
+      const authUser = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' }, transaction });
       if (!authUser || !(await bcrypt.compare(password, authUser.password_hash))) {
         await transaction.rollback();
         return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
