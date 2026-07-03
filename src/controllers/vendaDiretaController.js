@@ -840,7 +840,16 @@ const deletePagamento = async (req, res) => {
         await transaction.rollback();
         return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
       }
-      if (!authUser.pode_excluir_pagamento) {
+      const { getPerfilAcessoModel } = await import('../models/PerfilAcesso.js');
+      const perfil = authUser.perfil_acesso_id
+        ? await getPerfilAcessoModel().findByPk(authUser.perfil_acesso_id, { transaction })
+        : null;
+      const permissoes = perfil ? (typeof perfil.permissoes === 'string' ? JSON.parse(perfil.permissoes) : perfil.permissoes) : {};
+      
+      const hasPermission = authUser.role === 'admin' ||
+                            authUser.pode_excluir_pagamento === true ||
+                            permissoes['agenda.pagamento.excluir'] === true;
+      if (!hasPermission) {
         await transaction.rollback();
         return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
       }
