@@ -5,10 +5,10 @@ import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
 
 const listUsers = async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin' || req.user.perfil?.permissoes?.['usuarios.visualizar'] === true;
+    const canViewAllUsers = req.user.role === 'admin' || req.user.perfil?.permissoes?.['usuarios.visualizar'] === true;
     
     let whereClause = { deletado: 'N' };
-    if (!isAdmin) {
+    if (!canViewAllUsers) {
       whereClause.id = req.user.id;
     }
 
