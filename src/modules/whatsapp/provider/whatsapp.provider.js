@@ -33,9 +33,28 @@ export class WhatsAppProvider {
 
     try {
       // Limpa caracteres especiais do telefone (mantendo apenas números)
-      let cleanPhone = formatPhoneNumber(phone)
+      let cleanPhone = formatPhoneNumber(phone);
+
+      // Valida o número de telefone e obtém o JID correto
+      let targetNumber = cleanPhone;
+      const checkResult = await this.checkNumber(cleanPhone, config);
+      if (checkResult && checkResult.exists && checkResult.jid) {
+        targetNumber = checkResult.jid;
+        console.log(`[WhatsAppProvider] Número verificado com sucesso. Usando JID: ${targetNumber}`);
+      } else if (checkResult && checkResult.exists === false && !checkResult.error) {
+        // Se a verificação retornou explicitamente que o número não existe no WhatsApp
+        console.warn(`[WhatsAppProvider] O número ${cleanPhone} não foi encontrado no WhatsApp.`);
+        return {
+          success: false,
+          error: `O número ${phone} não está cadastrado no WhatsApp.`
+        };
+      } else {
+        // Caso ocorra algum erro na checagem, prossegue com o número limpo original como fallback
+        console.warn(`[WhatsAppProvider] Erro ou resposta inválida na validação do número ${cleanPhone}. Prosseguindo com o número original como fallback.`);
+      }
+
       // Monta a URL e os headers
-      const baseUrl = process.env.EVOLUTION_API_URL
+      const baseUrl = process.env.EVOLUTION_API_URL;
       const instance = config.instancia;
 
       // Suporta Evolution API /message/sendText/:instance
@@ -43,7 +62,7 @@ export class WhatsAppProvider {
 
       // Evolution API v2 Payload Structure
       const payload = {
-        number: cleanPhone,
+        number: targetNumber,
         text: message
       };
 
@@ -90,8 +109,27 @@ export class WhatsAppProvider {
 
       const url = `${baseUrl}/chat/whatsappNumbers/${instance}`;
 
+      // Gerar lista de números a checar para tratar o 9º dígito no Brasil
+      const numbersToCheck = [cleanPhone];
+      if (cleanPhone.startsWith('55') && (cleanPhone.length === 12 || cleanPhone.length === 13)) {
+        const ddd = cleanPhone.substring(2, 4);
+        if (cleanPhone.length === 13) {
+          // Remove o 9º dígito: 55 + DDD + 8 dígitos restantes
+          const alternative = '55' + ddd + cleanPhone.substring(5);
+          if (!numbersToCheck.includes(alternative)) {
+            numbersToCheck.push(alternative);
+          }
+        } else if (cleanPhone.length === 12) {
+          // Insere o 9º dígito: 55 + DDD + 9 + 8 dígitos restantes
+          const alternative = '55' + ddd + '9' + cleanPhone.substring(4);
+          if (!numbersToCheck.includes(alternative)) {
+            numbersToCheck.push(alternative);
+          }
+        }
+      }
+
       const payload = {
-        numbers: [cleanPhone]
+        numbers: numbersToCheck
       };
 
       const response = await axios.post(url, payload, {
@@ -102,11 +140,14 @@ export class WhatsAppProvider {
         timeout: 10000
       });
 
-      if (response.data && response.data.length > 0) {
-        return {
-          exists: response.data[0].exists,
-          jid: response.data[0].jid
-        };
+      if (response.data && Array.isArray(response.data)) {
+        const found = response.data.find(item => item && item.exists);
+        if (found) {
+          return {
+            exists: true,
+            jid: found.jid || `${found.number}@s.whatsapp.net`
+          };
+        }
       }
 
       return { exists: false };
