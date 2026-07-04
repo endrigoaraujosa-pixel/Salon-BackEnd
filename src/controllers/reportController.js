@@ -99,7 +99,7 @@ const dashboard = async (req, res) => {
       }
     });
 
-    const isAdmin = req.user && req.user.role === 'admin';
+    const isAdmin = req.user && (req.user.role === 'admin' || req.user.perfil?.permissoes?.['dashboard.faturamento'] === true);
     let faturamentoMes = 0;
 
     if (isAdmin) {
@@ -247,7 +247,7 @@ const dashboardDetail = async (req, res) => {
     let dataFimMes = data_fim ? `${data_fim}T23:59:59` : `${mesPrefix}-${String(lastDay).padStart(2, '0')}T23:59:59`;
     
     try {
-      const isAdmin = req.user && req.user.role === 'admin';
+      const isAdmin = req.user && (req.user.role === 'admin' || req.user.perfil?.permissoes?.['dashboard.faturamento'] === true);
 
       const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
 

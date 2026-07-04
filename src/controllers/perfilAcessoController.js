@@ -29,7 +29,7 @@ const obterPerfil = async (req, res) => {
 // Create a new profile
 const criarPerfil = async (req, res) => {
   try {
-    const { nome, descricao, permissoes } = req.body;
+    const { nome, descricao, permissoes, alterado_por } = req.body;
     if (!nome || !nome.trim()) {
       return res.status(400).json({ detail: 'O nome do perfil é obrigatório.' });
     }
@@ -41,6 +41,7 @@ const criarPerfil = async (req, res) => {
       nome: nome.trim(),
       descricao: descricao || '',
       permissoes,
+      alterado_por: alterado_por || null,
       ativo: true
     });
     res.status(201).json(novoPerfil);
@@ -52,7 +53,7 @@ const criarPerfil = async (req, res) => {
 // Update an existing profile
 const atualizarPerfil = async (req, res) => {
   try {
-    const { nome, descricao, permissoes, ativo } = req.body;
+    const { nome, descricao, permissoes, ativo, alterado_por } = req.body;
     const perfil = await getPerfilAcessoModel().findByPk(req.params.id);
     if (!perfil || perfil.deletado === 'S') {
       return res.status(404).json({ detail: 'Perfil de acesso não encontrado.' });
@@ -68,6 +69,7 @@ const atualizarPerfil = async (req, res) => {
     if (descricao !== undefined) perfil.descricao = descricao;
     if (permissoes !== undefined) perfil.permissoes = permissoes;
     if (ativo !== undefined) perfil.ativo = ativo;
+    if (alterado_por !== undefined) perfil.alterado_por = alterado_por;
 
     await perfil.save();
     res.json(perfil);

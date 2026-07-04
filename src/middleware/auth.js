@@ -62,7 +62,7 @@ const admin = (req, res, next) => {
   }
 };
 
-const requirePermission = (menu, acao) => {
+const requirePermission = (permissionKey, acao) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ detail: 'Não autenticado' });
@@ -73,17 +73,32 @@ const requirePermission = (menu, acao) => {
       return next();
     }
 
-    // Special Permission overrides
-    if (menu === 'agenda' && acao === 'excluir') {
-      if (req.user.pode_excluir_agendamento || req.user.pode_excluir_pagamento) {
-        return next();
+    // Normalização para o novo formato flat JSON
+    let key = permissionKey;
+    if (permissionKey && acao) {
+      if (permissionKey === 'estoque' && acao.startsWith('estoque.')) {
+        key = acao;
+      } else if (permissionKey === 'agenda' && acao === 'realizar_pagamento') {
+        key = 'agenda.pagamento';
+      } else if (permissionKey === 'vendas' && acao === 'realizar_pagamento') {
+        key = 'vendas.pagamento';
+      } else {
+        key = `${permissionKey}.${acao}`;
+      }
+    } else if (permissionKey && !Array.isArray(permissionKey) && !permissionKey.includes('.')) {
+      if (permissionKey === 'receitas') {
+        key = 'receitas.visualizar';
+      } else {
+        key = `${permissionKey}.visualizar`;
       }
     }
 
-    if (menu === 'vendas' && acao === 'excluir') {
-      if (req.user.pode_excluir_pagamento) {
-        return next();
-      }
+    // Special Permission overrides (acts as additional overrides even if they have a profile)
+    if (key === 'agenda.excluir' && req.user.pode_excluir_agendamento) {
+      return next();
+    }
+    if ((key === 'vendas.cancelar' || key === 'vendas.excluir' || key === 'agenda.pagamento.excluir') && req.user.pode_excluir_pagamento) {
+      return next();
     }
 
     const perfil = req.user.perfil;
@@ -91,32 +106,84 @@ const requirePermission = (menu, acao) => {
       return res.status(403).json({ detail: 'Acesso restrito: Perfil de acesso sem permissões definidas.' });
     }
 
-    if (menu) {
-      const menusPerm = perfil.permissoes.menus || {};
-      const hasPermission = Array.isArray(menu)
-        ? menu.some(m => !!menusPerm[m])
-        : !!menusPerm[menu];
-
-      if (!hasPermission) {
-        // Permitir listagem (GET) de entidades fundamentais caso possua permissão de Agenda ou Vendas
-        const isGetRequest = req.method === 'GET';
-        const menusList = Array.isArray(menu) ? menu : [menu];
-        const isFoundationalMenu = menusList.some(m => ['clientes', 'colaboradores', 'servicos', 'produtos'].includes(m));
-        const hasAgendaOrVendas = !!(menusPerm.agenda || menusPerm.vendas);
-
-        if (isGetRequest && isFoundationalMenu && hasAgendaOrVendas) {
-          // Permissão concedida para uso funcional na Agenda/Vendas
-        } else {
-          const menuString = Array.isArray(menu) ? menu.join(' ou ') : menu;
-          return res.status(403).json({ detail: `Você não tem permissão para acessar este módulo (${menuString}).` });
-        }
+    // Permissão para visualizar deletados da lixeira de um módulo específico
+    if (key === 'auditoria.visualizar') {
+      const modulo = req.query.modulo;
+      if (modulo === 'agendamento' && perfil.permissoes['agenda.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'cliente' && perfil.permissoes['clientes.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'colaborador' && perfil.permissoes['colaboradores.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'servico' && perfil.permissoes['servicos.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'produto' && perfil.permissoes['produtos.excluir'] === true) {
+        return next();
+      }
+      if ((modulo === 'venda' || modulo === 'venda_direta') && perfil.permissoes['vendas.cancelar'] === true) {
+        return next();
+      }
+      if (modulo === 'despesa' && perfil.permissoes['despesas.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'receita' && perfil.permissoes['receitas.excluir'] === true) {
+        return next();
       }
     }
 
-    if (acao) {
-      const acoesPerm = perfil.permissoes.acoes || {};
-      if (!acoesPerm[acao]) {
-        return res.status(403).json({ detail: `Você não tem permissão para realizar esta ação (${acao}).` });
+    // Permissão para restaurar registros da lixeira de um módulo específico
+    if (key === 'auditoria.restaurar') {
+      const modulo = req.body && req.body.modulo;
+      if (modulo === 'agendamento' && perfil.permissoes['agenda.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'cliente' && perfil.permissoes['clientes.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'colaborador' && perfil.permissoes['colaboradores.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'servico' && perfil.permissoes['servicos.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'produto' && perfil.permissoes['produtos.excluir'] === true) {
+        return next();
+      }
+      if ((modulo === 'venda' || modulo === 'venda_direta') && perfil.permissoes['vendas.cancelar'] === true) {
+        return next();
+      }
+      if (modulo === 'despesa' && perfil.permissoes['despesas.excluir'] === true) {
+        return next();
+      }
+      if (modulo === 'receita' && perfil.permissoes['receitas.excluir'] === true) {
+        return next();
+      }
+    }
+
+    const hasPermission = Array.isArray(key)
+      ? key.some(k => perfil.permissoes[k] === true)
+      : perfil.permissoes[key] === true;
+
+    if (!hasPermission) {
+      // Permitir listagem (GET) de entidades fundamentais caso possua permissão de Agenda ou Vendas
+      const isGetRequest = req.method === 'GET';
+      const keyString = Array.isArray(key) ? key[0] : key;
+      const isFoundationalMenu = ['clientes.visualizar', 'colaboradores.visualizar', 'servicos.visualizar', 'produtos.visualizar'].includes(keyString);
+      const hasAgendaOrVendas = !!(perfil.permissoes['agenda.visualizar'] || perfil.permissoes['vendas.visualizar']);
+
+      if (isGetRequest && isFoundationalMenu && hasAgendaOrVendas) {
+        return next();
+      } else {
+        const displayKey = Array.isArray(key) ? key.join(' ou ') : key;
+        
+        // Log de Tentativa de Acesso Negado (Fuso America/Recife)
+        console.warn(`[ACESSO NEGADO] Usuário: ${req.user.email} (${req.user.name}) | Data/Hora: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' })} | Rota: ${req.method} ${req.originalUrl} | Permissão requerida: ${displayKey}`);
+        
+        return res.status(403).json({ detail: `Você não tem permissão para realizar esta ação (${displayKey}).` });
       }
     }
 

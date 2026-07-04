@@ -5,10 +5,10 @@ import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
 
 const listUsers = async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
+    const canViewAllUsers = req.user.role === 'admin' || req.user.perfil?.permissoes?.['usuarios.visualizar'] === true;
     
     let whereClause = { deletado: 'N' };
-    if (!isAdmin) {
+    if (!canViewAllUsers) {
       whereClause.id = req.user.id;
     }
 
@@ -25,8 +25,9 @@ const listUsers = async (req, res) => {
 
 const createUser = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ detail: 'Acesso restrito a administradores' });
+    const canCreate = req.user.role === 'admin' || req.user.perfil?.permissoes?.['usuarios.criar'] === true;
+    if (!canCreate) {
+      return res.status(403).json({ detail: 'Você não tem permissão para cadastrar usuários.' });
     }
     const { name, email, role, perfil_acesso_id, colaborador_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
     if (!email || !senha) {
@@ -45,7 +46,7 @@ const createUser = async (req, res) => {
     if (perfil_acesso_id) {
       const p = await getPerfilAcessoModel().findByPk(perfil_acesso_id);
       if (p) {
-        if (p.nome === 'Administrador' || p.permissoes?.acoes?.is_admin) {
+        if (p.id === 'admin-profile-uuid-00000000000000000' || p.nome === 'Administrador') {
           calculatedRole = 'admin';
         } else {
           calculatedRole = 'funcionario';
@@ -86,7 +87,7 @@ const createUser = async (req, res) => {
 
 const updateUser = async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = req.user.role === 'admin' || req.user.perfil?.permissoes?.['usuarios.editar'] === true;
     const isEditingSelf = req.params.id === req.user.id;
 
     if (!isAdmin && !isEditingSelf) {
@@ -136,7 +137,7 @@ const updateUser = async (req, res) => {
       if (perfil_acesso_id) {
         const p = await getPerfilAcessoModel().findByPk(perfil_acesso_id);
         if (p) {
-          if (p.nome === 'Administrador' || p.permissoes?.acoes?.is_admin) {
+          if (p.id === 'admin-profile-uuid-00000000000000000' || p.nome === 'Administrador') {
             user.role = 'admin';
           } else {
             user.role = 'funcionario';
@@ -181,8 +182,9 @@ const updateUser = async (req, res) => {
 
 const deleteUser = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ detail: 'Acesso restrito a administradores' });
+    const canDelete = req.user.role === 'admin' || req.user.perfil?.permissoes?.['usuarios.excluir'] === true;
+    if (!canDelete) {
+      return res.status(403).json({ detail: 'Você não tem permissão para excluir usuários.' });
     }
     const user = await getUserModel().findByPk(req.params.id);
     if (user) {

@@ -542,7 +542,7 @@ const autorizarZeragemEstoque = async (req, res) => {
     let temPermissao = user.role === 'admin';
     if (!temPermissao && user.perfil_acesso_id) {
       const perfil = await getPerfilAcessoModel().findByPk(user.perfil_acesso_id);
-      if (perfil && perfil.permissoes?.acoes?.['estoque.zerar']) {
+      if (perfil && (perfil.permissoes?.['estoque.zerar'] === true || perfil.permissoes?.acoes?.['estoque.zerar'] === true)) {
         temPermissao = true;
       }
     }

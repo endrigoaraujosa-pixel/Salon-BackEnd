@@ -486,7 +486,7 @@ const updateAgend = async (req, res) => {
       }
     }
 
-    if (ag.status === 'concluido' && !isOnlyInsumos) {
+    if (ag.status === 'concluido' && !isOnlyInsumos && !req.user.pode_alterar_concluido) {
       await transaction.rollback();
       return res.status(400).json({
         detail: 'Não é permitido editar um agendamento concluído. Reabra o agendamento (removendo ou estornando o pagamento) antes de realizar alterações.'
@@ -524,7 +524,11 @@ const updateAgend = async (req, res) => {
 const deleteAgend = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    if (!req.user || !req.user.pode_excluir_agendamento) {
+    const canDelete = req.user && (
+      req.user.pode_excluir_agendamento === true ||
+      (req.user.perfil && req.user.perfil.permissoes && req.user.perfil.permissoes["agenda.excluir"] === true)
+    );
+    if (!canDelete) {
       await transaction.rollback();
       return res.status(403).json({ detail: 'Você não tem permissão para excluir agendamentos.' });
     }
@@ -591,6 +595,12 @@ const setStatus = async (req, res) => {
     }
 
     if (status === 'concluido') {
+      const hasConcludePerm = req.user.role === 'admin' || req.user.perfil?.permissoes?.['agenda.concluir'] === true;
+      if (!hasConcludePerm) {
+        await transaction.rollback();
+        return res.status(403).json({ detail: 'Você não tem permissão para concluir agendamentos.' });
+      }
+
       for (const item of ag.itens || []) {
         if (!item.colaborador_id || item.colaborador_id === "none") {
           await transaction.rollback();
@@ -675,7 +685,7 @@ const addPagamentos = async (req, res) => {
     const novoValorBruto = pagamentos.reduce((acc, p) => acc + Number(p.valor || 0), 0);
     let novoTotal = pagoAtual + novoValorBruto;
 
-    if (ag.status === 'concluido' && Math.abs(novoTotal - ag.valor_total) > 0.01) {
+    if (ag.status === 'concluido' && Math.abs(novoTotal - ag.valor_total) > 0.01 && !req.user.pode_alterar_concluido) {
       await transaction.rollback();
       return res.status(400).json({
         detail: `Não é possível adicionar pagamentos a um agendamento concluído porque o novo total pago (R$ ${novoTotal.toFixed(2)}) seria diferente do valor total do agendamento (R$ ${ag.valor_total.toFixed(2)}).`
@@ -1207,7 +1217,16 @@ const deletePagamento = async (req, res) => {
         await transaction.rollback();
         return res.status(401).json({ detail: 'Usuário ou senha incorretos' });
       }
-      if (!authUser.pode_excluir_pagamento) {
+      const { getPerfilAcessoModel } = await import('../models/PerfilAcesso.js');
+      const perfil = authUser.perfil_acesso_id
+        ? await getPerfilAcessoModel().findByPk(authUser.perfil_acesso_id, { transaction })
+        : null;
+      const permissoes = perfil ? (typeof perfil.permissoes === 'string' ? JSON.parse(perfil.permissoes) : perfil.permissoes) : {};
+      
+      const hasPermission = authUser.role === 'admin' ||
+                            authUser.pode_excluir_pagamento === true ||
+                            permissoes['agenda.pagamento.excluir'] === true;
+      if (!hasPermission) {
         await transaction.rollback();
         return res.status(403).json({ detail: 'Este usuário não possui permissão para excluir pagamentos' });
       }

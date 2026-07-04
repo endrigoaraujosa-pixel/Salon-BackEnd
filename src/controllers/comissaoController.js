@@ -67,7 +67,8 @@ const listComissoes = async (req, res) => {
     const servicos = await getServicoModel().findAll({ where: { deletado: 'N' } });
     
     let filteredColaboradores = colaboradores;
-    if (req.user && req.user.role !== 'admin') {
+    const canSeeAll = req.user && (req.user.role === 'admin' || req.user.perfil?.permissoes?.['comissoes.visualizar_todos'] === true);
+    if (!canSeeAll) {
       if (req.user.colaborador_id) {
         filteredColaboradores = colaboradores.filter(c => c.id === req.user.colaborador_id);
       } else {

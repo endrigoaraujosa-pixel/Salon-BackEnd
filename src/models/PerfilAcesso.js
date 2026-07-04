@@ -28,6 +28,10 @@ const PerfilAcesso = sequelize.define('PerfilAcesso', {
       this.setDataValue('permissoes', JSON.stringify(value));
     }
   },
+  alterado_por: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
   ativo: {
     type: DataTypes.BOOLEAN,
     defaultValue: true,

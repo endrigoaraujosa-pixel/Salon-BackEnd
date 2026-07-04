@@ -156,11 +156,17 @@ export const validarDescontoAutorizacao = async (req, res) => {
       return res.status(401).json({ detail: 'Este usuário autorizador está inativo.' });
     }
 
+    const { getPerfilAcessoModel } = await import('../models/PerfilAcesso.js');
+    const perfil = user.perfil_acesso_id ? await getPerfilAcessoModel().findByPk(user.perfil_acesso_id) : null;
+    const permissoes = perfil ? (typeof perfil.permissoes === 'string' ? JSON.parse(perfil.permissoes) : perfil.permissoes) : {};
+
     // Check if the user is authorized to apply this discount.
     // If the discount requires authorization:
     if (desconto.requer_autorizacao) {
-      // Admins are always authorized
-      if (user.role === 'admin') {
+      const hasDiscountPerm = user.role === 'admin' || 
+                              (permissoes['agenda.aplicar_desconto.senha'] === true && permissoes['agenda.aplicar_desconto'] === true) || 
+                              (permissoes['vendas.aplicar_desconto.senha'] === true && permissoes['vendas.aplicar_desconto'] === true);
+      if (hasDiscountPerm) {
         return res.json({ success: true, user: { id: user.id, name: user.name, role: user.role } });
       }
 

@@ -2,17 +2,30 @@ import { getColaboradorModel } from '../models/Colaborador.js';
 
 const listColab = async (req, res) => {
   try {
-    const isAdmin = req.user && req.user.role === 'admin';
-    const attributes = isAdmin 
-      ? undefined 
-      : ['id', 'nome', 'cargo', 'ativo', 'deletado', 'foto'];
+    const hasSensitivePerm = req.user && (
+      req.user.role === 'admin' ||
+      req.user.perfil?.permissoes?.['colaboradores.dados_sensiveis'] === true
+    );
+    const ownColaboradorId = req.user?.colaborador_id || null;
 
     const cols = await getColaboradorModel().findAll({
       where: { deletado: 'N' },
-      attributes,
       order: [['nome', 'ASC']]
     });
-    res.json(cols);
+
+    // Se tem permissão global, retorna tudo. Caso contrário, filtra os dados sensíveis,
+    // exceto para o colaborador vinculado ao próprio usuário logado.
+    const result = hasSensitivePerm
+      ? cols
+      : cols.map(c => {
+          const isOwnProfile = ownColaboradorId && String(c.id) === String(ownColaboradorId);
+          if (isOwnProfile) return c; // retorna completo para si mesmo
+          // Remove dados sensíveis dos demais
+          const { telefone, comissao_sozinho, comissao_ajuda, comissao_auxiliar, comissao_principal, ...safe } = c.toJSON();
+          return safe;
+        });
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
