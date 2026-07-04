@@ -214,8 +214,12 @@ export const getExtrato = async (req, res) => {
           const ag = await getAgendamentoModel().findByPk(agId, { attributes: ['numero'] });
           if (ag && ag.numero) {
             movJSON.origem_referencia = `${String(ag.numero).padStart(6, '0')} | S`;
+          } else {
+            movJSON.origem_referencia = `Agendamento (#${agId.slice(0, 8)})`;
           }
-        } catch (e) { /* ignore lookup errors */ }
+        } catch (e) {
+          movJSON.origem_referencia = `Agendamento (#${agId.slice(0, 8)})`;
+        }
       } else if (origem.startsWith('venda:')) {
         movJSON.origem_pagamento = true;
         const vendaId = origem.replace('venda:', '');
@@ -223,8 +227,12 @@ export const getExtrato = async (req, res) => {
           const venda = await getVendaDiretaModel().findByPk(vendaId, { attributes: ['numero_venda'] });
           if (venda && venda.numero_venda) {
             movJSON.origem_referencia = `${String(venda.numero_venda).padStart(6, '0')} | V`;
+          } else {
+            movJSON.origem_referencia = `Venda (#${vendaId.slice(0, 8)})`;
           }
-        } catch (e) { /* ignore lookup errors */ }
+        } catch (e) {
+          movJSON.origem_referencia = `Venda (#${vendaId.slice(0, 8)})`;
+        }
       } else {
         movJSON.origem_pagamento = false;
       }
