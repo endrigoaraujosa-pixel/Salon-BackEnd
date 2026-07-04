@@ -156,29 +156,26 @@ export const validarDescontoAutorizacao = async (req, res) => {
       return res.status(401).json({ detail: 'Este usuário autorizador está inativo.' });
     }
 
-    const { getPerfilAcessoModel } = await import('../models/PerfilAcesso.js');
-    const perfil = user.perfil_acesso_id ? await getPerfilAcessoModel().findByPk(user.perfil_acesso_id) : null;
-    const permissoes = perfil ? (typeof perfil.permissoes === 'string' ? JSON.parse(perfil.permissoes) : perfil.permissoes) : {};
-
     // Check if the user is authorized to apply this discount.
     // If the discount requires authorization:
     if (desconto.requer_autorizacao) {
-      const hasDiscountPerm = user.role === 'admin' || 
-                              (permissoes['agenda.aplicar_desconto.senha'] === true && permissoes['agenda.aplicar_desconto'] === true) || 
-                              (permissoes['vendas.aplicar_desconto.senha'] === true && permissoes['vendas.aplicar_desconto'] === true);
-      if (hasDiscountPerm) {
-        return res.json({ success: true, user: { id: user.id, name: user.name, role: user.role } });
-      }
+      if (user.role === 'admin') {
+        // Administradores sempre têm permissão para autorizar, ignorando a lista de usuários autorizados
+      } else {
+        let authUsers = [];
+        try {
+          if (desconto.usuarios_autorizados) {
+            authUsers = typeof desconto.usuarios_autorizados === 'string'
+              ? JSON.parse(desconto.usuarios_autorizados)
+              : desconto.usuarios_autorizados;
+          }
+        } catch (e) {
+          authUsers = [];
+        }
 
-      let authUsers = [];
-      try {
-        authUsers = desconto.usuarios_autorizados ? JSON.parse(desconto.usuarios_autorizados) : [];
-      } catch (e) {
-        authUsers = [];
-      }
-
-      if (!authUsers.includes(user.id)) {
-        return res.status(403).json({ detail: 'Este usuário não possui autorização para aplicar este desconto.' });
+        if (!Array.isArray(authUsers) || !authUsers.includes(user.id)) {
+          return res.status(403).json({ detail: 'Este usuário não possui autorização para aplicar este desconto.' });
+        }
       }
     }
 
