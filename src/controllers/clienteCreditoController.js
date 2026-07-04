@@ -215,10 +215,10 @@ export const getExtrato = async (req, res) => {
           if (ag && ag.numero) {
             movJSON.origem_referencia = `${String(ag.numero).padStart(6, '0')} | S`;
           } else {
-            movJSON.origem_referencia = `Agendamento (#${agId.slice(0, 8)})`;
+            movJSON.origem_referencia = `${agId.slice(0, 6).toUpperCase()} | S`;
           }
         } catch (e) {
-          movJSON.origem_referencia = `Agendamento (#${agId.slice(0, 8)})`;
+          movJSON.origem_referencia = `${agId.slice(0, 6).toUpperCase()} | S`;
         }
       } else if (origem.startsWith('venda:')) {
         movJSON.origem_pagamento = true;
@@ -228,10 +228,10 @@ export const getExtrato = async (req, res) => {
           if (venda && venda.numero_venda) {
             movJSON.origem_referencia = `${String(venda.numero_venda).padStart(6, '0')} | V`;
           } else {
-            movJSON.origem_referencia = `Venda (#${vendaId.slice(0, 8)})`;
+            movJSON.origem_referencia = `${vendaId.slice(0, 6).toUpperCase()} | V`;
           }
         } catch (e) {
-          movJSON.origem_referencia = `Venda (#${vendaId.slice(0, 8)})`;
+          movJSON.origem_referencia = `${vendaId.slice(0, 6).toUpperCase()} | V`;
         }
       } else {
         movJSON.origem_pagamento = false;
