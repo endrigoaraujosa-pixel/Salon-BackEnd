@@ -10,6 +10,21 @@ import axios from 'axios';
 import { addMinutes } from 'date-fns';
 import { Op } from 'sequelize';
 
+function getEvolutionBaseUrl(config = {}) {
+  const configuredUrl = String(config.api_url || '').trim();
+  const envUrl = String(process.env.EVOLUTION_API_URL || '').trim();
+
+  if (configuredUrl && configuredUrl !== 'external' && configuredUrl !== 'local') {
+    return configuredUrl.replace(/\/+$/, '');
+  }
+
+  return envUrl.replace(/\/+$/, '');
+}
+
+function getEvolutionApiKey(config = {}) {
+  return String(process.env.EVOLUTION_API_TOKEN || config.token || '').trim();
+}
+
 /**
  * Gera os lembretes automáticos na tabela whatsapp_lembretes para um agendamento.
  * @param {object} agendamento - Objeto do agendamento criado ou editado.
@@ -49,17 +64,18 @@ export async function generateReminders(agendamento) {
     }
 
     const instance = config?.instancia;
-    const baseUrl = process.env.EVOLUTION_API_URL;
+    const baseUrl = getEvolutionBaseUrl(config);
+    const apiKey = getEvolutionApiKey(config);
     
-    // Apenas verifica se o número existe se estiver no modo provedor externo e com configurações
-    if (config.api_url === 'external' && baseUrl && instance) {
+    // Apenas verifica se o numero existe se estiver usando provedor externo e com configuracoes
+    if (config.api_url !== 'local' && baseUrl && instance) {
       const urlCheckNumber = `${baseUrl}/chat/whatsappNumbers/${instance}`;
       try {
         const response = await axios.post(urlCheckNumber, {
           numbers: [phone]
         }, {
           headers: {
-            "apikey": process.env.EVOLUTION_API_TOKEN,
+            ...(apiKey ? { apikey: apiKey } : {}),
             'Content-Type': 'application/json'
           }
         });

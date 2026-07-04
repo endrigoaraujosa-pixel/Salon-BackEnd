@@ -2,6 +2,29 @@ import axios from 'axios';
 import { sendLocalMessage } from '../local-client.js';
 import { formatPhoneNumber } from '../../../utils/index.js';
 
+function getEvolutionBaseUrl(config = {}) {
+  const configuredUrl = String(config.api_url || '').trim();
+  const envUrl = String(process.env.EVOLUTION_API_URL || '').trim();
+
+  if (configuredUrl && configuredUrl !== 'external' && configuredUrl !== 'local') {
+    return configuredUrl.replace(/\/+$/, '');
+  }
+
+  return envUrl.replace(/\/+$/, '');
+}
+
+function getEvolutionApiKey(config = {}) {
+  return String(process.env.EVOLUTION_API_TOKEN || config.token || '').trim();
+}
+
+function buildEvolutionHeaders(config = {}) {
+  const apiKey = getEvolutionApiKey(config);
+  return {
+    'Content-Type': 'application/json',
+    ...(apiKey ? { apikey: apiKey } : {})
+  };
+}
+
 export class WhatsAppProvider {
   /**
    * Envia uma mensagem via WhatsApp.
@@ -54,8 +77,14 @@ export class WhatsAppProvider {
       }
 
       // Monta a URL e os headers
-      const baseUrl = process.env.EVOLUTION_API_URL;
+      const baseUrl = getEvolutionBaseUrl(config);
       const instance = config.instancia;
+      if (!baseUrl) {
+        return {
+          success: false,
+          error: 'URL da Evolution API nao configurada.'
+        };
+      }
 
       // Suporta Evolution API /message/sendText/:instance
       const url = `${baseUrl}/message/sendText/${instance}`;
@@ -67,15 +96,20 @@ export class WhatsAppProvider {
       };
 
       const response = await axios.post(url, payload, {
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': process.env.EVOLUTION_API_TOKEN || ''
-        },
+        headers: buildEvolutionHeaders(config),
         timeout: 15000 // 15 segundos timeout
       });
 
-      // Retorna sucesso com o messageId da Evolution API
-      const keyId = response.data?.key?.id || response.data?.messageId || `sent_${Date.now()}`;
+      // A Evolution pode retornar HTTP 200 mesmo quando a entrega ainda nao aconteceu.
+      // Aqui exigimos pelo menos o ID aceito pela API para evitar marcar erro inesperado como "Enviado".
+      const keyId = response.data?.key?.id || response.data?.messageId || response.data?.id;
+      if (!keyId) {
+        return {
+          success: false,
+          error: 'A Evolution aceitou a requisicao, mas nao retornou identificador da mensagem.'
+        };
+      }
+
       return {
         success: true,
         messageId: keyId
@@ -104,8 +138,11 @@ export class WhatsAppProvider {
 
     try {
       let cleanPhone = formatPhoneNumber(phone);
-      const baseUrl = process.env.EVOLUTION_API_URL;
+      const baseUrl = getEvolutionBaseUrl(config);
       const instance = config.instancia;
+      if (!baseUrl || !instance) {
+        return { exists: false, error: true };
+      }
 
       const url = `${baseUrl}/chat/whatsappNumbers/${instance}`;
 
@@ -133,10 +170,7 @@ export class WhatsAppProvider {
       };
 
       const response = await axios.post(url, payload, {
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': process.env.EVOLUTION_API_TOKEN || ''
-        },
+        headers: buildEvolutionHeaders(config),
         timeout: 10000
       });
 
