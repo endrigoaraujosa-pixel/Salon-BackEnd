@@ -5,6 +5,7 @@ import { getServicoModel } from '../models/Servico.js';
 import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getVendaDiretaModel } from '../models/VendaDireta.js';
 import { getPagamentoComissaoModel } from '../models/PagamentoComissao.js';
+import { getColaboradorComissaoServicoModel } from '../models/ColaboradorComissaoServico.js';
 
 const normalizeName = (name) => {
   if (!name) return '';
@@ -66,6 +67,13 @@ const listComissoes = async (req, res) => {
     const produtos = await getProdutoModel().findAll({ where: { deletado: 'N' } });
     const servicos = await getServicoModel().findAll({ where: { deletado: 'N' } });
     
+    const ColabComissaoServicoModel = getColaboradorComissaoServicoModel();
+    const comissoesAvancadas = await ColabComissaoServicoModel.findAll();
+    const comissoesAvancadasMap = new Map();
+    for (const c of comissoesAvancadas) {
+      comissoesAvancadasMap.set(`${c.colaborador_id}_${c.servico_id}`, c);
+    }
+
     let filteredColaboradores = colaboradores;
     const canSeeAll = req.user && (req.user.role === 'admin' || req.user.perfil?.permissoes?.['comissoes.visualizar_todos'] === true);
     if (!canSeeAll) {
@@ -134,10 +142,29 @@ const listComissoes = async (req, res) => {
           for (const item of itens) {
             if (item.colaborador_id === colab.id) {
               const val_serv = Number(item.valor || 0);
-              const temAuxiliar = !!(item.auxiliar_id && String(item.auxiliar_id).trim() !== "" && String(item.auxiliar_id).trim() !== "null" && String(item.auxiliar_id).trim() !== "undefined");
-              const pct = temAuxiliar
-                ? Number(colab.comissao_ajuda != null ? colab.comissao_ajuda : 30)
-                : Number(colab.comissao_sozinho != null ? colab.comissao_sozinho : (colab.comissao_principal || 0));
+               const temAuxiliar = !!(item.auxiliar_id && String(item.auxiliar_id).trim() !== "" && String(item.auxiliar_id).trim() !== "null" && String(item.auxiliar_id).trim() !== "undefined");
+              let pct;
+              if (item.comissao_percentual !== undefined && item.comissao_percentual !== null) {
+                pct = Number(item.comissao_percentual);
+              } else {
+                if (colab.usar_comissao_avancada) {
+                  const key = `${colab.id}_${item.servico_id}`;
+                  const comAvancada = comissoesAvancadasMap.get(key);
+                  if (comAvancada) {
+                    pct = temAuxiliar
+                      ? Number(comAvancada.comissao_ajuda !== null && comAvancada.comissao_ajuda !== undefined ? comAvancada.comissao_ajuda : 30)
+                      : Number(comAvancada.comissao_sozinho !== null && comAvancada.comissao_sozinho !== undefined ? comAvancada.comissao_sozinho : (comAvancada.comissao_principal || 0));
+                  } else {
+                    pct = temAuxiliar
+                      ? Number(colab.comissao_ajuda != null ? colab.comissao_ajuda : 30)
+                      : Number(colab.comissao_sozinho != null ? colab.comissao_sozinho : (colab.comissao_principal || 0));
+                  }
+                } else {
+                  pct = temAuxiliar
+                    ? Number(colab.comissao_ajuda != null ? colab.comissao_ajuda : 30)
+                    : Number(colab.comissao_sozinho != null ? colab.comissao_sozinho : (colab.comissao_principal || 0));
+                }
+              }
               
               // Calculate cost of products used in this service execution
               let custo_produtos = 0;
@@ -174,7 +201,9 @@ const listComissoes = async (req, res) => {
                 base_comissao_final = Math.max(0, base_comissao_original - taxa_cartao_descontada);
               }
 
-              const val_com = Math.max(0, base_comissao_final * (pct / 100));
+              const val_com = item.comissao_valor_calculado !== undefined && item.comissao_valor_calculado !== null
+                ? Number(item.comissao_valor_calculado)
+                : Math.max(0, base_comissao_final * (pct / 100));
               
               const s_model = servicos.find(x => x.id === item.servico_id);
               const linkedCount = s_model?.produtos_vinculados?.length || 0;
@@ -214,7 +243,22 @@ const listComissoes = async (req, res) => {
             }
             if (item.auxiliar_id === colab.id) {
               const val_serv = Number(item.valor || 0);
-              const pct = Number(colab.comissao_auxiliar || 0);
+              let pct;
+              if (item.comissao_percentual_auxiliar !== undefined && item.comissao_percentual_auxiliar !== null) {
+                pct = Number(item.comissao_percentual_auxiliar);
+              } else {
+                if (colab.usar_comissao_avancada) {
+                  const key = `${colab.id}_${item.servico_id}`;
+                  const comAvancada = comissoesAvancadasMap.get(key);
+                  if (comAvancada) {
+                    pct = Number(comAvancada.comissao_auxiliar !== null && comAvancada.comissao_auxiliar !== undefined ? comAvancada.comissao_auxiliar : 0);
+                  } else {
+                    pct = Number(colab.comissao_auxiliar || 0);
+                  }
+                } else {
+                  pct = Number(colab.comissao_auxiliar || 0);
+                }
+              }
               
               // Calculate cost of products used in this service execution
               let custo_produtos = 0;
@@ -251,7 +295,9 @@ const listComissoes = async (req, res) => {
                 base_comissao_final = Math.max(0, base_comissao_original - taxa_cartao_descontada);
               }
 
-              const val_com = Math.max(0, base_comissao_final * (pct / 100));
+              const val_com = item.comissao_valor_calculado_auxiliar !== undefined && item.comissao_valor_calculado_auxiliar !== null
+                ? Number(item.comissao_valor_calculado_auxiliar)
+                : Math.max(0, base_comissao_final * (pct / 100));
 
               const s_model = servicos.find(x => x.id === item.servico_id);
               const linkedCount = s_model?.produtos_vinculados?.length || 0;

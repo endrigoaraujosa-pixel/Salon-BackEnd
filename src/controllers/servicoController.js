@@ -1,7 +1,10 @@
 import { getServicoModel } from '../models/Servico.js';
 import { getAgendamentoModel } from '../models/Agendamento.js';
+import { getColaboradorModel } from '../models/Colaborador.js';
+import { getColaboradorComissaoServicoModel } from '../models/ColaboradorComissaoServico.js';
 import { sequelize } from '../config/db.js';
 import { Op } from 'sequelize';
+import { v4 as uuidv4 } from 'uuid';
 
 const listServ = async (req, res) => {
   try {
@@ -35,6 +38,33 @@ const createServ = async (req, res) => {
     console.log("createServ payload received:", JSON.stringify(req.body, null, 2));
     const serv = await getServicoModel().create(req.body);
     console.log("createServ success, saved record:", JSON.stringify(serv.toJSON(), null, 2));
+    
+    // Inclusão de Novos Serviços:
+    // Buscar todos os colaboradores que utilizam comissão avançada e não deletados
+    const colaboradoresAvancados = await getColaboradorModel().findAll({
+      where: {
+        usar_comissao_avancada: true,
+        deletado: 'N'
+      }
+    });
+
+    if (colaboradoresAvancados.length > 0) {
+      const comissoesParaInserir = colaboradoresAvancados.map(colab => ({
+        id: uuidv4(),
+        colaborador_id: colab.id,
+        servico_id: serv.id,
+        comissao_principal: Number(colab.comissao_sozinho !== null && colab.comissao_sozinho !== undefined ? colab.comissao_sozinho : (colab.comissao_principal || 40)),
+        comissao_sozinho: Number(colab.comissao_sozinho !== null && colab.comissao_sozinho !== undefined ? colab.comissao_sozinho : (colab.comissao_principal || 40)),
+        comissao_ajuda: Number(colab.comissao_ajuda !== undefined && colab.comissao_ajuda !== null ? colab.comissao_ajuda : 30),
+        comissao_auxiliar: Number(colab.comissao_auxiliar !== undefined && colab.comissao_auxiliar !== null ? colab.comissao_auxiliar : 20)
+      }));
+
+      await getColaboradorComissaoServicoModel().bulkCreate(comissoesParaInserir, {
+        ignoreDuplicates: true
+      });
+      console.log(`Comissões automáticas criadas para o novo serviço para ${colaboradoresAvancados.length} colaboradores.`);
+    }
+
     res.status(201).json(serv);
   } catch (error) {
     console.error("createServ error:", error);

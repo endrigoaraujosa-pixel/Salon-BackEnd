@@ -20,6 +20,7 @@ import addOcultarInsumosToProdutos from './src/migrations/20260611110000-add-ocu
 import addAgradecimentoToWhatsappConfig from './src/migrations/20260619150000-add-agradecimento-to-whatsapp-config.js';
 import addCreditoClienteFields from './src/migrations/20260621220000-add-credito-cliente-fields.js';
 import controlAdquirentesETaxas from './src/migrations/20260625000000-control-adquirentes-e-taxas.js';
+import createColabComissaoServico from './src/migrations/20260705204000-create-colaborador-comissao-servico.js';
 import Sequelize from 'sequelize';
 
 async function run() {
@@ -195,6 +196,14 @@ async function run() {
       console.log('Control adquirentes e taxas migration completed.');
     } catch (e) {
       console.log('Control adquirentes e taxas migration skipped or already applied:', e.message);
+    }
+
+    console.log('Running create colaborador comissao servico migration (up)...');
+    try {
+      await createColabComissaoServico.up(queryInterface, Sequelize);
+      console.log('Create colaborador comissao servico migration completed.');
+    } catch (e) {
+      console.log('Create colaborador comissao servico migration skipped or already applied:', e.message);
     }
 
     console.log('Migrations execution finished.');

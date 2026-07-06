@@ -9,7 +9,7 @@ import { login, logout, me, refreshToken } from './controllers/authController.js
 import { createCategoria, deleteCategoria, listCategorias, updateCategoria } from './controllers/categoriaController.js';
 import { createCliente, deleteCliente, historicoCliente, listClientes, updateCliente, rankingClientes, getCliente } from './controllers/clienteController.js';
 import { adicionarCreditoManual, removerCreditoManual, estornarMovimentacao, getExtrato, recalcularSaldoCliente } from './controllers/clienteCreditoController.js';
-import { createColab, deleteColab, listColab, updateColab } from './controllers/colaboradorController.js';
+import { createColab, deleteColab, listColab, updateColab, getComissoesServico, updateComissoesServico } from './controllers/colaboradorController.js';
 import { createIndisponibilidade, listIndisponibilidades, updateIndisponibilidade, deleteIndisponibilidade } from './controllers/colaboradorIndisponibilidadeController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
 import { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
@@ -126,6 +126,8 @@ colabRoutes.get('/indisponibilidade', protect, requirePermission('colaboradores.
 colabRoutes.post('/indisponibilidade', protect, requirePermission('colaboradores.indisponibilidade'), createIndisponibilidade);
 colabRoutes.put('/indisponibilidade/:id', protect, requirePermission('colaboradores.indisponibilidade'), updateIndisponibilidade);
 colabRoutes.delete('/indisponibilidade/:id', protect, requirePermission('colaboradores.indisponibilidade'), deleteIndisponibilidade);
+colabRoutes.get('/:cid/comissoes-servicos', protect, requirePermission('colaboradores.visualizar'), getComissoesServico);
+colabRoutes.put('/:cid/comissoes-servicos', protect, requirePermission('colaboradores.editar'), updateComissoesServico);
 colabRoutes.get('/', protect, requirePermission(['colaboradores.visualizar', 'colaboradores.indisponibilidade']), listColab);
 colabRoutes.post('/', protect, requirePermission('colaboradores.criar'), createColab);
 colabRoutes.put('/:cid', protect, requirePermission('colaboradores.editar'), updateColab);

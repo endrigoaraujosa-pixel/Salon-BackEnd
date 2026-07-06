@@ -83,6 +83,13 @@ export const recalculateAndFreezeCommissions = async (ag, transaction) => {
   const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
   const colaboradores = await getColaboradorModel().findAll({ transaction });
   const produtos = await getProdutoModel().findAll({ transaction });
+  
+  const { getColaboradorComissaoServicoModel } = await import('../models/ColaboradorComissaoServico.js');
+  const ColaboradorComissaoServico = getColaboradorComissaoServicoModel();
+  const comissoesAvancadas = await ColaboradorComissaoServico.findAll({ transaction });
+  const comissoesAvancadasMap = new Map(
+    comissoesAvancadas.map(c => [`${c.colaborador_id}_${c.servico_id}`, c])
+  );
 
   const updatedItens = [];
   for (const item of (ag.itens || [])) {
@@ -131,12 +138,71 @@ export const recalculateAndFreezeCommissions = async (ag, transaction) => {
       ? Math.max(0, base_comissao_original - taxa_cartao_descontada) 
       : base_comissao_original;
     
+    // Obter alíquotas e calcular comissão para o profissional principal
+    const colab = colaboradores.find(c => c.id === item.colaborador_id);
+    const temAuxiliar = !!(item.auxiliar_id && String(item.auxiliar_id).trim() !== "" && String(item.auxiliar_id).trim() !== "null" && String(item.auxiliar_id).trim() !== "undefined");
+    const colabAux = temAuxiliar ? colaboradores.find(c => c.id === item.auxiliar_id) : null;
+
+    let comissao_percentual = null;
+    let comissao_valor_calculado = null;
+    if (colab) {
+      if (item.comissao_paga && item.comissao_percentual !== undefined && item.comissao_percentual !== null && item.comissao_valor_calculado !== undefined && item.comissao_valor_calculado !== null) {
+        comissao_percentual = Number(item.comissao_percentual);
+        comissao_valor_calculado = Number(item.comissao_valor_calculado);
+      } else {
+        if (colab.usar_comissao_avancada) {
+          const key = `${colab.id}_${item.servico_id}`;
+          const comAvancada = comissoesAvancadasMap.get(key);
+          if (comAvancada) {
+            comissao_percentual = temAuxiliar
+              ? Number(comAvancada.comissao_ajuda !== null && comAvancada.comissao_ajuda !== undefined ? comAvancada.comissao_ajuda : 30)
+              : Number(comAvancada.comissao_sozinho !== null && comAvancada.comissao_sozinho !== undefined ? comAvancada.comissao_sozinho : (comAvancada.comissao_principal || 40));
+          } else {
+            comissao_percentual = temAuxiliar
+              ? Number(colab.comissao_ajuda != null ? colab.comissao_ajuda : 30)
+              : Number(colab.comissao_sozinho != null ? colab.comissao_sozinho : (colab.comissao_principal || 40));
+          }
+        } else {
+          comissao_percentual = temAuxiliar
+            ? Number(colab.comissao_ajuda != null ? colab.comissao_ajuda : 30)
+            : Number(colab.comissao_sozinho != null ? colab.comissao_sozinho : (colab.comissao_principal || 40));
+        }
+        comissao_valor_calculado = Number((base_comissao_final * (comissao_percentual / 100)).toFixed(2));
+      }
+    }
+
+    let comissao_percentual_auxiliar = null;
+    let comissao_valor_calculado_auxiliar = null;
+    if (colabAux) {
+      if (item.comissao_paga_auxiliar && item.comissao_percentual_auxiliar !== undefined && item.comissao_percentual_auxiliar !== null && item.comissao_valor_calculado_auxiliar !== undefined && item.comissao_valor_calculado_auxiliar !== null) {
+        comissao_percentual_auxiliar = Number(item.comissao_percentual_auxiliar);
+        comissao_valor_calculado_auxiliar = Number(item.comissao_valor_calculado_auxiliar);
+      } else {
+        if (colabAux.usar_comissao_avancada) {
+          const key = `${colabAux.id}_${item.servico_id}`;
+          const comAvancada = comissoesAvancadasMap.get(key);
+          if (comAvancada) {
+            comissao_percentual_auxiliar = Number(comAvancada.comissao_auxiliar !== null && comAvancada.comissao_auxiliar !== undefined ? comAvancada.comissao_auxiliar : 20);
+          } else {
+            comissao_percentual_auxiliar = Number(colabAux.comissao_auxiliar != null ? colabAux.comissao_auxiliar : 20);
+          }
+        } else {
+          comissao_percentual_auxiliar = Number(colabAux.comissao_auxiliar != null ? colabAux.comissao_auxiliar : 20);
+        }
+        comissao_valor_calculado_auxiliar = Number((base_comissao_final * (comissao_percentual_auxiliar / 100)).toFixed(2));
+      }
+    }
+    
     updatedItens.push({
       ...item,
       base_comissao_original: Number(base_comissao_original.toFixed(2)),
       taxa_cartao_descontada: Number(taxa_cartao_descontada.toFixed(2)),
       base_comissao_final: Number(base_comissao_final.toFixed(2)),
-      descontou_taxa_cartao: descontou
+      descontou_taxa_cartao: descontou,
+      comissao_percentual,
+      comissao_valor_calculado,
+      comissao_percentual_auxiliar,
+      comissao_valor_calculado_auxiliar
     });
   }
 
