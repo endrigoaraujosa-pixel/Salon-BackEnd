@@ -257,10 +257,10 @@ app.get('/api/configuracoes/empresa/public', getPublicEmpresa);
 
 // Campanhas de Mensagem em Massa
 const campanhaRoutes = express.Router();
-campanhaRoutes.get('/', protect, requirePermission('configuracoes.whatsapp'), listCampanhas);
-campanhaRoutes.get('/:id', protect, requirePermission('configuracoes.whatsapp'), getCampanha);
-campanhaRoutes.post('/', protect, requirePermission('configuracoes.whatsapp'), createCampanha);
-campanhaRoutes.post('/:id/cancelar', protect, requirePermission('configuracoes.whatsapp'), cancelarCampanha);
+campanhaRoutes.get('/', protect, requirePermission('configuracoes.whatsapp_mensagem_massa'), listCampanhas);
+campanhaRoutes.get('/:id', protect, requirePermission('configuracoes.whatsapp_mensagem_massa'), getCampanha);
+campanhaRoutes.post('/', protect, requirePermission('configuracoes.whatsapp_mensagem_massa'), createCampanha);
+campanhaRoutes.post('/:id/cancelar', protect, requirePermission('configuracoes.whatsapp_mensagem_massa'), cancelarCampanha);
 app.use('/api/whatsapp/campanhas', campanhaRoutes);
 configRoutes.get('/motivos-estoque', protect, requirePermission(['cadastros.motivos_estoque', 'estoque.movimentar', 'estoque.entrada', 'estoque.visualizar']), listMotivos);
 configRoutes.post('/motivos-estoque', protect, requirePermission('cadastros.motivos_estoque'), createMotivo);

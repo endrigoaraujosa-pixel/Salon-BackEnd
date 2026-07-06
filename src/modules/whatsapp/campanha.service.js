@@ -55,18 +55,27 @@ export async function getCampanha(id) {
  * Se agendado_para for nulo ou passado, dispara imediatamente em background.
  */
 export async function createCampanha(data, usuarioNome) {
-  const { titulo, mensagem, agendado_para, midia_base64, midia_nome, midia_tipo } = data;
+  const { titulo, mensagem, agendado_para, midia_base64, midia_nome, midia_tipo, cliente_ids } = data;
 
   if (!mensagem || !mensagem.trim()) {
     throw new Error('A mensagem não pode estar vazia.');
   }
 
+  const whereClause = {
+    deletado: 'N',
+    telefone: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] }
+  };
+
+  if (Array.isArray(cliente_ids)) {
+    if (cliente_ids.length === 0) {
+      throw new Error('Nenhum cliente selecionado para envio.');
+    }
+    whereClause.id = { [Op.in]: cliente_ids };
+  }
+
   // Busca todos os clientes com telefone válido
   const clientes = await getClienteModel().findAll({
-    where: {
-      deletado: 'N',
-      telefone: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] }
-    },
+    where: whereClause,
     attributes: ['id', 'nome', 'telefone']
   });
 
