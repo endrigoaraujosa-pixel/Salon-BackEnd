@@ -139,6 +139,8 @@ export async function cancelarCampanha(id) {
 
 /**
  * Executa o envio de mensagens de uma campanha para todos os clientes.
+ * Envia uma mensagem por vez com intervalos aleatórios entre cada disparo
+ * para simular comportamento humano e reduzir risco de bloqueio pelo WhatsApp.
  * Chamado em background após createCampanha ou pelo job de agendamento.
  */
 export async function executarCampanha(campanhaId) {
@@ -170,11 +172,24 @@ export async function executarCampanha(campanhaId) {
     return;
   }
 
+  // Lê a configuração para obter os intervalos de envio inteligente
   const config = await getConfig();
+  const intervaloMin = Math.max(1, config.massa_intervalo_min ?? 3);
+  const intervaloMax = Math.max(intervaloMin, config.massa_intervalo_max ?? 8);
+
   let enviados = campanha.enviados || 0;
   let falhas = campanha.falhas || 0;
 
-  for (const envio of envios) {
+  for (let i = 0; i < envios.length; i++) {
+    const envio = envios[i];
+
+    // Verifica se a campanha foi cancelada antes de cada envio
+    const campanhaAtual = await Campanha.findByPk(campanhaId, { attributes: ['status'] });
+    if (campanhaAtual?.status === 'cancelada') {
+      console.log(`[CampanhaService] Campanha #${campanhaId} foi cancelada durante o envio. Parando.`);
+      return;
+    }
+
     // Substitui variável {nome} com o nome do cliente
     const mensagemPersonalizada = campanha.mensagem.replace(/{nome}/g, envio.cliente_nome || 'Cliente');
 
@@ -214,8 +229,13 @@ export async function executarCampanha(campanhaId) {
     // Atualiza contadores na campanha a cada envio
     await campanha.update({ enviados, falhas });
 
-    // Pequena pausa entre envios para não sobrecarregar a API (500ms)
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Intervalo aleatório entre envios para simular comportamento humano
+    if (i < envios.length - 1) {
+      const delaySeconds = intervaloMin + Math.random() * (intervaloMax - intervaloMin);
+      const delayMs = Math.round(delaySeconds * 1000);
+      console.log(`[CampanhaService] Campanha #${campanhaId}: enviado ${i + 1}/${envios.length}. Aguardando ${(delayMs / 1000).toFixed(1)}s antes do próximo...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
   }
 
   // Determina status final
