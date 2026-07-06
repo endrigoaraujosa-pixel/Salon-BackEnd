@@ -43,6 +43,18 @@ const WhatsappCampanha = sequelize.define('WhatsappCampanha', {
     type: DataTypes.INTEGER,
     defaultValue: 0
   },
+  midia_base64: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  midia_nome: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  midia_tipo: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
   criado_por: {
     type: DataTypes.STRING(255),
     allowNull: true

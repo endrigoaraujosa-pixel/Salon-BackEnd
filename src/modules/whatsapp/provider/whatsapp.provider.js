@@ -31,12 +31,13 @@ export class WhatsAppProvider {
    * @param {string} phone - O telefone do cliente (com DDI e DDD)
    * @param {string} message - O conteúdo formatado da mensagem
    * @param {object} [config] - Configurações de API (api_url, instancia, token)
+   * @param {object} [mediaOptions] - Opções de mídia ({ mediaBase64, mediaNome, mediaTipo })
    * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
    */
-  async sendMessage(phone, message, config = null) {
+  async sendMessage(phone, message, config = null, mediaOptions = null) {
     // Se não tiver configurações de API, executa a simulação
     if (!config || !config.instancia) {
-      console.log(`[WhatsAppProvider - Simulação] Mensagem simulada para ${phone}: ${message}`);
+      console.log(`[WhatsAppProvider - Simulação] Mensagem simulada para ${phone}: ${message}${mediaOptions ? ' [Com Mídia]' : ''}`);
       return { success: true, messageId: `simulated_${Date.now()}` };
     }
 
@@ -44,7 +45,7 @@ export class WhatsAppProvider {
     if (config.api_url === 'local' || config.instancia === 'local') {
       try {
         console.log(`[WhatsAppProvider] Enviando mensagem via WhatsApp Local para ${phone}`);
-        return await sendLocalMessage(phone, message);
+        return await sendLocalMessage(phone, message, mediaOptions);
       } catch (err) {
         console.error(`[WhatsAppProvider] Erro ao enviar mensagem via WhatsApp Local para ${phone}:`, err.message);
         return {
@@ -86,14 +87,28 @@ export class WhatsAppProvider {
         };
       }
 
-      // Suporta Evolution API /message/sendText/:instance
-      const url = `${baseUrl}/message/sendText/${instance}`;
+      // Suporta Evolution API /message/sendText/:instance ou /message/sendMedia/:instance
+      const isMedia = mediaOptions && mediaOptions.mediaBase64;
+      const url = `${baseUrl}/message/${isMedia ? 'sendMedia' : 'sendText'}/${instance}`;
 
-      // Evolution API v2 Payload Structure
-      const payload = {
+      // Evolution API Payload Structure
+      const payload = isMedia ? {
+        number: targetNumber,
+        mediatype: "document", // 'image' ou 'document', usando document p/ flexibilidade ou detectar via mediaTipo
+        mimetype: mediaOptions.mediaTipo || "application/octet-stream",
+        fileName: mediaOptions.mediaNome || "arquivo",
+        caption: message,
+        media: mediaOptions.mediaBase64.replace(/^data:.*?;base64,/, '')
+      } : {
         number: targetNumber,
         text: message
       };
+
+      if (isMedia && mediaOptions.mediaTipo && mediaOptions.mediaTipo.startsWith('image/')) {
+        payload.mediatype = "image";
+      }
+
+      console.log('Payload: ', payload);
 
       const response = await axios.post(url, payload, {
         headers: buildEvolutionHeaders(config),

@@ -1,5 +1,5 @@
 import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth } = pkg;
+const { Client, LocalAuth, MessageMedia } = pkg;
 import qrcode from 'qrcode';
 import qrcodeTerminal from 'qrcode-terminal';
 
@@ -100,7 +100,7 @@ export async function disconnectLocalClient() {
   }
 }
 
-export async function sendLocalMessage(phone, message) {
+export async function sendLocalMessage(phone, message, mediaOptions = null) {
   if (!client || clientState.status !== 'ready') {
     throw new Error('WhatsApp local não está conectado ou pronto.');
   }
@@ -139,7 +139,24 @@ export async function sendLocalMessage(phone, message) {
   }
 
   console.log(`[LocalWhatsApp] Enviando mensagem para: ${chatId}`);
-  const response = await client.sendMessage(chatId, message);
+
+  let response;
+  if (mediaOptions && mediaOptions.mediaBase64) {
+    // A string vem no formato data:image/png;base64,...
+    const base64Data = mediaOptions.mediaBase64.includes('base64,') 
+      ? mediaOptions.mediaBase64.split('base64,')[1] 
+      : mediaOptions.mediaBase64;
+    
+    const media = new MessageMedia(
+      mediaOptions.mediaTipo || 'application/octet-stream',
+      base64Data,
+      mediaOptions.mediaNome || 'arquivo'
+    );
+    response = await client.sendMessage(chatId, media, { caption: message });
+  } else {
+    response = await client.sendMessage(chatId, message);
+  }
+
   return {
     success: true,
     messageId: response.id?.id || `local_${Date.now()}`

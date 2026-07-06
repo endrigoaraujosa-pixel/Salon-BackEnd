@@ -55,7 +55,7 @@ export async function getCampanha(id) {
  * Se agendado_para for nulo ou passado, dispara imediatamente em background.
  */
 export async function createCampanha(data, usuarioNome) {
-  const { titulo, mensagem, agendado_para } = data;
+  const { titulo, mensagem, agendado_para, midia_base64, midia_nome, midia_tipo } = data;
 
   if (!mensagem || !mensagem.trim()) {
     throw new Error('A mensagem não pode estar vazia.');
@@ -88,6 +88,9 @@ export async function createCampanha(data, usuarioNome) {
     total_clientes: clientes.length,
     enviados: 0,
     falhas: 0,
+    midia_base64: midia_base64 || null,
+    midia_nome: midia_nome || null,
+    midia_tipo: midia_tipo || null,
     criado_por: usuarioNome || null
   });
 
@@ -167,7 +170,13 @@ export async function executarCampanha(campanhaId) {
     const mensagemPersonalizada = campanha.mensagem.replace(/{nome}/g, envio.cliente_nome || 'Cliente');
 
     try {
-      const result = await whatsappProvider.sendMessage(envio.telefone, mensagemPersonalizada, config);
+      const mediaOptions = campanha.midia_base64 ? {
+        mediaBase64: campanha.midia_base64,
+        mediaNome: campanha.midia_nome,
+        mediaTipo: campanha.midia_tipo
+      } : null;
+
+      const result = await whatsappProvider.sendMessage(envio.telefone, mensagemPersonalizada, config, mediaOptions);
 
       if (result.success) {
         await envio.update({
