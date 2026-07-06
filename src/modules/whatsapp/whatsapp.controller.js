@@ -1,4 +1,5 @@
 import * as whatsappService from './whatsapp.service.js';
+import * as campanhaService from './campanha.service.js';
 import { getLocalClientStatus, disconnectLocalClient } from './local-client.js';
 import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
 // import 'dotenv/config';
@@ -158,5 +159,46 @@ export const postCheckWhatsappNumber = async (req, res) => {
     res.json(result);
   } catch (error) {
     res.status(500).json({ detail: error.message });
+  }
+};
+
+// ─── Campanhas de Mensagem em Massa ───────────────────────────────────────────
+
+export const listCampanhas = async (req, res) => {
+  try {
+    const result = await campanhaService.listCampanhas(req.query);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export const getCampanha = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await campanhaService.getCampanha(id);
+    res.json(result);
+  } catch (error) {
+    res.status(404).json({ detail: error.message });
+  }
+};
+
+export const createCampanha = async (req, res) => {
+  try {
+    const usuarioNome = req.user?.name || req.user?.email || 'Sistema';
+    const campanha = await campanhaService.createCampanha(req.body, usuarioNome);
+    res.status(201).json(campanha);
+  } catch (error) {
+    res.status(400).json({ detail: error.message });
+  }
+};
+
+export const cancelarCampanha = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const campanha = await campanhaService.cancelarCampanha(id);
+    res.json(campanha);
+  } catch (error) {
+    res.status(400).json({ detail: error.message });
   }
 };

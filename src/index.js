@@ -13,7 +13,7 @@ import { createColab, deleteColab, listColab, updateColab, getComissoesServico, 
 import { createIndisponibilidade, listIndisponibilidades, updateIndisponibilidade, deleteIndisponibilidade } from './controllers/colaboradorIndisponibilidadeController.js';
 import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
 import { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
-import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect, startLocalIntegration, getExternalStatus, getExternalQrCode, postCheckWhatsappNumber } from './modules/whatsapp/whatsapp.controller.js';
+import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect, startLocalIntegration, getExternalStatus, getExternalQrCode, postCheckWhatsappNumber, listCampanhas, getCampanha, createCampanha, cancelarCampanha } from './modules/whatsapp/whatsapp.controller.js';
 import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
 import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
@@ -254,6 +254,14 @@ configRoutes.get('/whatsapp/qr-code/:instance', protect, requirePermission('conf
 configRoutes.post('/whatsapp/local-disconnect', protect, requirePermission('configuracoes.whatsapp'), postLocalDisconnect);
 configRoutes.post('/whatsapp/check-number', protect, postCheckWhatsappNumber);
 app.get('/api/configuracoes/empresa/public', getPublicEmpresa);
+
+// Campanhas de Mensagem em Massa
+const campanhaRoutes = express.Router();
+campanhaRoutes.get('/', protect, requirePermission('configuracoes.whatsapp_mensagem_massa'), listCampanhas);
+campanhaRoutes.get('/:id', protect, requirePermission('configuracoes.whatsapp_mensagem_massa'), getCampanha);
+campanhaRoutes.post('/', protect, requirePermission('configuracoes.whatsapp_mensagem_massa'), createCampanha);
+campanhaRoutes.post('/:id/cancelar', protect, requirePermission('configuracoes.whatsapp_mensagem_massa'), cancelarCampanha);
+app.use('/api/whatsapp/campanhas', campanhaRoutes);
 configRoutes.get('/motivos-estoque', protect, requirePermission(['cadastros.motivos_estoque', 'estoque.movimentar', 'estoque.entrada', 'estoque.visualizar']), listMotivos);
 configRoutes.post('/motivos-estoque', protect, requirePermission('cadastros.motivos_estoque'), createMotivo);
 configRoutes.put('/motivos-estoque/:id', protect, requirePermission('cadastros.motivos_estoque'), updateMotivo);
