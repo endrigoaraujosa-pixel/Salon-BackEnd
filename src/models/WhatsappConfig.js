@@ -51,6 +51,16 @@ const WhatsappConfig = sequelize.define('WhatsappConfig', {
   agradecimento_modelo_mensagem: {
     type: DataTypes.TEXT,
     allowNull: true
+  },
+  massa_intervalo_min: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 3
+  },
+  massa_intervalo_max: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 8
   }
 }, {
   tableName: 'whatsapp_config',
