@@ -37,6 +37,11 @@ const Colaborador = sequelize.define('Colaborador', {
     type: DataTypes.FLOAT,
     defaultValue: 20
   },
+  usar_comissao_avancada: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
+  },
   ativo: {
     type: DataTypes.BOOLEAN,
     defaultValue: true

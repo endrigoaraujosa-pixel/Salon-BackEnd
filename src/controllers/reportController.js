@@ -12,6 +12,7 @@ import { getDespesaModel } from '../models/Despesa.js';
 import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
 import { getServicoModel } from '../models/Servico.js';
 import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
+import { getColaboradorComissaoServicoModel } from '../models/ColaboradorComissaoServico.js';
 
 const normalizeName = (name) => {
   if (!name) return '';
@@ -1599,6 +1600,13 @@ const relatorioResultadoOperacional = async (req, res) => {
     const colabMap = new Map(colaboradores.map(c => [c.id, c]));
     const colabNameMap = new Map(colaboradores.map(c => [c.id, c.nome]));
 
+    const ColabComissaoServicoModel = getColaboradorComissaoServicoModel();
+    const comissoesAvancadas = await ColabComissaoServicoModel.findAll();
+    const comissoesAvancadasMap = new Map();
+    for (const c of comissoesAvancadas) {
+      comissoesAvancadasMap.set(`${c.colaborador_id}_${c.servico_id}`, c);
+    }
+
     const produtos = await getProdutoModel().findAll({ where: { deletado: 'N' } });
     const produtosMap = new Map(produtos.map(p => [p.id, p]));
 
@@ -1781,10 +1789,29 @@ const relatorioResultadoOperacional = async (req, res) => {
         if (colabPrincipal) {
           if (!colaborador_id || colaborador_id === 'todos' || String(item.colaborador_id) === String(colaborador_id)) {
             const temAuxiliar = !!(item.auxiliar_id && String(item.auxiliar_id).trim() !== "" && String(item.auxiliar_id).trim() !== "null");
-            const pct = temAuxiliar
-              ? Number(colabPrincipal.comissao_ajuda != null ? colabPrincipal.comissao_ajuda : 30)
-              : Number(colabPrincipal.comissao_sozinho != null ? colabPrincipal.comissao_sozinho : (colabPrincipal.comissao_principal || 0));
-            comissaoVal += baseCom * (pct / 100);
+            if (item.comissao_valor_calculado !== undefined && item.comissao_valor_calculado !== null) {
+              comissaoVal += Number(item.comissao_valor_calculado);
+            } else {
+              let pct;
+              if (colabPrincipal.usar_comissao_avancada) {
+                const key = `${colabPrincipal.id}_${item.servico_id}`;
+                const comAvancada = comissoesAvancadasMap.get(key);
+                if (comAvancada) {
+                  pct = temAuxiliar
+                    ? Number(comAvancada.comissao_ajuda !== null && comAvancada.comissao_ajuda !== undefined ? comAvancada.comissao_ajuda : 30)
+                    : Number(comAvancada.comissao_sozinho !== null && comAvancada.comissao_sozinho !== undefined ? comAvancada.comissao_sozinho : (comAvancada.comissao_principal || 0));
+                } else {
+                  pct = temAuxiliar
+                    ? Number(colabPrincipal.comissao_ajuda != null ? colabPrincipal.comissao_ajuda : 30)
+                    : Number(colabPrincipal.comissao_sozinho != null ? colabPrincipal.comissao_sozinho : (colabPrincipal.comissao_principal || 0));
+                }
+              } else {
+                pct = temAuxiliar
+                  ? Number(colabPrincipal.comissao_ajuda != null ? colabPrincipal.comissao_ajuda : 30)
+                  : Number(colabPrincipal.comissao_sozinho != null ? colabPrincipal.comissao_sozinho : (colabPrincipal.comissao_principal || 0));
+              }
+              comissaoVal += baseCom * (pct / 100);
+            }
           }
         }
 
@@ -1792,8 +1819,23 @@ const relatorioResultadoOperacional = async (req, res) => {
         const colabAuxiliar = colabMap.get(item.auxiliar_id);
         if (colabAuxiliar) {
           if (!colaborador_id || colaborador_id === 'todos' || String(item.auxiliar_id) === String(colaborador_id)) {
-            const pct = Number(colabAuxiliar.comissao_auxiliar || 0);
-            comissaoVal += baseCom * (pct / 100);
+            if (item.comissao_valor_calculado_auxiliar !== undefined && item.comissao_valor_calculado_auxiliar !== null) {
+              comissaoVal += Number(item.comissao_valor_calculado_auxiliar);
+            } else {
+              let pct;
+              if (colabAuxiliar.usar_comissao_avancada) {
+                const key = `${colabAuxiliar.id}_${item.servico_id}`;
+                const comAvancada = comissoesAvancadasMap.get(key);
+                if (comAvancada) {
+                  pct = Number(comAvancada.comissao_auxiliar !== null && comAvancada.comissao_auxiliar !== undefined ? comAvancada.comissao_auxiliar : 0);
+                } else {
+                  pct = Number(colabAuxiliar.comissao_auxiliar || 0);
+                }
+              } else {
+                pct = Number(colabAuxiliar.comissao_auxiliar || 0);
+              }
+              comissaoVal += baseCom * (pct / 100);
+            }
           }
         }
 
