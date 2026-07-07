@@ -82,6 +82,10 @@ export const limparComissoesAgendamento = (ag) => {
       delete newItem.comissao_valor_calculado;
       delete newItem.comissao_percentual_auxiliar;
       delete newItem.comissao_valor_calculado_auxiliar;
+      // comissao_paga e comissao_paga_auxiliar são preservados intencionalmente.
+      // O agendamento pode ser reaberto apenas para trocar forma de pagamento ou
+      // ajuste pontual — a comissão já paga deve continuar marcada como paga
+      // para evitar que seja paga em duplicidade.
       return newItem;
     });
     ag.changed('itens', true);
