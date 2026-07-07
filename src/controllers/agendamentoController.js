@@ -74,6 +74,20 @@ export const adjustStock = async (ag, type, options = {}) => {
   }
 };
 
+export const limparComissoesAgendamento = (ag) => {
+  if (ag.itens && Array.isArray(ag.itens)) {
+    ag.itens = ag.itens.map(item => {
+      const newItem = { ...item };
+      delete newItem.comissao_percentual;
+      delete newItem.comissao_valor_calculado;
+      delete newItem.comissao_percentual_auxiliar;
+      delete newItem.comissao_valor_calculado_auxiliar;
+      return newItem;
+    });
+    ag.changed('itens', true);
+  }
+};
+
 export const recalculateAndFreezeCommissions = async (ag, transaction) => {
   const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: ag.id, deletado: 'N' }, transaction });
   
@@ -146,7 +160,8 @@ export const recalculateAndFreezeCommissions = async (ag, transaction) => {
     let comissao_percentual = null;
     let comissao_valor_calculado = null;
     if (colab) {
-      if (item.comissao_paga && item.comissao_percentual !== undefined && item.comissao_percentual !== null && item.comissao_valor_calculado !== undefined && item.comissao_valor_calculado !== null) {
+      const jaTemCalculado = item.comissao_percentual !== undefined && item.comissao_percentual !== null && item.comissao_valor_calculado !== undefined && item.comissao_valor_calculado !== null;
+      if (jaTemCalculado) {
         comissao_percentual = Number(item.comissao_percentual);
         comissao_valor_calculado = Number(item.comissao_valor_calculado);
       } else {
@@ -174,7 +189,8 @@ export const recalculateAndFreezeCommissions = async (ag, transaction) => {
     let comissao_percentual_auxiliar = null;
     let comissao_valor_calculado_auxiliar = null;
     if (colabAux) {
-      if (item.comissao_paga_auxiliar && item.comissao_percentual_auxiliar !== undefined && item.comissao_percentual_auxiliar !== null && item.comissao_valor_calculado_auxiliar !== undefined && item.comissao_valor_calculado_auxiliar !== null) {
+      const jaTemCalculadoAux = item.comissao_percentual_auxiliar !== undefined && item.comissao_percentual_auxiliar !== null && item.comissao_valor_calculado_auxiliar !== undefined && item.comissao_valor_calculado_auxiliar !== null;
+      if (jaTemCalculadoAux) {
         comissao_percentual_auxiliar = Number(item.comissao_percentual_auxiliar);
         comissao_valor_calculado_auxiliar = Number(item.comissao_valor_calculado_auxiliar);
       } else {
@@ -688,6 +704,7 @@ const setStatus = async (req, res) => {
         await adjustStock(ag, 'deduct', { transaction, user: req.user });
       } else if (oldStatus === 'concluido') {
         await adjustStock(ag, 'restore', { transaction, user: req.user });
+        limparComissoesAgendamento(ag);
       }
     }
 
@@ -1244,6 +1261,7 @@ const updatePagamento = async (req, res) => {
         await adjustStock(ag, 'deduct', { transaction, user: req.user });
       } else if (oldStatus === 'concluido') {
         await adjustStock(ag, 'restore', { transaction, user: req.user });
+        limparComissoesAgendamento(ag);
       }
     }
     await ag.save({ transaction });
@@ -1365,6 +1383,7 @@ const deletePagamento = async (req, res) => {
           await adjustStock(ag, 'deduct', { transaction, user: req.user });
         } else if (oldStatus === 'concluido') {
           await adjustStock(ag, 'restore', { transaction, user: req.user });
+          limparComissoesAgendamento(ag);
         }
       }
       if (ag.status === 'concluido') {
