@@ -10,6 +10,7 @@ import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getPagamentoModel } from '../models/Pagamento.js';
 import { getUserModel } from '../models/User.js';
 import { getDescontoModel } from '../models/Desconto.js';
+import { getVendaDiretaModel } from '../models/VendaDireta.js';
 import { sequelize } from '../config/db.js';
 import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 import * as clienteCreditoService from '../services/clienteCreditoService.js';
@@ -1421,19 +1422,23 @@ const patchObservacoes = async (req, res) => {
 
 const aplicarDescontoAgendamento = async (req, res) => {
   const { aid } = req.params;
-  const { descontoId } = req.body;
+  const { descontoId, vendasDiretasIds } = req.body;
+  const transaction = await sequelize.transaction();
 
   try {
-    const ag = await getAgendamentoModel().findByPk(aid);
+    const ag = await getAgendamentoModel().findByPk(aid, { transaction });
     if (!ag || ag.deletado === 'S') {
+      await transaction.rollback();
       return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
 
     if (ag.status === 'concluido' || ag.valor_pago > 0) {
+      await transaction.rollback();
       return res.status(400).json({ detail: 'Não é possível aplicar desconto em um agendamento finalizado ou pago.' });
     }
 
     let itens = Array.isArray(ag.itens) ? [...ag.itens] : [];
+    const currentAppliedDescontoId = ag.desconto_aplicado?.desconto_id;
 
     // Se descontoId for nulo/vazio, reverter o desconto
     if (!descontoId) {
@@ -1448,13 +1453,51 @@ const aplicarDescontoAgendamento = async (req, res) => {
       ag.itens = itens;
       ag.changed('itens', true);
       const valor_total = itens.reduce((acc, i) => acc + Number(i.valor || 0), 0);
-      await ag.update({ itens, valor_total, desconto_aplicado: null });
+      await ag.update({ itens, valor_total, desconto_aplicado: null }, { transaction });
 
+      // Reverter apenas as vendas diretas pendentes associadas que estão selecionadas ou possuem o mesmo desconto
+      const pendingSales = await getVendaDiretaModel().findAll({
+        where: { cliente_id: ag.cliente_id, status: 'pendente', deletado: 'N' },
+        transaction
+      });
+      for (const sale of pendingSales) {
+        const isSelected = Array.isArray(vendasDiretasIds) && vendasDiretasIds.includes(sale.id);
+        const hasSameDesconto = currentAppliedDescontoId && sale.desconto_aplicado?.desconto_id === currentAppliedDescontoId;
+        
+        if (isSelected || hasSameDesconto) {
+          let saleItens = Array.isArray(sale.itens) ? [...sale.itens] : [];
+          let changed = false;
+          saleItens = saleItens.map(item => {
+            if (item.preco_unitario_original !== undefined) {
+              item.preco_unitario = item.preco_unitario_original;
+              item.subtotal = item.quantidade * item.preco_unitario;
+              delete item.preco_unitario_original;
+              changed = true;
+            }
+            return item;
+          });
+          if (changed || sale.desconto_aplicado !== null) {
+            const v_total = saleItens.reduce((acc, i) => acc + Number(i.subtotal || 0), 0);
+            const primeiro = saleItens[0] || {};
+            await sale.update({
+              itens: saleItens,
+              valor_total: v_total,
+              desconto_aplicado: null,
+              produto_id: primeiro.produto_id || sale.produto_id,
+              produto_nome: saleItens.length === 1 ? primeiro.produto_nome : `${primeiro.produto_nome} (+${saleItens.length - 1})`,
+              quantidade: saleItens.reduce((acc, i) => acc + Number(i.quantidade || 0), 0)
+            }, { transaction });
+          }
+        }
+      }
+
+      await transaction.commit();
       return res.json({ ok: true, agendamento: ag });
     }
 
-    const desconto = await getDescontoModel().findOne({ where: { id: descontoId, deletado: 'N', ativo: true } });
+    const desconto = await getDescontoModel().findOne({ where: { id: descontoId, deletado: 'N', ativo: true }, transaction });
     if (!desconto) {
+      await transaction.rollback();
       return res.status(444).json({ detail: 'Desconto não encontrado ou inativo.' });
     }
 
@@ -1468,50 +1511,201 @@ const aplicarDescontoAgendamento = async (req, res) => {
       } catch (e) { }
     }
 
-    const isRestrictedToItems = (vinculados.products && vinculados.products.length > 0) || (vinculados.services && vinculados.services.length > 0);
+    const hasLinkedServices = Array.isArray(vinculados?.services) && vinculados.services.length > 0;
+    const hasLinkedProducts = Array.isArray(vinculados?.products) && vinculados.products.length > 0;
+    const isGeneral = !hasLinkedServices && !hasLinkedProducts;
 
-    // Identificar itens elegíveis (serviços) e reverter quaisquer descontos anteriores primeiro
-    let eligibleItens = [];
+    // Primeiro, reverter descontos anteriores em todos os itens do agendamento
     itens = itens.map(item => {
       if (item.valor_original !== undefined) {
         item.valor = item.valor_original;
       } else {
         item.valor_original = item.valor;
       }
-
-      const isEligible = !isRestrictedToItems || (vinculados.services && vinculados.services.includes(item.servico_id));
-      if (isEligible) {
-        eligibleItens.push(item);
-      }
       return item;
     });
 
-    if (eligibleItens.length === 0) {
-      return res.status(400).json({ detail: 'Este desconto não é elegível para nenhum serviço deste agendamento.' });
+    // E reverter apenas as vendas diretas pendentes associadas que estão selecionadas ou possuem o mesmo desconto
+    const pendingSales = await getVendaDiretaModel().findAll({
+      where: { cliente_id: ag.cliente_id, status: 'pendente', deletado: 'N' },
+      transaction
+    });
+    for (const sale of pendingSales) {
+      const isSelected = Array.isArray(vendasDiretasIds) && vendasDiretasIds.includes(sale.id);
+      const hasSameDesconto = currentAppliedDescontoId && sale.desconto_aplicado?.desconto_id === currentAppliedDescontoId;
+
+      if (isSelected || hasSameDesconto) {
+        let saleItens = Array.isArray(sale.itens) ? [...sale.itens] : [];
+        let changed = false;
+        saleItens = saleItens.map(item => {
+          if (item.preco_unitario_original !== undefined) {
+            item.preco_unitario = item.preco_unitario_original;
+            item.subtotal = item.quantidade * item.preco_unitario;
+            delete item.preco_unitario_original;
+            changed = true;
+          }
+          return item;
+        });
+        if (changed || sale.desconto_aplicado !== null) {
+          const v_total = saleItens.reduce((acc, i) => acc + Number(i.subtotal || 0), 0);
+          const primeiro = saleItens[0] || {};
+          await sale.update({
+            itens: saleItens,
+            valor_total: v_total,
+            desconto_aplicado: null,
+            produto_id: primeiro.produto_id || sale.produto_id,
+            produto_nome: saleItens.length === 1 ? primeiro.produto_nome : `${primeiro.produto_nome} (+${saleItens.length - 1})`,
+            quantidade: saleItens.reduce((acc, i) => acc + Number(i.quantidade || 0), 0)
+          }, { transaction });
+        }
+      }
     }
 
-    const subtotalElegivel = eligibleItens.reduce((acc, i) => acc + Number(i.valor), 0);
+    // Carregar as vendas selecionadas atualizadas (após reversão)
+    const selectedSales = await getVendaDiretaModel().findAll({
+      where: { id: vendasDiretasIds || [], status: 'pendente', deletado: 'N' },
+      transaction
+    });
 
-    // Calcular desconto
+    // Identificar itens elegíveis (Serviços e Produtos)
+    let eligibleServices = [];
+    if (isGeneral) {
+      eligibleServices = itens;
+    } else if (hasLinkedServices) {
+      eligibleServices = itens.filter(item => vinculados.services.includes(item.servico_id));
+    }
+
+    let eligibleProducts = [];
+    selectedSales.forEach(sale => {
+      // Normalizar itens se necessário
+      if (!Array.isArray(sale.itens) || sale.itens.length === 0) {
+        sale.itens = [{
+          produto_id: sale.produto_id,
+          produto_nome: sale.produto_nome,
+          quantidade: sale.quantidade || 1,
+          preco_unitario: sale.quantidade > 0 ? sale.valor_total / sale.quantidade : sale.valor_total,
+          subtotal: sale.valor_total,
+          comissao_pct: 0
+        }];
+      }
+
+      sale.itens.forEach((item, index) => {
+        // Restaurar preco_unitario_original se não existir
+        if (item.preco_unitario_original === undefined) {
+          item.preco_unitario_original = item.preco_unitario;
+        }
+        
+        const isEligible = isGeneral || (hasLinkedProducts && vinculados.products.includes(item.produto_id));
+        if (isEligible) {
+          eligibleProducts.push({
+            saleId: sale.id,
+            itemIndex: index,
+            item: item,
+            sale: sale
+          });
+        }
+      });
+    });
+
+    const subtotalServices = eligibleServices.reduce((acc, item) => acc + Number(item.valor), 0);
+    const subtotalProducts = eligibleProducts.reduce((acc, ep) => acc + Number(ep.item.subtotal || (ep.item.quantidade * ep.item.preco_unitario)), 0);
+    const totalElegivel = subtotalServices + subtotalProducts;
+
+    if (totalElegivel === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ detail: 'Este desconto não é elegível para nenhum serviço deste agendamento ou produto das vendas selecionadas.' });
+    }
+
+    // Calcular desconto total
     let totalDiscount = 0;
     if (desconto.tipo === 'porcentagem') {
-      totalDiscount = subtotalElegivel * (desconto.valor / 100);
+      if (hasLinkedProducts && !hasLinkedServices) {
+        // Rule 1: Vinculado apenas a Produtos
+        totalDiscount = subtotalProducts * (desconto.valor / 100);
+      } else if (hasLinkedServices && !hasLinkedProducts) {
+        // Rule 3: Vinculado apenas a Serviços
+        totalDiscount = subtotalServices * (desconto.valor / 100);
+      } else {
+        // Rule 2: Serviços e Produtos (ou Geral)
+        totalDiscount = totalElegivel * (desconto.valor / 100);
+      }
     } else { // valor_fixo
-      totalDiscount = Math.min(desconto.valor, subtotalElegivel);
+      if (hasLinkedProducts && !hasLinkedServices) {
+        // Rule 1: Vinculado apenas a Produtos
+        totalDiscount = Math.min(desconto.valor, subtotalProducts);
+      } else if (hasLinkedServices && !hasLinkedProducts) {
+        // Rule 3: Vinculado apenas a Serviços
+        totalDiscount = Math.min(desconto.valor, subtotalServices);
+      } else {
+        // Rule 2: Serviços e Produtos (ou Geral)
+        totalDiscount = Math.min(desconto.valor, totalElegivel);
+      }
     }
 
-    // Distribuir desconto
-    if (subtotalElegivel > 0) {
-      eligibleItens.forEach(item => {
-        const proporcao = item.valor / subtotalElegivel;
-        const itemDiscount = totalDiscount * proporcao;
+    // Rateio do desconto
+    let discountServices = 0;
+    let discountProducts = 0;
+
+    if (hasLinkedProducts && !hasLinkedServices) {
+      discountProducts = totalDiscount;
+    } else if (hasLinkedServices && !hasLinkedProducts) {
+      discountServices = totalDiscount;
+    } else {
+      if (totalElegivel > 0) {
+        discountServices = totalDiscount * (subtotalServices / totalElegivel);
+        discountProducts = totalDiscount * (subtotalProducts / totalElegivel);
+      }
+    }
+
+    // Distribuir desconto nos serviços com ajuste de arredondamento
+    if (subtotalServices > 0 && discountServices > 0) {
+      let distributedServicesDiscount = 0;
+      eligibleServices.forEach((item, idx) => {
+        const proporcao = item.valor / subtotalServices;
+        let itemDiscount = Number((discountServices * proporcao).toFixed(2));
+        if (idx === eligibleServices.length - 1) {
+          itemDiscount = Number((discountServices - distributedServicesDiscount).toFixed(2));
+        }
+        distributedServicesDiscount += itemDiscount;
         item.valor = Math.max(0, Number((item.valor - itemDiscount).toFixed(2)));
       });
     }
 
+    // Preparar objetos de atualização para vendas diretas
+    const salesUpdates = {};
+    selectedSales.forEach(sale => {
+      salesUpdates[sale.id] = {
+        sale,
+        itens: [...sale.itens],
+        totalDiscounted: 0
+      };
+    });
+
+    // Distribuir desconto nos produtos com ajuste de arredondamento
+    if (subtotalProducts > 0 && discountProducts > 0) {
+      let distributedProductsDiscount = 0;
+      eligibleProducts.forEach((ep, idx) => {
+        const currentSubtotal = ep.item.subtotal || (ep.item.quantidade * ep.item.preco_unitario);
+        const proporcao = currentSubtotal / subtotalProducts;
+        let itemDiscount = Number((discountProducts * proporcao).toFixed(2));
+        if (idx === eligibleProducts.length - 1) {
+          itemDiscount = Number((discountProducts - distributedProductsDiscount).toFixed(2));
+        }
+        distributedProductsDiscount += itemDiscount;
+
+        const updateObj = salesUpdates[ep.saleId];
+        const targetItem = updateObj.itens[ep.itemIndex];
+
+        targetItem.subtotal = Math.max(0, Number((currentSubtotal - itemDiscount).toFixed(2)));
+        targetItem.preco_unitario = targetItem.quantidade > 0 ? Number((targetItem.subtotal / targetItem.quantidade).toFixed(2)) : 0;
+        updateObj.totalDiscounted += itemDiscount;
+      });
+    }
+
+    // Validar configuração bloquearValorMenor
     let bloquearValorMenor = false;
     try {
-      const systemConfig = await getConfiguracaoSistemaModel().findOne();
+      const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
       if (systemConfig) {
         bloquearValorMenor = !!systemConfig.bloquear_valor_agendamento_menor;
       }
@@ -1521,13 +1715,42 @@ const aplicarDescontoAgendamento = async (req, res) => {
 
     if (bloquearValorMenor) {
       for (const item of itens) {
-        const s = await getServicoModel().findByPk(item.servico_id);
+        const s = await getServicoModel().findByPk(item.servico_id, { transaction });
         if (s && item.valor < Number(s.valor || 0)) {
+          await transaction.rollback();
           return res.status(400).json({ detail: `Não é permitido aplicar este desconto pois o valor cobrado para o serviço "${s.nome}" (R$ ${Number(item.valor).toFixed(2)}) ficaria inferior ao valor cadastrado (R$ ${Number(s.valor || 0).toFixed(2)}).` });
         }
       }
     }
 
+    // Salvar atualizações das vendas diretas
+    for (const saleId of Object.keys(salesUpdates)) {
+      const { sale, itens: saleItens, totalDiscounted } = salesUpdates[saleId];
+      const v_total = saleItens.reduce((acc, i) => acc + Number(i.subtotal || 0), 0);
+      const primeiro = saleItens[0] || {};
+
+      const discountAppliedData = totalDiscounted > 0 ? {
+        desconto_id: desconto.id,
+        codigo: desconto.codigo,
+        descricao: desconto.descricao,
+        tipo: desconto.tipo,
+        valor_desconto: desconto.valor,
+        total_descontado: Number(totalDiscounted.toFixed(2)),
+        incide_comissao: desconto.incide_comissao !== false && desconto.incide_comissao !== 0,
+        aplicado_em: new Date().toISOString()
+      } : null;
+
+      await sale.update({
+        itens: saleItens,
+        valor_total: v_total,
+        desconto_aplicado: discountAppliedData,
+        produto_id: primeiro.produto_id || sale.produto_id,
+        produto_nome: saleItens.length === 1 ? primeiro.produto_nome : `${primeiro.produto_nome} (+${saleItens.length - 1})`,
+        quantidade: saleItens.reduce((acc, i) => acc + Number(i.quantidade || 0), 0)
+      }, { transaction });
+    }
+
+    // Salvar atualização do agendamento
     ag.itens = itens;
     ag.changed('itens', true);
     const valor_total = itens.reduce((acc, i) => acc + Number(i.valor || 0), 0);
@@ -1540,14 +1763,16 @@ const aplicarDescontoAgendamento = async (req, res) => {
         descricao: desconto.descricao,
         tipo: desconto.tipo,
         valor_desconto: desconto.valor,
-        total_descontado: Number(totalDiscount.toFixed(2)),
+        total_descontado: Number(discountServices.toFixed(2)),
         incide_comissao: desconto.incide_comissao !== false && desconto.incide_comissao !== 0,
         aplicado_em: new Date().toISOString()
       }
-    });
+    }, { transaction });
 
+    await transaction.commit();
     res.json({ ok: true, agendamento: ag });
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({ detail: error.message });
   }
 };
