@@ -1438,7 +1438,13 @@ const aplicarDescontoAgendamento = async (req, res) => {
     }
 
     let itens = Array.isArray(ag.itens) ? [...ag.itens] : [];
-    const currentAppliedDescontoId = ag.desconto_aplicado?.desconto_id;
+    let agDescontoMeta = ag.desconto_aplicado;
+    if (typeof agDescontoMeta === 'string') {
+      try {
+        agDescontoMeta = JSON.parse(agDescontoMeta);
+      } catch (e) {}
+    }
+    const currentAppliedDescontoId = agDescontoMeta?.desconto_id;
 
     // Se descontoId for nulo/vazio, reverter o desconto
     if (!descontoId) {
@@ -1455,14 +1461,20 @@ const aplicarDescontoAgendamento = async (req, res) => {
       const valor_total = itens.reduce((acc, i) => acc + Number(i.valor || 0), 0);
       await ag.update({ itens, valor_total, desconto_aplicado: null }, { transaction });
 
-      // Reverter apenas as vendas diretas pendentes associadas que estão selecionadas ou possuem o mesmo desconto
       const pendingSales = await getVendaDiretaModel().findAll({
         where: { cliente_id: ag.cliente_id, status: 'pendente', deletado: 'N' },
         transaction
       });
+
       for (const sale of pendingSales) {
         const isSelected = Array.isArray(vendasDiretasIds) && vendasDiretasIds.includes(sale.id);
-        const hasSameDesconto = currentAppliedDescontoId && sale.desconto_aplicado?.desconto_id === currentAppliedDescontoId;
+        let saleDescontoMeta = sale.desconto_aplicado;
+        if (typeof saleDescontoMeta === 'string') {
+          try {
+            saleDescontoMeta = JSON.parse(saleDescontoMeta);
+          } catch (e) {}
+        }
+        const hasSameDesconto = currentAppliedDescontoId && saleDescontoMeta?.desconto_id === currentAppliedDescontoId;
         
         if (isSelected || hasSameDesconto) {
           let saleItens = Array.isArray(sale.itens) ? [...sale.itens] : [];
@@ -1479,6 +1491,8 @@ const aplicarDescontoAgendamento = async (req, res) => {
           if (changed || sale.desconto_aplicado !== null) {
             const v_total = saleItens.reduce((acc, i) => acc + Number(i.subtotal || 0), 0);
             const primeiro = saleItens[0] || {};
+            sale.itens = saleItens;
+            sale.changed('itens', true);
             await sale.update({
               itens: saleItens,
               valor_total: v_total,
@@ -1532,7 +1546,13 @@ const aplicarDescontoAgendamento = async (req, res) => {
     });
     for (const sale of pendingSales) {
       const isSelected = Array.isArray(vendasDiretasIds) && vendasDiretasIds.includes(sale.id);
-      const hasSameDesconto = currentAppliedDescontoId && sale.desconto_aplicado?.desconto_id === currentAppliedDescontoId;
+      let saleDescontoMeta = sale.desconto_aplicado;
+      if (typeof saleDescontoMeta === 'string') {
+        try {
+          saleDescontoMeta = JSON.parse(saleDescontoMeta);
+        } catch (e) {}
+      }
+      const hasSameDesconto = currentAppliedDescontoId && saleDescontoMeta?.desconto_id === currentAppliedDescontoId;
 
       if (isSelected || hasSameDesconto) {
         let saleItens = Array.isArray(sale.itens) ? [...sale.itens] : [];
@@ -1549,6 +1569,8 @@ const aplicarDescontoAgendamento = async (req, res) => {
         if (changed || sale.desconto_aplicado !== null) {
           const v_total = saleItens.reduce((acc, i) => acc + Number(i.subtotal || 0), 0);
           const primeiro = saleItens[0] || {};
+          sale.itens = saleItens;
+          sale.changed('itens', true);
           await sale.update({
             itens: saleItens,
             valor_total: v_total,
@@ -1740,6 +1762,8 @@ const aplicarDescontoAgendamento = async (req, res) => {
         aplicado_em: new Date().toISOString()
       } : null;
 
+      sale.itens = saleItens;
+      sale.changed('itens', true);
       await sale.update({
         itens: saleItens,
         valor_total: v_total,
