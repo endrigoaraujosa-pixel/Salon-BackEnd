@@ -8,7 +8,7 @@ import { DEFAULT_TEMPLATE, formatMessage } from './templates/reminder.template.j
 import { DEFAULT_THANKYOU_TEMPLATE, formatThankYouMessage } from './templates/thankyou.template.js';
 import { TZDate } from '@date-fns/tz';
 import { format } from 'date-fns';
-import { formatAgendaDate, formatAgendaTime } from '../../utils/agendaDateTime.js';
+import { formatAgendaDate, formatAgendaTime, getContextualDayOfWeek } from '../../utils/agendaDateTime.js';
 
 /**
  * Obtém a configuração do WhatsApp, criando-a com valores padrão caso não exista.
@@ -211,12 +211,14 @@ export async function resendReminder(reminderId) {
       servicos_valores: servicosValores
     });
   } else {
+    const diaSemana = getContextualDayOfWeek(agendamento.data_hora, reminder.tipo_lembrete);
     messageText = formatMessage(config.modelo_mensagem, {
       nome: cliente.nome,
       data: formattedDate,
       hora: formattedTime,
       servico: servicoNome,
-      profissional: colabNome
+      profissional: colabNome,
+      dia_semana: diaSemana
     });
   }
 
