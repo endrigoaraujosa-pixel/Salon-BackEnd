@@ -9,6 +9,7 @@ import { DEFAULT_THANKYOU_TEMPLATE, formatThankYouMessage } from './templates/th
 import { TZDate } from '@date-fns/tz';
 import { format } from 'date-fns';
 import { formatAgendaDate, formatAgendaTime, getContextualDayOfWeek } from '../../utils/agendaDateTime.js';
+import { formatProfissionalNames } from '../../utils/index.js';
 
 /**
  * Obtém a configuração do WhatsApp, criando-a com valores padrão caso não exista.
@@ -179,10 +180,7 @@ export async function resendReminder(reminderId) {
   const config = await getConfig();
 
   // Obter nome do profissional
-  let colabNome = "Não informado";
-  if (Array.isArray(agendamento.profissionais) && agendamento.profissionais.length > 0) {
-    colabNome = agendamento.profissionais.map(p => p.nome).join(", ");
-  }
+  const colabNome = formatProfissionalNames(agendamento.profissionais);
 
   // Obter serviços
   let servicoNome = "Serviço";
