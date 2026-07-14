@@ -23,5 +23,6 @@ export function formatMessage(template, params) {
     .replace(/{data}/g, params.data || "")
     .replace(/{hora}/g, params.hora || "")
     .replace(/{servico}/g, params.servico || "")
-    .replace(/{profissional}/g, params.profissional || "");
+    .replace(/{profissional}/g, params.profissional || "")
+    .replace(/{dia_semana}/g, params.dia_semana || "");
 }

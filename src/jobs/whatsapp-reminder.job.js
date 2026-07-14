@@ -10,6 +10,8 @@ import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
 import { formatThankYouMessage } from '../modules/whatsapp/templates/thankyou.template.js';
+import { getContextualDayOfWeek } from '../utils/agendaDateTime.js';
+
 
 /**
  * Auxiliar para formatar data e hora no fuso horário da agenda (America/Recife).
@@ -244,6 +246,8 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
           // Formatar data e hora timezone-neutras
           const { date: formattedDate, time: formattedTime } = parseDateString(ag.data_hora);
 
+          const diaSemana = getContextualDayOfWeek(ag.data_hora, reminder.tipo_lembrete);
+
           // Montar a mensagem conforme o tipo de lembrete
           const templateParams = {
             nome: cliente.nome,
@@ -251,7 +255,8 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
             hora: formattedTime,
             servico: servicoNome,
             profissional: colabNome,
-            servicos_valores: servicosValores
+            servicos_valores: servicosValores,
+            dia_semana: diaSemana
           };
 
           let messageText;

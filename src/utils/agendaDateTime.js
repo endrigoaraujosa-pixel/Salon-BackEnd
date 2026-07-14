@@ -51,3 +51,40 @@ export const buildAgendaDayRange = (date) => ({
   start: normalizeAgendaDateTime(`${date}T00:00:00`),
   end: normalizeAgendaDateTime(`${date}T23:59:59`)
 });
+
+export const REMINDER_TYPES = {
+  HOURS_24: '24h',
+  HOURS_2: '2h',
+  HOURS_1: '1h',
+  THANK_YOU: 'agradecimento'
+};
+
+export const getContextualDayOfWeek = (dateInput, reminderType) => {
+  if (!dateInput) return '';
+
+  const diasSemana = [
+    'domingo',
+    'segunda-feira',
+    'terça-feira',
+    'quarta-feira',
+    'quinta-feira',
+    'sexta-feira',
+    'sábado'
+  ];
+
+  const tzDate = new TZDate(dateInput, AGENDA_TIME_ZONE);
+  const dayOfWeek = diasSemana[tzDate.getDay()];
+
+  // Remove sufixos (ex: "24h_enviado_123" -> "24h")
+  const coreType = String(reminderType || '').split('_')[0];
+
+  let prefix = '';
+  if (coreType === REMINDER_TYPES.HOURS_24) {
+    prefix = 'amanhã, ';
+  } else if (coreType === REMINDER_TYPES.HOURS_2 || coreType === REMINDER_TYPES.HOURS_1) {
+    prefix = 'hoje, ';
+  }
+
+  return `${prefix}${dayOfWeek}`;
+};
+
