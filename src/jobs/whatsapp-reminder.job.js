@@ -11,6 +11,7 @@ import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js'
 import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
 import { formatThankYouMessage } from '../modules/whatsapp/templates/thankyou.template.js';
 import { getContextualDayOfWeek } from '../utils/agendaDateTime.js';
+import { formatProfissionalNames } from '../utils/index.js';
 
 
 /**
@@ -227,10 +228,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
           }
 
           // Extrair nome dos profissionais
-          let colabNome = "Não informado";
-          if (Array.isArray(ag.profissionais) && ag.profissionais.length > 0) {
-            colabNome = ag.profissionais.map(p => p.nome).join(", ");
-          }
+          const colabNome = formatProfissionalNames(ag.profissionais);
 
           // Extrair nome dos serviços
           let servicoNome = "Serviço";
