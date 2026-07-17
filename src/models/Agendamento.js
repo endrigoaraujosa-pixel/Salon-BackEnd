@@ -77,6 +77,26 @@ const Agendamento = sequelize.define('Agendamento', {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
   },
+  cancelado_motivo: {
+    type: DataTypes.STRING(100),
+    defaultValue: null,
+    allowNull: true
+  },
+  cancelado_por_id: {
+    type: DataTypes.STRING(36),
+    defaultValue: null,
+    allowNull: true
+  },
+  cancelado_por_nome: {
+    type: DataTypes.STRING(255),
+    defaultValue: null,
+    allowNull: true
+  },
+  cancelado_em: {
+    type: DataTypes.DATE,
+    defaultValue: null,
+    allowNull: true
+  },
   deletado: {
     type: DataTypes.STRING(1),
     defaultValue: 'N',

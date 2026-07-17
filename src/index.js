@@ -37,7 +37,8 @@ import {
   relatorioEstoqueHistoricoAjustes,
   relatorioEstoqueInventario,
   relatorioEstoquePerdasQuebras,
-  relatorioCartoes
+  relatorioCartoes,
+  relatorioAgendamentosCancelados
 } from './controllers/reportController.js';
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
 import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor } from './controllers/fornecedorController.js';
@@ -185,6 +186,7 @@ app.get('/api/relatorios/estoque/sem-movimentacao', protect, requirePermission('
 app.get('/api/relatorios/estoque/historico-ajustes', protect, requirePermission('relatorios.estoque'), relatorioEstoqueHistoricoAjustes);
 app.get('/api/relatorios/estoque/inventario', protect, requirePermission('relatorios.estoque'), relatorioEstoqueInventario);
 app.get('/api/relatorios/estoque/perdas-quebras', protect, requirePermission('relatorios.estoque'), relatorioEstoquePerdasQuebras);
+app.get('/api/relatorios/agendamentos-cancelados', protect, requirePermission('relatorios.cancelados'), relatorioAgendamentosCancelados);
 
 // Users Routes
 const userRoutes = express.Router();
