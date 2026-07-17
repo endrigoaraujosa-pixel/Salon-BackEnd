@@ -236,7 +236,7 @@ app.use('/api/comissoes', comissaoRoutes);
 
 // Configuracoes Routes
 const configRoutes = express.Router();
-configRoutes.get('/taxas-cartao', protect, requirePermission('cadastros.taxas'), getTaxas);
+configRoutes.get('/taxas-cartao', protect, requirePermission(['cadastros.taxas', 'agenda.pagamento', 'vendas.pagamento']), getTaxas);
 configRoutes.post('/taxas-cartao', protect, requirePermission('cadastros.taxas'), saveTaxa);
 configRoutes.delete('/taxas-cartao/:forma_pagamento', protect, requirePermission('cadastros.taxas'), deleteTaxa);
 configRoutes.get('/empresa', protect, getEmpresa);
@@ -277,7 +277,7 @@ app.use('/api/categorias', categoriaRoutes);
 
 // Descontos Routes
 const descontoRoutes = express.Router();
-descontoRoutes.get('/', protect, requirePermission(['cadastros.descontos', 'agenda.aplicar_desconto', 'vendas.aplicar_desconto']), listDescontos);
+descontoRoutes.get('/', protect, requirePermission(['cadastros.descontos', 'agenda.aplicar_desconto', 'vendas.aplicar_desconto', 'agenda.pagamento', 'vendas.pagamento']), listDescontos);
 descontoRoutes.post('/', protect, requirePermission('cadastros.descontos'), createDesconto);
 descontoRoutes.put('/:id', protect, requirePermission('cadastros.descontos'), updateDesconto);
 descontoRoutes.delete('/:id', protect, requirePermission('cadastros.descontos'), deleteDesconto);
