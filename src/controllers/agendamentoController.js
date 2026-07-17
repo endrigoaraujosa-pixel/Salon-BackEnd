@@ -343,6 +343,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   const where = {
     data_hora: { [Op.between]: [dataInicioDia, dataFimDia] },
     deletado: 'N',
+    status: { [Op.ne]: 'cancelado' }
   };
 
   if (excludeId) {
@@ -711,6 +712,23 @@ const setStatus = async (req, res) => {
         await adjustStock(ag, 'restore', { transaction, user: req.user });
         limparComissoesAgendamento(ag);
       }
+    }
+
+    if (status === 'cancelado') {
+      const { motivo } = req.body;
+      if (!motivo || typeof motivo !== 'string' || motivo.trim() === '') {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'O motivo do cancelamento é obrigatório.' });
+      }
+      if (motivo.length > 100) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'O motivo do cancelamento deve ter no máximo 100 caracteres.' });
+      }
+
+      ag.cancelado_motivo = motivo.trim();
+      ag.cancelado_por_id = req.user ? req.user.id : null;
+      ag.cancelado_por_nome = req.user ? req.user.name : 'Sistema';
+      ag.cancelado_em = new Date();
     }
 
     ag.status = status;

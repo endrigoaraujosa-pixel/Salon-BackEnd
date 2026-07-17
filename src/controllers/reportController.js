@@ -77,7 +77,8 @@ const dashboard = async (req, res) => {
       attributes: ['id', 'itens'],
       where: {
         data_hora: { [Op.between]: [data_inicio ? dataInicioMes : todayStart, data_fim ? dataFimMes : todayEnd] },
-        deletado: 'N'
+        deletado: 'N',
+        status: { [Op.ne]: 'cancelado' }
       }
     });
 
@@ -423,6 +424,8 @@ const dashboardDetail = async (req, res) => {
 
       if (metric === 'atendimentos' || metric === 'ticket_medio') {
         where.status = 'concluido';
+      } else {
+        where.status = { [Op.ne]: 'cancelado' };
       }
 
       const ags = await getAgendamentoModel().findAll({
@@ -1458,6 +1461,8 @@ const relatorioServicos = async (req, res) => {
 
     if (status && status !== 'todos') {
       where.status = status;
+    } else {
+      where.status = { [Op.ne]: 'cancelado' };
     }
 
     // Buscamos os agendamentos no período/filtros básicos
@@ -3149,6 +3154,35 @@ const relatorioCartoes = async (req, res) => {
   }
 };
 
+const relatorioAgendamentosCancelados = async (req, res) => {
+  const { data_inicio, data_fim, cliente_id } = req.query;
+  try {
+    const where = {
+      status: 'cancelado',
+      deletado: 'N'
+    };
+
+    if (data_inicio && data_fim) {
+      where.cancelado_em = {
+        [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
+      };
+    }
+
+    if (cliente_id && cliente_id !== 'todos') {
+      where.cliente_id = cliente_id;
+    }
+
+    const agendamentos = await getAgendamentoModel().findAll({
+      where,
+      order: [['cancelado_em', 'DESC']]
+    });
+
+    res.json(agendamentos);
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 export {
   dashboard,
   dashboardDetail,
@@ -3168,6 +3202,7 @@ export {
   relatorioEstoqueHistoricoAjustes,
   relatorioEstoqueInventario,
   relatorioEstoquePerdasQuebras,
-  relatorioCartoes
+  relatorioCartoes,
+  relatorioAgendamentosCancelados
 };
 
