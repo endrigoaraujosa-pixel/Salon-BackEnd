@@ -3049,7 +3049,37 @@ const relatorioCartoes = async (req, res) => {
       order: [['data_hora', 'DESC']]
     });
 
-    // 2. Map and apply defaults/fallbacks for legacy payments
+    // 2. Fetch related Agendamentos and Vendas to map their sequential identifiers
+    const agendamentoIds = [...new Set(payments.map(p => p.agendamento_id).filter(Boolean))];
+    const vendaDiretaIds = [...new Set(payments.map(p => p.venda_direta_id).filter(Boolean))];
+
+    let agendamentoMap = new Map();
+    if (agendamentoIds.length > 0) {
+      const agendamentos = await getAgendamentoModel().findAll({
+        attributes: ['id', 'numero'],
+        where: { id: { [Op.in]: agendamentoIds } }
+      });
+      agendamentos.forEach(a => {
+        if (a.numero !== null && a.numero !== undefined) {
+          agendamentoMap.set(a.id, a.numero);
+        }
+      });
+    }
+
+    let vendaDiretaMap = new Map();
+    if (vendaDiretaIds.length > 0) {
+      const vendas = await getVendaDiretaModel().findAll({
+        attributes: ['id', 'numero_venda'],
+        where: { id: { [Op.in]: vendaDiretaIds } }
+      });
+      vendas.forEach(v => {
+        if (v.numero_venda !== null && v.numero_venda !== undefined) {
+          vendaDiretaMap.set(v.id, v.numero_venda);
+        }
+      });
+    }
+
+    // 3. Map and apply defaults/fallbacks for legacy payments
     let mapped = payments.map(p => {
       let tipo = p.cartao_tipo;
       let adqId = p.adquirente_id || null;
@@ -3078,6 +3108,15 @@ const relatorioCartoes = async (req, res) => {
       const adqNome = adqId ? (adqMap.get(adqId) || 'Não identificada') : 'Sem Adquirente';
       const labelForma = rateDescMap.get(p.forma_pagamento) || (p.forma_pagamento === 'cartao_credito' ? 'Cartão Crédito' : p.forma_pagamento === 'cartao_debito' ? 'Cartão Débito' : p.forma_pagamento);
 
+      let origemIdentificador = null;
+      if (p.agendamento_id && agendamentoMap.has(p.agendamento_id)) {
+        const num = agendamentoMap.get(p.agendamento_id);
+        origemIdentificador = `${String(num).padStart(6, '0')} | S`;
+      } else if (p.venda_direta_id && vendaDiretaMap.has(p.venda_direta_id)) {
+        const num = vendaDiretaMap.get(p.venda_direta_id);
+        origemIdentificador = `${String(num).padStart(6, '0')} | V`;
+      }
+
       return {
         id: p.id,
         data_venda: p.data_hora,
@@ -3092,7 +3131,8 @@ const relatorioCartoes = async (req, res) => {
         valor_bruto: Number(p.valor),
         valor_liquido: liquido,
         data_recebimento_prevista: dataPrevista,
-        bandeira: p.cartao_bandeira || null
+        bandeira: p.cartao_bandeira || null,
+        origem_identificador: origemIdentificador
       };
     });
 
