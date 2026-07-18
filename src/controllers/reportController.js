@@ -30,6 +30,47 @@ const getQuantidadeCustoEstoque = (produto, quantidade = produto?.quantidade_est
   return qtdPorUnidade > 0 ? qtd / qtdPorUnidade : qtd;
 };
 
+const isCardPayment = (p, ratesList) => {
+  return p.cartao_tipo !== null || ratesList.some(r => r.forma_pagamento === p.forma_pagamento);
+};
+
+const calculatePaymentFee = (p, rates) => {
+  if (p.cartao_taxa_valor !== null && p.cartao_taxa_valor !== undefined) {
+    return {
+      taxa_valor: Number(p.cartao_taxa_valor),
+      taxa_percentual: p.cartao_taxa_percentual !== null && p.cartao_taxa_percentual !== undefined ? Number(p.cartao_taxa_percentual) : null
+    };
+  }
+
+  // Fallback calculation for legacy payments or missing metadata
+  const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
+  if (rate) {
+    const tipo = rate.tipo_cartao || (p.forma_pagamento === 'cartao_credito' ? 'credito' : p.forma_pagamento === 'cartao_debito' ? 'debito' : null);
+    let percentual = 0;
+    if (tipo === 'credito') {
+      const selectedParcela = Math.min(12, Math.max(1, parseInt(p.cartao_parcelas) || 1));
+      const taxaField = `taxa_${selectedParcela}x`;
+      percentual = rate[taxaField] !== undefined && rate[taxaField] !== null ? Number(rate[taxaField]) : Number(rate.percentual || 0);
+    } else {
+      percentual = Number(rate.percentual || 0);
+    }
+    const taxa_valor = Number(((p.valor * percentual) / 100).toFixed(2));
+    return {
+      taxa_valor,
+      taxa_percentual: percentual
+    };
+  }
+
+  // If no rate is configured, fall back to defaults
+  const tipo = p.cartao_tipo || (p.forma_pagamento === 'cartao_credito' ? 'credito' : p.forma_pagamento === 'cartao_debito' ? 'debito' : null);
+  const percentual = tipo === 'credito' ? 2.5 : 1.5;
+  const taxa_valor = Number(((p.valor * percentual) / 100).toFixed(2));
+  return {
+    taxa_valor,
+    taxa_percentual: percentual
+  };
+};
+
 const dashboard = async (req, res) => {
   try {
     const { data_inicio, data_fim, colaborador_id } = req.query;
@@ -868,18 +909,18 @@ const relatorioDre = async (req, res) => {
     // ---------------------------------------------
     // 5. TRANSACTION FEES (TAXAS DE CARTÃO)
     // ---------------------------------------------
-    let rates = await getTaxaCartaoModel().findAll();
+    let rates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' } });
     if (rates.length === 0) {
       await getTaxaCartaoModel().bulkCreate([
         { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true },
         { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true }
       ]);
-      rates = await getTaxaCartaoModel().findAll();
+      rates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' } });
     }
-    const creditoRate = rates.find(r => r.forma_pagamento === 'cartao_credito' && r.ativo)?.percentual || 0;
-    const debitoRate = rates.find(r => r.forma_pagamento === 'cartao_debito' && r.ativo)?.percentual || 0;
-    const creditoDias = rates.find(r => r.forma_pagamento === 'cartao_credito')?.dias_recebimento || 0;
-    const debitoDias = rates.find(r => r.forma_pagamento === 'cartao_debito')?.dias_recebimento || 0;
+    const defaultCreditoRate = rates.find(r => r.forma_pagamento === 'cartao_credito');
+    const defaultDebitoRate = rates.find(r => r.forma_pagamento === 'cartao_debito');
+    const creditoDias = defaultCreditoRate ? (defaultCreditoRate.dias_recebimento || 0) : 30;
+    const debitoDias = defaultDebitoRate ? (defaultDebitoRate.dias_recebimento || 0) : 1;
 
     const payments = await getPagamentoModel().findAll({
       where: {
@@ -888,23 +929,23 @@ const relatorioDre = async (req, res) => {
       }
     });
 
-    const taxasCredito = payments
-      .filter(p => p.cartao_tipo === 'credito' || p.forma_pagamento === 'cartao_credito')
-      .reduce((acc, p) => {
-        if (p.cartao_taxa_valor !== null && p.cartao_taxa_valor !== undefined) {
-          return acc + Number(p.cartao_taxa_valor);
-        }
-        return acc + (p.valor * (creditoRate / 100));
-      }, 0);
+    const cardPayments = payments.filter(p => isCardPayment(p, rates));
 
-    const taxasDebito = payments
-      .filter(p => p.cartao_tipo === 'debito' || p.forma_pagamento === 'cartao_debito')
-      .reduce((acc, p) => {
-        if (p.cartao_taxa_valor !== null && p.cartao_taxa_valor !== undefined) {
-          return acc + Number(p.cartao_taxa_valor);
-        }
-        return acc + (p.valor * (debitoRate / 100));
-      }, 0);
+    const taxasCredito = cardPayments
+      .filter(p => {
+        const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
+        const tipo = rate?.tipo_cartao || p.cartao_tipo || (p.forma_pagamento === 'cartao_credito' ? 'credito' : 'debito');
+        return tipo === 'credito';
+      })
+      .reduce((acc, p) => acc + calculatePaymentFee(p, rates).taxa_valor, 0);
+
+    const taxasDebito = cardPayments
+      .filter(p => {
+        const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
+        const tipo = rate?.tipo_cartao || p.cartao_tipo || (p.forma_pagamento === 'cartao_debito' ? 'debito' : null);
+        return tipo === 'debito';
+      })
+      .reduce((acc, p) => acc + calculatePaymentFee(p, rates).taxa_valor, 0);
 
     const taxasTotal = taxasCredito + taxasDebito;
 
@@ -913,12 +954,14 @@ const relatorioDre = async (req, res) => {
     let totalPaymentVolume = 0;
     payments.forEach(p => {
       let dias = 0;
-      if (p.cartao_tipo === 'credito' || p.forma_pagamento === 'cartao_credito') {
+      if (isCardPayment(p, rates)) {
         const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
-        dias = rate ? (rate.dias_recebimento || 0) : creditoDias;
-      } else if (p.cartao_tipo === 'debito' || p.forma_pagamento === 'cartao_debito') {
-        const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
-        dias = rate ? (rate.dias_recebimento || 0) : debitoDias;
+        const tipo = rate?.tipo_cartao || p.cartao_tipo || (p.forma_pagamento === 'cartao_credito' ? 'credito' : 'debito');
+        if (tipo === 'credito') {
+          dias = rate ? (rate.dias_recebimento !== null && rate.dias_recebimento !== undefined ? rate.dias_recebimento : 30) : creditoDias;
+        } else {
+          dias = rate ? (rate.dias_recebimento !== null && rate.dias_recebimento !== undefined ? rate.dias_recebimento : 1) : debitoDias;
+        }
       }
       totalWeightedDays += p.valor * dias;
       totalPaymentVolume += p.valor;
@@ -1622,20 +1665,14 @@ const relatorioResultadoOperacional = async (req, res) => {
     const categoryMap = new Map(categories.map(c => [c.id, c.nome]));
 
     // 2. Fetch rates
-    let rates = await getTaxaCartaoModel().findAll();
+    let rates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' } });
     if (rates.length === 0) {
       await getTaxaCartaoModel().bulkCreate([
         { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true },
         { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true }
       ]);
-      rates = await getTaxaCartaoModel().findAll();
+      rates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' } });
     }
-    const rateMap = {};
-    rates.forEach(r => {
-      if (r.ativo) {
-        rateMap[r.forma_pagamento] = Number(r.percentual || 0);
-      }
-    });
 
     // 3. Fetch completed agendamentos in period
     const ags = await getAgendamentoModel().findAll({
@@ -1691,11 +1728,8 @@ const relatorioResultadoOperacional = async (req, res) => {
     const getTxFee = (pags) => {
       if (!pags) return 0;
       return pags.reduce((acc, p) => {
-        if (p.cartao_taxa_valor !== null && p.cartao_taxa_valor !== undefined) {
-          return acc + Number(p.cartao_taxa_valor);
-        }
-        const rate = rateMap[p.forma_pagamento] || 0;
-        return acc + (Number(p.valor || 0) * (rate / 100));
+        if (!isCardPayment(p, rates)) return acc;
+        return acc + calculatePaymentFee(p, rates).taxa_valor;
       }, 0);
     };
 
@@ -3029,12 +3063,8 @@ const relatorioCartoes = async (req, res) => {
     const adquirentes = await getAdquirenteModel().findAll();
     const adqMap = new Map(adquirentes.map(a => [a.id, a.descricao]));
 
-    const rates = await getTaxaCartaoModel().findAll();
+    const rates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' } });
     const rateDescMap = new Map(rates.map(r => [r.forma_pagamento, r.descricao]));
-    const rateMap = {};
-    rates.forEach(r => {
-      rateMap[r.forma_pagamento] = Number(r.percentual || 0);
-    });
 
     // 1. Fetch payments that are card payments in the period
     const payments = await getPagamentoModel().findAll({
@@ -3081,23 +3111,21 @@ const relatorioCartoes = async (req, res) => {
 
     // 3. Map and apply defaults/fallbacks for legacy payments
     let mapped = payments.map(p => {
+      const feeInfo = calculatePaymentFee(p, rates);
+
       let tipo = p.cartao_tipo;
       let adqId = p.adquirente_id || null;
       let parcelas = p.cartao_parcelas;
-      let percentual = p.cartao_taxa_percentual;
-      let taxaValor = p.cartao_taxa_valor !== null ? Number(p.cartao_taxa_valor) : null;
-      let liquido = p.valor_liquido !== null ? Number(p.valor_liquido) : Number(p.valor);
+      let percentual = feeInfo.taxa_percentual;
+      let taxaValor = feeInfo.taxa_valor;
+      let liquido = p.valor_liquido !== null ? Number(p.valor_liquido) : Number((p.valor - taxaValor).toFixed(2));
       let dataPrevista = p.data_recebimento_prevista;
 
       // Se for pagamento legado sem metadados salvos
       if (!tipo) {
-        tipo = p.forma_pagamento === 'cartao_credito' ? 'credito' : 'debito';
-        parcelas = tipo === 'credito' ? 1 : null;
-        
         const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
-        percentual = rate ? rate.percentual : (tipo === 'credito' ? 2.5 : 1.5);
-        taxaValor = Number(((p.valor * percentual) / 100).toFixed(2));
-        liquido = Number((p.valor - taxaValor).toFixed(2));
+        tipo = rate?.tipo_cartao || (p.forma_pagamento === 'cartao_credito' ? 'credito' : 'debito');
+        parcelas = tipo === 'credito' ? 1 : null;
 
         const dias = rate ? (rate.dias_recebimento || 0) : 0;
         const prevDate = new Date(p.data_hora);
