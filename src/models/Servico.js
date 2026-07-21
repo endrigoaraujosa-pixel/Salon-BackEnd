@@ -44,6 +44,11 @@ const Servico = sequelize.define('Servico', {
       this.setDataValue('produtos_vinculados', JSON.stringify(value || []));
     }
   },
+  disponivel_online: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    allowNull: false
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
