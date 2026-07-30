@@ -62,6 +62,10 @@ const allowedOrigins = [
   'http://localhost:4000',
   'http://localhost:3000',
   'http://127.0.0.1:4000',
+  'http://localhost:5174',
+  'http://127.0.0.1:5174',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
 ];
 
 app.use(cors({
@@ -167,7 +171,7 @@ agendRoutes.post('/:aid/aplicar-desconto', protect, requirePermission('agenda.ap
 app.use('/api/agendamentos', agendRoutes);
 
 // Agendamento Online Routes (Público)
-import { getServicosOnline, getCategoriasOnline, getProfissionaisOnline, getDisponibilidadeOnline, requestCode, validateCode, registrarCliente, solicitarAgendamento } from './controllers/onlineController.js';
+import { getServicosOnline, getCategoriasOnline, getProfissionaisOnline, getDisponibilidadeOnline, requestCode, validateCode, registrarCliente, solicitarAgendamento, reservarHorario } from './controllers/onlineController.js';
 const onlineRoutes = express.Router();
 onlineRoutes.get('/servicos', getServicosOnline);
 onlineRoutes.get('/categorias', getCategoriasOnline);
@@ -177,6 +181,7 @@ onlineRoutes.post('/disponibilidade', getDisponibilidadeOnline);
 onlineRoutes.post('/auth/request-code', requestCode);
 onlineRoutes.post('/auth/validate-code', validateCode);
 onlineRoutes.post('/auth/register', registrarCliente);
+onlineRoutes.post('/reservar', reservarHorario);
 onlineRoutes.post('/solicitar', solicitarAgendamento);
 app.use('/api/online', onlineRoutes);
 
@@ -190,9 +195,12 @@ app.use('/api/solicitacoes-online', solicitacaoRoutes);
 
 // Configuração Agendamento Online Routes (Painel Administrativo)
 import { listDisponibilidade, saveDisponibilidade } from './controllers/agendamentoOnlineDisponibilidadeController.js';
+import { listColaboradoresOnline, updateColaboradorOnline } from './controllers/colaboradorOnlineController.js';
 const configOnlineRoutes = express.Router();
 configOnlineRoutes.get('/disponibilidade', protect, requirePermission('configuracoes.sistema'), listDisponibilidade);
 configOnlineRoutes.post('/disponibilidade', protect, requirePermission('configuracoes.sistema'), saveDisponibilidade);
+configOnlineRoutes.get('/colaboradores', protect, requirePermission('configuracoes.sistema'), listColaboradoresOnline);
+configOnlineRoutes.put('/colaboradores/:id', protect, requirePermission('configuracoes.sistema'), updateColaboradorOnline);
 app.use('/api/configuracoes-online', configOnlineRoutes);
 
 

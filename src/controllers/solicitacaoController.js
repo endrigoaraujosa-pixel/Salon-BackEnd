@@ -8,6 +8,8 @@ import { getClienteModel } from '../models/Cliente.js';
 import { getConfig } from '../modules/whatsapp/whatsapp.service.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { sequelize } from '../config/db.js';
+import { generateReminders } from '../modules/whatsapp/reminder.service.js';
+import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
 
 export const listarSolicitacoes = async (req, res) => {
   try {
@@ -39,12 +41,20 @@ export const aprovarSolicitacao = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
+    const { data_hora, profissional_id } = req.body;
     const Solicitacao = getAgendamentoOnlineSolicitacaoModel();
     
     const solicitacao = await Solicitacao.findByPk(id, { transaction });
     if (!solicitacao || solicitacao.status !== 'pendente') {
       await transaction.rollback();
       return res.status(404).json({ detail: 'Solicitação não encontrada ou não está pendente.' });
+    }
+
+    if (data_hora) {
+      solicitacao.data_hora_desejada = new Date(data_hora);
+    }
+    if (profissional_id) {
+      solicitacao.profissional_id = profissional_id;
     }
 
     // 1. Parse dos serviços da solicitação
@@ -118,7 +128,7 @@ export const aprovarSolicitacao = async (req, res) => {
     const Agendamento = getAgendamentoModel();
     const maxNum = (await Agendamento.max('numero', { transaction })) || 0;
 
-    await Agendamento.create({
+    const agendamentoCreated = await Agendamento.create({
       id: uuidv4(),
       numero: maxNum + 1,
       cliente_id: cliente.id,
@@ -143,15 +153,50 @@ export const aprovarSolicitacao = async (req, res) => {
 
     await transaction.commit();
 
-    // Enviar mensagem de sucesso via WhatsApp
+    // Gerar lembretes de WhatsApp se configurado
+    try {
+      await generateReminders(agendamentoCreated);
+    } catch (remErr) {
+      console.error('Erro ao gerar lembretes de WhatsApp na aprovação da solicitação:', remErr);
+    }
+
+    // Enviar mensagem de sucesso via WhatsApp e salvar no histórico
     try {
       const waConfig = await getConfig();
       if (waConfig && waConfig.ativo) {
-        await whatsappProvider.sendMessage(
-          solicitacao.telefone, 
-          `Seu agendamento para o dia ${new Date(solicitacao.data_hora_desejada).toLocaleString('pt-BR')} foi confirmado!`, 
-          waConfig
-        );
+        const dataFmt = new Date(solicitacao.data_hora_desejada).toLocaleString('pt-BR', { timeZone: 'America/Recife' });
+        const text = `Seu agendamento para o dia ${dataFmt} foi confirmado!`;
+
+        let status = 'Enviado';
+        let erro = null;
+        try {
+          await whatsappProvider.sendMessage(
+            solicitacao.telefone, 
+            text, 
+            waConfig
+          );
+        } catch (sendErr) {
+          console.error('Erro ao enviar mensagem física:', sendErr);
+          status = 'Falhou';
+          erro = sendErr.message || 'Erro no envio da mensagem';
+        }
+
+        // Salvar no histórico de lembretes
+        try {
+          const Lembrete = getWhatsappLembreteModel();
+          await Lembrete.create({
+            agendamento_id: agendamentoCreated.id,
+            tipo_lembrete: 'confirmacao_online',
+            data_programada: new Date(),
+            data_envio: status === 'Enviado' ? new Date() : null,
+            status,
+            mensagem: text,
+            erro,
+            tentativas: 1
+          });
+        } catch (dbErr) {
+          console.error('Erro ao gravar histórico do WhatsApp no banco de dados:', dbErr);
+        }
       }
     } catch (waErr) {
       console.error('Erro ao enviar mensagem WhatsApp na aprovação:', waErr);
