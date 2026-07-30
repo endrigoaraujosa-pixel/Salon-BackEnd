@@ -12,6 +12,7 @@ import { getAgendamentoModel } from '../models/Agendamento.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getConfig } from '../modules/whatsapp/whatsapp.service.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
+import { normalizeAgendaDateTime, buildAgendaDayRange } from '../utils/agendaDateTime.js';
 
 // ---- Middleware: verificar se agendamento online está ativo ----
 const checkOnlineAtivo = async () => {
@@ -39,7 +40,7 @@ const minutesToTime = (m) => {
  * e indisponibilidades de um colaborador específico (ou qualquer, se sem colabId).
  */
 const slotConflicts = async (dataISO, duraMin, colaboradorId) => {
-  const inicio = new Date(dataISO);
+  const inicio = normalizeAgendaDateTime(dataISO);
   const fim = new Date(inicio.getTime() + duraMin * 60000);
 
   // Verificar agendamentos existentes
@@ -246,8 +247,7 @@ export const getProfissionaisOnline = async (req, res) => {
       const diaSemana = dateObj.getDay();
 
       // Limites do dia em UTC para comparar indisponibilidades
-      const diaInicio = new Date(`${dataParam}T00:00:00`);
-      const diaFim = new Date(`${dataParam}T23:59:59`);
+      const { start: diaInicio, end: diaFim } = buildAgendaDayRange(dataParam);
 
       const Indisp = getColaboradorIndisponibilidadeModel();
 
@@ -370,7 +370,7 @@ export const getDisponibilidadeOnline = async (req, res) => {
         const dataHoraISO = `${data}T${horaSlot}:00`;
 
         // Desconsiderar horários que já passaram
-        const slotDate = new Date(dataHoraISO);
+        const slotDate = normalizeAgendaDateTime(dataHoraISO);
         if (slotDate <= now) continue;
 
         // Verificar conflitos (agendamentos, solicitações pendentes e indisponibilidades)
@@ -419,7 +419,7 @@ export const getDisponibilidadeOnline = async (req, res) => {
       const dataHoraISO = `${data}T${horaSlot}:00`;
 
       // Desconsiderar horários que já passaram
-      const slotDate = new Date(dataHoraISO);
+      const slotDate = normalizeAgendaDateTime(dataHoraISO);
       if (slotDate <= now) continue;
 
       // Verificar se há pelo menos UM colaborador habilitado e livre nesse slot
@@ -497,7 +497,7 @@ export const solicitarAgendamento = async (req, res) => {
       cliente_id: clienteId,
       nome_cliente: cliente_nome,
       telefone,
-      data_hora_desejada: new Date(data_hora),
+      data_hora_desejada: normalizeAgendaDateTime(data_hora),
       servicos: parsedServicos,
       profissional_id: profissional_id || null,
       observacoes: observacoes || '',
@@ -518,7 +518,7 @@ export const solicitarAgendamento = async (req, res) => {
     try {
       const waConfig = await getConfig();
       if (waConfig && waConfig.ativo) {
-        const dataFmt = new Date(data_hora).toLocaleString('pt-BR', { timeZone: 'America/Recife' });
+        const dataFmt = new Date(dataToSave.data_hora_desejada).toLocaleString('pt-BR', { timeZone: 'America/Recife' });
         await whatsappProvider.sendMessage(
           telefone, 
           `Olá, ${cliente_nome}! Recebemos sua solicitação de agendamento para o dia ${dataFmt}. Assim que o salão confirmar, enviaremos outra mensagem por aqui!`, 
@@ -752,7 +752,7 @@ export const reservarHorario = async (req, res) => {
       cliente_id: null,
       nome_cliente: 'Reserva Temporária',
       telefone: '00000000000',
-      data_hora_desejada: new Date(data_hora),
+      data_hora_desejada: normalizeAgendaDateTime(data_hora),
       servicos: servicoIds.map(id => ({ servico_id: id })),
       profissional_id: profissional_id || null,
       observacoes: '',

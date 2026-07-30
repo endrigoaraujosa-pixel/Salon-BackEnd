@@ -10,6 +10,7 @@ import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js'
 import { sequelize } from '../config/db.js';
 import { generateReminders } from '../modules/whatsapp/reminder.service.js';
 import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
+import { normalizeAgendaDateTime } from '../utils/agendaDateTime.js';
 
 export const listarSolicitacoes = async (req, res) => {
   try {
@@ -51,7 +52,7 @@ export const aprovarSolicitacao = async (req, res) => {
     }
 
     if (data_hora) {
-      solicitacao.data_hora_desejada = new Date(data_hora);
+      solicitacao.data_hora_desejada = normalizeAgendaDateTime(data_hora);
     }
     if (profissional_id) {
       solicitacao.profissional_id = profissional_id;
@@ -232,9 +233,10 @@ export const rejeitarSolicitacao = async (req, res) => {
     // Enviar mensagem
     const waConfig = await getConfig();
     if (waConfig && waConfig.ativo) {
+      const dataFmt = new Date(solicitacao.data_hora_desejada).toLocaleString('pt-BR', { timeZone: 'America/Recife' });
       await whatsappProvider.sendMessage(
         solicitacao.telefone, 
-        `Infelizmente não pudemos confirmar seu agendamento para o dia ${new Date(solicitacao.data_hora_desejada).toLocaleString('pt-BR')}. Motivo: ${motivo}`, 
+        `Infelizmente não pudemos confirmar seu agendamento para o dia ${dataFmt}. Motivo: ${motivo}`, 
         waConfig
       );
     }
