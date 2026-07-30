@@ -121,7 +121,7 @@ export class WhatsAppProvider {
       if (!keyId) {
         return {
           success: false,
-          error: 'A Evolution aceitou a requisicao, mas nao retornou identificador da mensagem.'
+          error: 'A Evolution aceitou a requisição, mas não retornou o identificador da mensagem.'
         };
       }
 
@@ -131,11 +131,27 @@ export class WhatsAppProvider {
       };
 
     } catch (error) {
-      const errorMsg = error.response?.data?.message || error.response?.data?.detail || error.message;
-      console.error(`[WhatsAppProvider] Erro ao enviar mensagem real para ${phone}:`, errorMsg);
+      let errorMsg = error.message;
+      if (error.response?.data) {
+        const data = error.response.data;
+        if (typeof data === 'string') {
+          errorMsg = data;
+        } else if (Array.isArray(data?.message)) {
+          errorMsg = data.message.join(', ');
+        } else if (typeof data?.message === 'string') {
+          errorMsg = data.message;
+        } else if (typeof data?.detail === 'string') {
+          errorMsg = data.detail;
+        } else if (typeof data?.error === 'string') {
+          errorMsg = data.error;
+        } else if (data?.response?.message) {
+          errorMsg = Array.isArray(data.response.message) ? data.response.message.join(', ') : String(data.response.message);
+        }
+      }
+      console.error(`[WhatsAppProvider] Erro ao enviar mensagem real para ${phone}:`, errorMsg, error.response?.data);
       return {
         success: false,
-        error: `Erro na API de Envio: ${errorMsg}`
+        error: `Erro na API do WhatsApp: ${errorMsg}`
       };
     }
   }
