@@ -11,6 +11,7 @@ import { sequelize } from '../config/db.js';
 import { generateReminders } from '../modules/whatsapp/reminder.service.js';
 import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
 import { normalizeAgendaDateTime } from '../utils/agendaDateTime.js';
+import { findClienteByTelefone } from '../utils/clienteUtils.js';
 
 export const listarSolicitacoes = async (req, res) => {
   try {
@@ -68,20 +69,14 @@ export const aprovarSolicitacao = async (req, res) => {
       servicosList = [];
     }
 
-    // 2. Buscar ou criar o Cliente
+    // 2. Buscar ou criar o Cliente utilizando o telefone como identificador principal
     const Cliente = getClienteModel();
     let cliente = null;
     if (solicitacao.cliente_id) {
       cliente = await Cliente.findByPk(solicitacao.cliente_id, { transaction });
     }
     if (!cliente && solicitacao.telefone) {
-      const phoneDigits = solicitacao.telefone.replace(/\D/g, '');
-      if (phoneDigits) {
-        cliente = await Cliente.findOne({
-          where: { telefone: { [Op.like]: `%${phoneDigits.slice(-8)}%` }, deletado: 'N' },
-          transaction
-        });
-      }
+      cliente = await findClienteByTelefone(solicitacao.telefone, { transaction });
     }
     if (!cliente) {
       cliente = await Cliente.create({
@@ -90,6 +85,9 @@ export const aprovarSolicitacao = async (req, res) => {
         telefone: solicitacao.telefone,
         deletado: 'N'
       }, { transaction });
+    } else if (solicitacao.nome_cliente && (!cliente.nome || cliente.nome === 'Cliente Sem Nome')) {
+      cliente.nome = solicitacao.nome_cliente;
+      await cliente.save({ transaction });
     }
 
     // 3. Processar Itens do Agendamento e Profissionais

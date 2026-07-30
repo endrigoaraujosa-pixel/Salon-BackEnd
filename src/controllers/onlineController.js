@@ -13,6 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getConfig } from '../modules/whatsapp/whatsapp.service.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { normalizeAgendaDateTime, buildAgendaDayRange } from '../utils/agendaDateTime.js';
+import { findClienteByTelefone } from '../utils/clienteUtils.js';
 
 // ---- Middleware: verificar se agendamento online está ativo ----
 const checkOnlineAtivo = async () => {
@@ -477,12 +478,8 @@ export const solicitarAgendamento = async (req, res) => {
       return res.status(400).json({ detail: 'Campos obrigatórios: cliente_nome, telefone, data_hora, servicos.' });
     }
 
-    // Buscar ou criar cliente pelo telefone
-    const Cliente = getClienteModel();
-    const phoneDigits = telefone.replace(/\D/g, '');
-    let cliente = await Cliente.findOne({
-      where: { telefone: { [Op.like]: `%${phoneDigits.slice(-8)}%` }, deletado: 'N' }
-    });
+    // Buscar cliente existente pelo telefone como identificador principal
+    let cliente = await findClienteByTelefone(telefone);
     let clienteId = cliente?.id || null;
 
     const Solicitacao = getAgendamentoOnlineSolicitacaoModel();
@@ -653,10 +650,7 @@ export const validateCode = async (req, res) => {
     authRecord.validado = true;
     await authRecord.save();
 
-    const Cliente = getClienteModel();
-    const cliente = await Cliente.findOne({
-      where: { telefone: { [Op.like]: `%${phoneDigits.slice(-8)}%` }, deletado: 'N' }
-    });
+    const cliente = await findClienteByTelefone(telefone);
 
     res.json({
       valid: true,
@@ -676,12 +670,8 @@ export const registrarCliente = async (req, res) => {
       return res.status(400).json({ detail: 'Nome e telefone são obrigatórios.' });
     }
 
-    const phoneDigits = telefone.replace(/\D/g, '');
+    let cliente = await findClienteByTelefone(telefone);
     const Cliente = getClienteModel();
-
-    let cliente = await Cliente.findOne({
-      where: { telefone: { [Op.like]: `%${phoneDigits.slice(-8)}%` }, deletado: 'N' }
-    });
 
     if (cliente) {
       if (nome) cliente.nome = nome;
