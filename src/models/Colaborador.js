@@ -46,6 +46,11 @@ const Colaborador = sequelize.define('Colaborador', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  agendamento_online_ativo: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    allowNull: false
+  },
   foto: {
     type: DataTypes.TEXT,
     allowNull: true

@@ -37,6 +37,11 @@ const ColaboradorComissaoServico = sequelize.define('ColaboradorComissaoServico'
     allowNull: false,
     defaultValue: 20
   },
+  agendamento_online_ativo: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    allowNull: false
+  },
   criado_em: {
     type: DataTypes.DATE,
     allowNull: false,

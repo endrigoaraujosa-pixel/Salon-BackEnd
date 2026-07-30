@@ -40,6 +40,10 @@ const AgendamentoOnlineSolicitacao = sequelize.define('AgendamentoOnlineSolicita
   status: {
     type: DataTypes.STRING(50),
     defaultValue: 'pendente'
+  },
+  data_expiracao_reserva: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'agendamento_online_solicitacoes',
