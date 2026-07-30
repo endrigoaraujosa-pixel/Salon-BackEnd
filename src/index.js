@@ -171,8 +171,9 @@ agendRoutes.post('/:aid/aplicar-desconto', protect, requirePermission('agenda.ap
 app.use('/api/agendamentos', agendRoutes);
 
 // Agendamento Online Routes (Público)
-import { getServicosOnline, getCategoriasOnline, getProfissionaisOnline, getDisponibilidadeOnline, requestCode, validateCode, registrarCliente, solicitarAgendamento, reservarHorario } from './controllers/onlineController.js';
+import { getServicosOnline, getCategoriasOnline, getProfissionaisOnline, getDisponibilidadeOnline, requestCode, validateCode, registrarCliente, solicitarAgendamento, reservarHorario, getOnlineConfig } from './controllers/onlineController.js';
 const onlineRoutes = express.Router();
+onlineRoutes.get('/config', getOnlineConfig);
 onlineRoutes.get('/servicos', getServicosOnline);
 onlineRoutes.get('/categorias', getCategoriasOnline);
 onlineRoutes.get('/profissionais', getProfissionaisOnline);

@@ -24,6 +24,23 @@ const checkOnlineAtivo = async () => {
   }
 };
 
+export const getOnlineConfig = async (req, res) => {
+  try {
+    await checkOnlineAtivo();
+    const Config = getConfiguracaoSistemaModel();
+    const config = await Config.findOne().catch(() => null);
+    res.json({
+      agendamento_online_ativo: config ? config.agendamento_online_ativo !== false : true,
+      ocultar_valores_online: config ? Boolean(config.ocultar_valores_online) : false
+    });
+  } catch (error) {
+    if (error.message === 'Agendamento Online desabilitado.') {
+      return res.status(403).json({ detail: error.message });
+    }
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 // ---- Helpers ----
 const timeToMinutes = (t) => {
   const [h, m] = t.split(':').map(Number);

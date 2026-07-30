@@ -37,6 +37,11 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
     type: DataTypes.BOOLEAN,
     defaultValue: true,
     allowNull: false
+  },
+  ocultar_valores_online: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
   }
 }, {
   tableName: 'configuracao_sistema',
