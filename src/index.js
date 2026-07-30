@@ -166,6 +166,37 @@ agendRoutes.delete('/:aid/pagamentos/:pid', protect, requirePermission('agenda.p
 agendRoutes.post('/:aid/aplicar-desconto', protect, requirePermission('agenda.aplicar_desconto'), aplicarDescontoAgendamento);
 app.use('/api/agendamentos', agendRoutes);
 
+// Agendamento Online Routes (Público)
+import { getServicosOnline, getCategoriasOnline, getProfissionaisOnline, getDisponibilidadeOnline, requestCode, validateCode, registrarCliente, solicitarAgendamento } from './controllers/onlineController.js';
+const onlineRoutes = express.Router();
+onlineRoutes.get('/servicos', getServicosOnline);
+onlineRoutes.get('/categorias', getCategoriasOnline);
+onlineRoutes.get('/profissionais', getProfissionaisOnline);
+onlineRoutes.get('/disponibilidade', getDisponibilidadeOnline);
+onlineRoutes.post('/disponibilidade', getDisponibilidadeOnline);
+onlineRoutes.post('/auth/request-code', requestCode);
+onlineRoutes.post('/auth/validate-code', validateCode);
+onlineRoutes.post('/auth/register', registrarCliente);
+onlineRoutes.post('/solicitar', solicitarAgendamento);
+app.use('/api/online', onlineRoutes);
+
+// Solicitações Online Routes (Painel Administrativo)
+import { listarSolicitacoes, aprovarSolicitacao, rejeitarSolicitacao } from './controllers/solicitacaoController.js';
+const solicitacaoRoutes = express.Router();
+solicitacaoRoutes.get('/', protect, requirePermission('agenda.solicitacoes_online'), listarSolicitacoes);
+solicitacaoRoutes.post('/:id/aprovar', protect, requirePermission('agenda.solicitacoes_online'), aprovarSolicitacao);
+solicitacaoRoutes.post('/:id/rejeitar', protect, requirePermission('agenda.solicitacoes_online'), rejeitarSolicitacao);
+app.use('/api/solicitacoes-online', solicitacaoRoutes);
+
+// Configuração Agendamento Online Routes (Painel Administrativo)
+import { listDisponibilidade, saveDisponibilidade } from './controllers/agendamentoOnlineDisponibilidadeController.js';
+const configOnlineRoutes = express.Router();
+configOnlineRoutes.get('/disponibilidade', protect, requirePermission('configuracoes.sistema'), listDisponibilidade);
+configOnlineRoutes.post('/disponibilidade', protect, requirePermission('configuracoes.sistema'), saveDisponibilidade);
+app.use('/api/configuracoes-online', configOnlineRoutes);
+
+
+
 // Dashboard and Relatorios Routes
 app.get('/api/dashboard', protect, requirePermission('dashboard'), dashboard);
 app.get('/api/dashboard/detail', protect, requirePermission('dashboard'), dashboardDetail);
