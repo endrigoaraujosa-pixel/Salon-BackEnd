@@ -35,7 +35,7 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
   },
   agendamento_online_ativo: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false,
+    defaultValue: true,
     allowNull: false
   }
 }, {
