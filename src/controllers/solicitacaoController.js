@@ -132,6 +132,8 @@ export const aprovarSolicitacao = async (req, res) => {
       valor_pago: 0,
       desconto: 0,
       criado_em: new Date(),
+      criado_por_id: req.user?.id || null,
+      criado_por_nome: req.user?.name || null,
       deletado: 'N'
     }, { transaction });
 

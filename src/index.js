@@ -183,9 +183,9 @@ app.use('/api/online', onlineRoutes);
 // Solicitações Online Routes (Painel Administrativo)
 import { listarSolicitacoes, aprovarSolicitacao, rejeitarSolicitacao } from './controllers/solicitacaoController.js';
 const solicitacaoRoutes = express.Router();
-solicitacaoRoutes.get('/', protect, requirePermission('agenda.visualizar'), listarSolicitacoes);
-solicitacaoRoutes.post('/:id/aprovar', protect, requirePermission('agenda.criar'), aprovarSolicitacao);
-solicitacaoRoutes.post('/:id/rejeitar', protect, requirePermission('agenda.criar'), rejeitarSolicitacao);
+solicitacaoRoutes.get('/', protect, requirePermission('agenda.solicitacoes_online'), listarSolicitacoes);
+solicitacaoRoutes.post('/:id/aprovar', protect, requirePermission('agenda.solicitacoes_online'), aprovarSolicitacao);
+solicitacaoRoutes.post('/:id/rejeitar', protect, requirePermission('agenda.solicitacoes_online'), rejeitarSolicitacao);
 app.use('/api/solicitacoes-online', solicitacaoRoutes);
 
 // Configuração Agendamento Online Routes (Painel Administrativo)
