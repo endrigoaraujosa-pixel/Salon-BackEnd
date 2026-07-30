@@ -42,16 +42,21 @@ export const listColaboradoresOnline = async (req, res) => {
         attributes: ['id', 'servico_id', 'agendamento_online_ativo']
       });
 
-      // Mapear para incluir o nome do serviço
-      const servicosMap = servicosVinculados.map(sv => {
-        const servico = servicos.find(s => s.id === sv.servico_id);
+      const vinculoMap = new Map();
+      servicosVinculados.forEach(sv => {
+        vinculoMap.set(sv.servico_id, sv);
+      });
+
+      // Incluir TODOS os serviços ativos no sistema para o colaborador
+      const servicosMap = servicos.map(s => {
+        const sv = vinculoMap.get(s.id);
         return {
-          id: sv.id,
-          servico_id: sv.servico_id,
-          servico_nome: servico?.nome || '(Serviço removido)',
-          agendamento_online_ativo: sv.agendamento_online_ativo
+          id: sv ? sv.id : null,
+          servico_id: s.id,
+          servico_nome: s.nome,
+          agendamento_online_ativo: sv ? Boolean(sv.agendamento_online_ativo) : true
         };
-      }).filter(sv => servicos.some(s => s.id === sv.servico_id)); // excluir serviços deletados
+      });
 
       // Disponibilidades do colaborador
       const disponibilidades = await ColabDisp.findAll({
@@ -103,14 +108,31 @@ export const updateColaboradorOnline = async (req, res) => {
       await colab.update({ agendamento_online_ativo });
     }
 
-    // 2. Atualizar flags de serviços (agendamento_online_ativo por serviço)
+    // 2. Atualizar ou criar flags de serviços (agendamento_online_ativo por serviço)
     if (Array.isArray(servicos)) {
       for (const svc of servicos) {
         if (svc.servico_id) {
-          await ColabServico.update(
-            { agendamento_online_ativo: !!svc.agendamento_online_ativo },
-            { where: { colaborador_id: id, servico_id: svc.servico_id } }
-          );
+          const existing = await ColabServico.findOne({
+            where: { colaborador_id: id, servico_id: svc.servico_id }
+          });
+
+          if (existing) {
+            await existing.update({
+              agendamento_online_ativo: !!svc.agendamento_online_ativo
+            });
+          } else {
+            await ColabServico.create({
+              id: uuidv4(),
+              colaborador_id: id,
+              servico_id: svc.servico_id,
+              comissao_principal: 40,
+              comissao_sozinho: 40,
+              comissao_ajuda: 30,
+              comissao_auxiliar: 20,
+              agendamento_online_ativo: !!svc.agendamento_online_ativo,
+              criado_em: new Date()
+            });
+          }
         }
       }
     }

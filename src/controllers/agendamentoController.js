@@ -232,9 +232,11 @@ export const recalculateAndFreezeCommissions = async (ag, transaction) => {
 };
 
 
-const buildAgendamentoDoc = async (body, excludeId = null) => {
+const buildAgendamentoDoc = async (body, excludeId = null, options = {}) => {
   const cliente = await getClienteModel().findByPk(body.cliente_id);
   if (!cliente) throw new Error('Cliente inválido');
+
+  const isOnlyInsumos = options.isOnlyInsumos || body.only_insumos === true || options.skipConflictCheck === true;
 
   let itens = [];
   let bloquearValorMenor = false;
@@ -352,8 +354,8 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
 
   const existentes = await getAgendamentoModel().findAll({ where });
 
-  // Apenas validar conflito em NOVOS agendamentos (sem excludeId) e se ignorar_conflito nao for verdadeiro
-  if (!excludeId && !body.ignorar_conflito) {
+  // Apenas validar conflito em NOVOS agendamentos (sem excludeId e sem isOnlyInsumos) se ignorar_conflito nao for verdadeiro
+  if (!isOnlyInsumos && !excludeId && !body.ignorar_conflito) {
     for (const item of body.itens_selecionados) {
       const idsVerificar = [item.colaborador_id, item.auxiliar_id].filter(id => id);
 
@@ -377,7 +379,7 @@ const buildAgendamentoDoc = async (body, excludeId = null) => {
   }
 
   // Validação de indisponibilidade de colaboradores (principal ou auxiliar)
-  if (!body.ignorar_conflito) {
+  if (!isOnlyInsumos && !body.ignorar_conflito) {
     const { verificarDisponibilidade } = await import('../utils/agendaRules.js');
     const idsVerificar = Array.from(profsMap.keys());
     await verificarDisponibilidade({
@@ -507,9 +509,10 @@ const updateAgend = async (req, res) => {
       await adjustStock(ag, 'restore', { transaction, user: req.user });
     }
 
-    let isOnlyInsumos = req.query.only_insumos === 'true' || req.body.only_insumos === true;
+    const initialIsOnlyInsumos = req.query.only_insumos === 'true' || req.body.only_insumos === true;
+    let isOnlyInsumos = initialIsOnlyInsumos;
     if (isOnlyInsumos) {
-      const tempDoc = await buildAgendamentoDoc(req.body, req.params.aid);
+      const tempDoc = await buildAgendamentoDoc(req.body, req.params.aid, { isOnlyInsumos: true });
 
       const sameCliente = tempDoc.cliente_id === ag.cliente_id;
       const sameDataHora = Math.abs(new Date(tempDoc.data_hora).getTime() - new Date(ag.data_hora).getTime()) < 1000;
@@ -557,7 +560,7 @@ const updateAgend = async (req, res) => {
       });
     }
 
-    const doc = await buildAgendamentoDoc(req.body, req.params.aid);
+    const doc = await buildAgendamentoDoc(req.body, req.params.aid, { isOnlyInsumos: initialIsOnlyInsumos });
     // Remove status and valor_pago from update to prevent manual overrides
     delete doc.status;
     delete doc.valor_pago;

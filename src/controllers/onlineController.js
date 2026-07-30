@@ -549,10 +549,9 @@ export const requestCode = async (req, res) => {
     }
 
     const waConfig = await getConfig();
-    const isWaAtivo = waConfig && waConfig.ativo;
-    const isDev = true; // Força ambiente de desenvolvimento para permitir testes locais do fluxo de validação
+    const isWaAtivo = Boolean(waConfig && (waConfig.ativo === true || waConfig.ativo === 1 || waConfig.ativo === '1'));
 
-    if (!isWaAtivo && !isDev) {
+    if (!isWaAtivo) {
       return res.json({
         ok: true,
         requiresVerification: false,
@@ -605,9 +604,7 @@ export const requestCode = async (req, res) => {
         );
       } catch (waErr) {
         console.error('Erro ao enviar OTP via WhatsApp:', waErr);
-        if (!isDev) {
-          return res.status(500).json({ detail: 'Falha ao enviar o código de verificação. Tente novamente.' });
-        }
+        return res.status(500).json({ detail: 'Falha ao enviar o código de verificação pelo WhatsApp. Tente novamente.' });
       }
     }
 
