@@ -597,13 +597,20 @@ export const requestCode = async (req, res) => {
     // Enviar código por WhatsApp se ativo
     if (isWaAtivo) {
       try {
-        await whatsappProvider.sendMessage(
+        const sendResult = await whatsappProvider.sendMessage(
           phoneDigits,
           `Seu código de verificação para o agendamento online é: ${codigo_otp}. Ele expira em 10 minutos.`,
           waConfig
         );
+
+        if (sendResult && sendResult.success === false) {
+          console.error('[requestCode] Erro ao enviar OTP via WhatsApp:', sendResult.error);
+          return res.status(400).json({ 
+            detail: sendResult.error || 'Falha ao enviar o código de verificação pelo WhatsApp. Verifique o número informado.' 
+          });
+        }
       } catch (waErr) {
-        console.error('Erro ao enviar OTP via WhatsApp:', waErr);
+        console.error('[requestCode] Erro inesperado ao enviar OTP via WhatsApp:', waErr);
         return res.status(500).json({ detail: 'Falha ao enviar o código de verificação pelo WhatsApp. Tente novamente.' });
       }
     }
