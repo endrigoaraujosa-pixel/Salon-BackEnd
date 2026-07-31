@@ -7,6 +7,7 @@ import { getAgendamentoOnlineSolicitacaoModel } from '../models/AgendamentoOnlin
 import { getClienteModel } from '../models/Cliente.js';
 import { getAgendamentoOnlineAuthModel } from '../models/AgendamentoOnlineAuth.js';
 import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
+import { getEmpresaModel } from '../models/Empresa.js';
 import { getColaboradorIndisponibilidadeModel } from '../models/ColaboradorIndisponibilidade.js';
 import { getAgendamentoModel } from '../models/Agendamento.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -29,9 +30,12 @@ export const getOnlineConfig = async (req, res) => {
     await checkOnlineAtivo();
     const Config = getConfiguracaoSistemaModel();
     const config = await Config.findOne().catch(() => null);
+    const Empresa = getEmpresaModel();
+    const empresa = await Empresa.findOne().catch(() => null);
     res.json({
       agendamento_online_ativo: config ? config.agendamento_online_ativo !== false : true,
-      ocultar_valores_online: config ? Boolean(config.ocultar_valores_online) : false
+      ocultar_valores_online: config ? Boolean(config.ocultar_valores_online) : false,
+      nome_fantasia: empresa?.nome_fantasia ? empresa.nome_fantasia.trim() : ''
     });
   } catch (error) {
     if (error.message === 'Agendamento Online desabilitado.') {
@@ -532,10 +536,14 @@ export const solicitarAgendamento = async (req, res) => {
     try {
       const waConfig = await getConfig();
       if (waConfig && waConfig.ativo) {
+        const Empresa = getEmpresaModel();
+        const empresaObj = await Empresa.findOne().catch(() => null);
+        const nomeEmp = empresaObj?.nome_fantasia?.trim();
+        const textoSalao = nomeEmp || 'o salão';
         const dataFmt = new Date(dataToSave.data_hora_desejada).toLocaleString('pt-BR', { timeZone: 'America/Recife' });
         await whatsappProvider.sendMessage(
           telefone, 
-          `Olá, ${cliente_nome}! Recebemos sua solicitação de agendamento para o dia ${dataFmt}. Assim que o salão confirmar, enviaremos outra mensagem por aqui!`, 
+          `Olá, ${cliente_nome}! Recebemos sua solicitação de agendamento para o dia ${dataFmt}. Assim que ${textoSalao} confirmar, enviaremos outra mensagem por aqui!`, 
           waConfig
         );
       }
@@ -543,7 +551,12 @@ export const solicitarAgendamento = async (req, res) => {
       console.error('Erro ao enviar mensagem WhatsApp de recepção:', waErr);
     }
 
-    res.json({ ok: true, message: 'Solicitação recebida com sucesso! Aguarde a confirmação do salão.' });
+    const Empresa = getEmpresaModel();
+    const empresaObj = await Empresa.findOne().catch(() => null);
+    const nomeEmp = empresaObj?.nome_fantasia?.trim();
+    const msgConfirmacao = nomeEmp ? `Solicitação recebida com sucesso! Aguarde a confirmação de ${nomeEmp}.` : 'Solicitação recebida com sucesso! Aguarde a confirmação do salão.';
+
+    res.json({ ok: true, message: msgConfirmacao });
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
