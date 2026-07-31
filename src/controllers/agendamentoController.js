@@ -26,15 +26,27 @@ export const adjustStock = async (ag, type, options = {}) => {
     const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
     const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
 
-    for (const item of ag.itens || []) {
-      const utilized = item.produtos_utilizados || [];
+    let rawItens = ag.itens;
+    if (typeof rawItens === 'string') {
+      try { rawItens = JSON.parse(rawItens); } catch (e) { rawItens = []; }
+    }
+    if (!Array.isArray(rawItens)) rawItens = [];
+
+    for (const item of rawItens) {
+      let utilized = item.produtos_utilizados;
+      if (typeof utilized === 'string') {
+        try { utilized = JSON.parse(utilized); } catch (e) { utilized = []; }
+      }
+      if (!Array.isArray(utilized)) utilized = [];
+
       for (const pu of utilized) {
+        if (!pu || !pu.produto_id) continue;
         const prod = await getProdutoModel().findByPk(pu.produto_id, { transaction });
         if (prod) {
           const qty = Number(pu.quantidade || 0);
           const stockAdjustment = qty;
 
-          const qtdAnterior = prod.quantidade_estoque || 0;
+          const qtdAnterior = Number(prod.quantidade_estoque || 0);
 
           if (type === 'deduct') {
             const newQty = Number((qtdAnterior - stockAdjustment).toFixed(3));
@@ -96,8 +108,14 @@ export const limparComissoesAgendamento = (ag) => {
 export const recalculateAndFreezeCommissions = async (ag, transaction) => {
   const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: ag.id, deletado: 'N' }, transaction });
   
+  let rawItens = ag.itens;
+  if (typeof rawItens === 'string') {
+    try { rawItens = JSON.parse(rawItens); } catch (e) { rawItens = []; }
+  }
+  if (!Array.isArray(rawItens)) rawItens = [];
+
   const totalTaxaCartao = allPags.reduce((acc, p) => acc + Number(p.cartao_taxa_valor || 0), 0);
-  const totalServicos = (ag.itens || []).reduce((acc, item) => acc + Number(item.valor || 0), 0);
+  const totalServicos = rawItens.reduce((acc, item) => acc + Number(item.valor || 0), 0);
   
   const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
   const colaboradores = await getColaboradorModel().findAll({ transaction });
@@ -111,7 +129,7 @@ export const recalculateAndFreezeCommissions = async (ag, transaction) => {
   );
 
   const updatedItens = [];
-  for (const item of (ag.itens || [])) {
+  for (const item of rawItens) {
     const val_serv = Number(item.valor || 0);
     
     let val_serv_comissao = val_serv;
@@ -128,10 +146,16 @@ export const recalculateAndFreezeCommissions = async (ag, transaction) => {
     }
 
     let custo_produtos = 0;
-    const produtos_utilizados = item.produtos_utilizados || [];
+    let produtos_utilizados = item.produtos_utilizados;
+    if (typeof produtos_utilizados === 'string') {
+      try { produtos_utilizados = JSON.parse(produtos_utilizados); } catch (e) { produtos_utilizados = []; }
+    }
+    if (!Array.isArray(produtos_utilizados)) produtos_utilizados = [];
+
     for (const pu of produtos_utilizados) {
+      if (!pu) continue;
       let c_prop = pu.custo_proporcional;
-      if (c_prop === undefined || c_prop === null) {
+      if (c_prop === undefined || c_prop === null || isNaN(c_prop)) {
         const prodModel = produtos.find(p => p.id === pu.produto_id);
         if (prodModel) {
           c_prop = (prodModel.quantidade_por_unidade > 0)
@@ -141,7 +165,9 @@ export const recalculateAndFreezeCommissions = async (ag, transaction) => {
           c_prop = Number(pu.custo_unitario || 0);
         }
       }
-      custo_produtos += Number(pu.quantidade || 0) * Number(c_prop);
+      const qty = Number(pu.quantidade || 0);
+      const cost = Number(c_prop || 0);
+      custo_produtos += (isNaN(qty) ? 0 : qty) * (isNaN(cost) ? 0 : cost);
     }
 
     const base_comissao_original = Math.max(0, val_serv_comissao - custo_produtos);
@@ -337,48 +363,7 @@ const buildAgendamentoDoc = async (body, excludeId = null, options = {}) => {
   }
 
   const dataHoraNormalizada = normalizeAgendaDateTime(body.data_hora);
-  const novoInicio = dataHoraNormalizada;
-  const novoFim = new Date(novoInicio.getTime() + duracaoTotal * 60000);
-  const dataBusca = formatAgendaDate(dataHoraNormalizada);
-  const { start: dataInicioDia, end: dataFimDia } = buildAgendaDayRange(dataBusca);
-
-  const where = {
-    data_hora: { [Op.between]: [dataInicioDia, dataFimDia] },
-    deletado: 'N',
-    status: { [Op.ne]: 'cancelado' }
-  };
-
-  if (excludeId) {
-    where.id = { [Op.ne]: excludeId };
-  }
-
-  const existentes = await getAgendamentoModel().findAll({ where });
-
-  // Apenas validar conflito em NOVOS agendamentos (sem excludeId e sem isOnlyInsumos) se ignorar_conflito nao for verdadeiro
-  if (!isOnlyInsumos && !excludeId && !body.ignorar_conflito) {
-    for (const item of body.itens_selecionados) {
-      const idsVerificar = [item.colaborador_id, item.auxiliar_id].filter(id => id);
-
-      for (const ag of existentes) {
-        const agInicio = new Date(ag.data_hora);
-        const agFim = new Date(agInicio.getTime() + ag.duracao_minutos * 60000);
-
-        const sobrepoe = agInicio < novoFim && agFim > novoInicio;
-
-        if (sobrepoe) {
-          const profsNoExistente = ag.profissionais.map(p => p.id);
-          const conflito = idsVerificar.some(id => profsNoExistente.includes(id));
-
-          if (conflito) {
-            const profConflito = (await getColaboradorModel().findByPk(idsVerificar.find(id => profsNoExistente.includes(id))))?.nome;
-            throw new Error(`Conflito de horário: O profissional ${profConflito} já possui um agendamento entre ${formatAgendaTime(agInicio)} e ${formatAgendaTime(agFim)}`);
-          }
-        }
-      }
-    }
-  }
-
-  // Validação de indisponibilidade de colaboradores (principal ou auxiliar)
+  // Validação de disponibilidade de horário e indisponibilidade de colaboradores (principal ou auxiliar)
   if (!isOnlyInsumos && !body.ignorar_conflito) {
     const { verificarDisponibilidade } = await import('../utils/agendaRules.js');
     const idsVerificar = Array.from(profsMap.keys());
@@ -962,8 +947,14 @@ const addPagamentos = async (req, res) => {
     }
 
     if (shouldConclude) {
-      for (const item of ag.itens || []) {
-        if (!item.colaborador_id || item.colaborador_id === "none") {
+      let rawItens = ag.itens;
+      if (typeof rawItens === 'string') {
+        try { rawItens = JSON.parse(rawItens); } catch (e) { rawItens = []; }
+      }
+      if (!Array.isArray(rawItens)) rawItens = [];
+
+      for (const item of rawItens) {
+        if (!item || !item.colaborador_id || item.colaborador_id === "none") {
           await transaction.rollback();
           return res.status(400).json({ detail: 'Não é possível concluir o atendimento sem definir o profissional que realizou cada serviço.' });
         }
@@ -993,7 +984,8 @@ const addPagamentos = async (req, res) => {
     res.json({ ok: true, total_pago: novoTotal, saldo: ag.valor_total - novoTotal });
   } catch (error) {
     await transaction.rollback();
-    res.status(500).json({ detail: error.message });
+    console.error('Erro ao adicionar pagamentos no agendamento:', error);
+    res.status(400).json({ detail: error.message || 'Erro ao processar pagamento do agendamento.' });
   }
 };
 
