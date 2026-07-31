@@ -40,11 +40,26 @@ export const normalizeAgendaDateTime = (value) => {
   return new Date(agendaDate.getTime());
 };
 
-export const formatAgendaDate = (value) => format(new TZDate(value, AGENDA_TIME_ZONE), 'yyyy-MM-dd');
+export const formatAgendaDate = (value) => {
+  if (!value) return '';
+  const norm = normalizeAgendaDateTime(value);
+  if (!norm || isNaN(norm.getTime())) return '';
+  return format(new TZDate(norm, AGENDA_TIME_ZONE), 'yyyy-MM-dd');
+};
 
-export const formatAgendaTime = (value) => format(new TZDate(value, AGENDA_TIME_ZONE), 'HH:mm');
+export const formatAgendaTime = (value) => {
+  if (!value) return '';
+  const norm = normalizeAgendaDateTime(value);
+  if (!norm || isNaN(norm.getTime())) return '';
+  return format(new TZDate(norm, AGENDA_TIME_ZONE), 'HH:mm');
+};
 
-export const formatAgendaDateTime = (value) => format(new TZDate(value, AGENDA_TIME_ZONE), "yyyy-MM-dd'T'HH:mm:ss");
+export const formatAgendaDateTime = (value) => {
+  if (!value) return '';
+  const norm = normalizeAgendaDateTime(value);
+  if (!norm || isNaN(norm.getTime())) return '';
+  return format(new TZDate(norm, AGENDA_TIME_ZONE), "yyyy-MM-dd'T'HH:mm:ss");
+};
 
 
 export const buildAgendaDayRange = (date) => ({

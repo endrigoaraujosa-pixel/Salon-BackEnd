@@ -1,7 +1,7 @@
 import { Op } from 'sequelize';
 import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getColaboradorModel } from '../models/Colaborador.js';
-import { buildAgendaDayRange, formatAgendaDate, formatAgendaTime } from './agendaDateTime.js';
+import { buildAgendaDayRange, formatAgendaDate, formatAgendaTime, normalizeAgendaDateTime } from './agendaDateTime.js';
 
 export async function verificarDisponibilidade({
   dataHoraNormalizada,
@@ -17,6 +17,7 @@ export async function verificarDisponibilidade({
   const where = {
     data_hora: { [Op.between]: [dataInicioDia, dataFimDia] },
     deletado: 'N',
+    status: { [Op.ne]: 'cancelado' }
   };
 
   if (excludeAgendamentoId) {
@@ -27,20 +28,42 @@ export async function verificarDisponibilidade({
 
   // Verificar conflitos de agendamentos
   for (const ag of existentes) {
-    const agInicio = new Date(ag.data_hora);
-    const agFim = new Date(agInicio.getTime() + ag.duracao_minutos * 60000);
+    const agInicio = normalizeAgendaDateTime(ag.data_hora);
+    if (!agInicio || isNaN(agInicio.getTime())) continue;
+
+    const agDuracao = Number(ag.duracao_minutos) || 0;
+    const agFim = new Date(agInicio.getTime() + agDuracao * 60000);
 
     const sobrepoe = agInicio < novoFim && agFim > novoInicio;
 
     if (sobrepoe) {
-      const profsNoExistente = ag.profissionais.map(p => p.id);
-      const conflito = profissionaisIds.some(id => profsNoExistente.includes(id));
+      let profsArray = ag.profissionais;
+      if (typeof profsArray === 'string') {
+        try { profsArray = JSON.parse(profsArray); } catch (e) { profsArray = []; }
+      }
+      if (!Array.isArray(profsArray)) profsArray = [];
 
-      if (conflito) {
-        const profConflitoId = profissionaisIds.find(id => profsNoExistente.includes(id));
-        const profConflitoModel = await getColaboradorModel().findByPk(profConflitoId);
-        const profConflitoNome = profConflitoModel ? profConflitoModel.nome : 'Profissional';
-        throw new Error(`Conflito de horário: O profissional ${profConflitoNome} já possui um agendamento entre ${formatAgendaTime(agInicio)} e ${formatAgendaTime(agFim)}`);
+      const profsNoExistente = profsArray.map(p => {
+        if (!p) return { id: '', nome: '' };
+        if (typeof p === 'object') return { id: String(p.id || p.colaborador_id || ''), nome: p.nome || '' };
+        return { id: String(p), nome: '' };
+      }).filter(p => p.id);
+
+      const targetIds = (profissionaisIds || []).map(id => String(id));
+
+      const profEncontrado = profsNoExistente.find(p => targetIds.includes(p.id));
+
+      if (profEncontrado) {
+        let profConflitoNome = (profEncontrado.nome || '').trim();
+        if (!profConflitoNome) {
+          const profConflitoModel = await getColaboradorModel().findByPk(profEncontrado.id);
+          profConflitoNome = (profConflitoModel?.nome || '').trim() || 'Profissional';
+        }
+
+        const inicioStr = formatAgendaTime(agInicio) || '--:--';
+        const fimStr = formatAgendaTime(agFim) || '--:--';
+
+        throw new Error(`Conflito de horário: O profissional ${profConflitoNome} já possui um agendamento entre ${inicioStr} e ${fimStr}`);
       }
     }
   }
