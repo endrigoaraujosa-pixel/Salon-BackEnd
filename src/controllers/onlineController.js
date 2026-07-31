@@ -32,10 +32,13 @@ export const getOnlineConfig = async (req, res) => {
     const config = await Config.findOne().catch(() => null);
     const Empresa = getEmpresaModel();
     const empresa = await Empresa.findOne().catch(() => null);
+    const nomeEmpresa = (empresa?.nome_fantasia || empresa?.razao_social || '').trim();
     res.json({
       agendamento_online_ativo: config ? config.agendamento_online_ativo !== false : true,
       ocultar_valores_online: config ? Boolean(config.ocultar_valores_online) : false,
-      nome_fantasia: empresa?.nome_fantasia ? empresa.nome_fantasia.trim() : ''
+      nome_fantasia: nomeEmpresa,
+      logomarca: empresa?.logomarca || null,
+      logomarca_dark: empresa?.logomarca_dark || null
     });
   } catch (error) {
     if (error.message === 'Agendamento Online desabilitado.') {
