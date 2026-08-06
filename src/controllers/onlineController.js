@@ -36,6 +36,7 @@ export const getOnlineConfig = async (req, res) => {
     res.json({
       agendamento_online_ativo: config ? config.agendamento_online_ativo !== false : true,
       ocultar_valores_online: config ? Boolean(config.ocultar_valores_online) : false,
+      max_servicos_agendamento_online: config ? (config.max_servicos_agendamento_online || null) : null,
       nome_fantasia: nomeEmpresa,
       logomarca: empresa?.logomarca || null,
       logomarca_dark: empresa?.logomarca_dark || null
@@ -514,6 +515,13 @@ export const solicitarAgendamento = async (req, res) => {
     }
 
     const parsedServicos = typeof servicos === 'string' ? JSON.parse(servicos) : servicos;
+
+    const Config = getConfiguracaoSistemaModel();
+    const sysConfig = await Config.findOne().catch(() => null);
+    const maxServicos = sysConfig?.max_servicos_agendamento_online;
+    if (maxServicos && Number(maxServicos) > 0 && Array.isArray(parsedServicos) && parsedServicos.length > Number(maxServicos)) {
+      return res.status(400).json({ detail: `Você pode selecionar no máximo ${maxServicos} serviço(s) por agendamento.` });
+    }
     const dataToSave = {
       cliente_id: clienteId,
       nome_cliente: cliente_nome,
@@ -749,6 +757,13 @@ export const reservarHorario = async (req, res) => {
     }
 
     const servicoIds = Array.isArray(servicos) ? servicos : [servicos];
+
+    const Config = getConfiguracaoSistemaModel();
+    const sysConfig = await Config.findOne().catch(() => null);
+    const maxServicos = sysConfig?.max_servicos_agendamento_online;
+    if (maxServicos && Number(maxServicos) > 0 && servicoIds.length > Number(maxServicos)) {
+      return res.status(400).json({ detail: `Você pode selecionar no máximo ${maxServicos} serviço(s) por agendamento.` });
+    }
 
     // Calcular duração total dos serviços
     const Servico = getServicoModel();

@@ -42,6 +42,11 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
     allowNull: false
+  },
+  max_servicos_agendamento_online: {
+    type: DataTypes.INTEGER,
+    defaultValue: null,
+    allowNull: true
   }
 }, {
   tableName: 'configuracao_sistema',

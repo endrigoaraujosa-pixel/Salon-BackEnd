@@ -11,7 +11,8 @@ import { createCliente, deleteCliente, historicoCliente, listClientes, updateCli
 import { adicionarCreditoManual, removerCreditoManual, estornarMovimentacao, getExtrato, recalcularSaldoCliente } from './controllers/clienteCreditoController.js';
 import { createColab, deleteColab, listColab, updateColab, getComissoesServico, updateComissoesServico } from './controllers/colaboradorController.js';
 import { createIndisponibilidade, listIndisponibilidades, updateIndisponibilidade, deleteIndisponibilidade } from './controllers/colaboradorIndisponibilidadeController.js';
-import { desfazerPagamento, listComissoes, pagarComissao } from './controllers/comissaoController.js';
+import { desfazerPagamento, listComissoes, pagarComissao, verificarPendenciasComissoes } from './controllers/comissaoController.js';
+
 import { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
 import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect, startLocalIntegration, getExternalStatus, getExternalQrCode, postCheckWhatsappNumber, listCampanhas, getCampanha, createCampanha, cancelarCampanha } from './modules/whatsapp/whatsapp.controller.js';
 import { initLocalClient } from './modules/whatsapp/local-client.js';
@@ -272,6 +273,7 @@ app.use('/api/vendas-diretas', vendaDiretaRoutes);
 // Comissões Routes
 const comissaoRoutes = express.Router();
 comissaoRoutes.get('/', protect, requirePermission('comissoes.visualizar'), listComissoes);
+comissaoRoutes.get('/verificar-pendencias', protect, requirePermission('comissoes.visualizar'), verificarPendenciasComissoes);
 comissaoRoutes.post('/pagar', protect, requirePermission('comissoes.pagar'), pagarComissao);
 comissaoRoutes.delete('/pagar', protect, requirePermission('comissoes.estornar'), desfazerPagamento);
 app.use('/api/comissoes', comissaoRoutes);
