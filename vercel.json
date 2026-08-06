@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "node run_db_migration.js",
+  "buildCommand": "node scripts/migrate-all.js",
   "builds": [
     {
       "src": "src/index.js",
