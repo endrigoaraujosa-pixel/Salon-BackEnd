@@ -714,8 +714,230 @@ const desfazerPagamento = async (req, res) => {
   }
 };
 
+const verificarPendenciasComissoes = async (req, res) => {
+  const { data_inicio, data_fim, colaborador_id } = req.query;
+
+  if (!data_inicio || !data_fim) {
+    return res.status(400).json({ detail: 'Informe o período de datas (data_inicio e data_fim)' });
+  }
+
+  try {
+    const start = data_inicio;
+    const end = data_fim;
+
+    const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
+    const servicos = await getServicoModel().findAll({ where: { deletado: 'N' } });
+
+    let targetColabId = colaborador_id;
+    const canSeeAll = req.user && (req.user.role === 'admin' || req.user.perfil?.permissoes?.['comissoes.visualizar_todos'] === true);
+    if (!canSeeAll) {
+      if (req.user.colaborador_id) {
+        targetColabId = req.user.colaborador_id;
+      } else {
+        const normalizedUserName = normalizeName(req.user.name);
+        const colabFound = colaboradores.find(c => normalizeName(c.nome) === normalizedUserName);
+        targetColabId = colabFound ? String(colabFound.id) : null;
+      }
+    }
+
+    // 1. Agendamentos no período (não cancelados)
+    const agendamentos = await getAgendamentoModel().findAll({
+      where: {
+        deletado: 'N',
+        status: { [Op.ne]: 'cancelado' },
+        data_hora: {
+          [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
+        }
+      },
+      order: [['data_hora', 'ASC']]
+    });
+
+    // 2. Vendas no período (não canceladas)
+    const vendas = await getVendaDiretaModel().findAll({
+      where: {
+        deletado: 'N',
+        status: { [Op.ne]: 'cancelado' },
+        data_venda: {
+          [Op.between]: [`${start}T00:00:00`, `${end}T23:59:59`]
+        }
+      },
+      order: [['data_venda', 'ASC']]
+    });
+
+    const agendamentos_nao_pagos = [];
+    const agendamentos_insumos_pendentes = [];
+    const vendas_pendentes = [];
+    const todas_pendencias = [];
+
+    const agendamentoPertenceColaborador = (ag, colabId) => {
+      if (!colabId || colabId === 'todos') return true;
+      let itens = [];
+      try {
+        itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+      } catch (e) {
+        itens = ag.itens || [];
+      }
+      if (Array.isArray(itens)) {
+        for (const item of itens) {
+          if (String(item.colaborador_id) === String(colabId) || String(item.auxiliar_id) === String(colabId)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    const getProfissionaisAgendamento = (ag) => {
+      const profs = new Set();
+      let itens = [];
+      try {
+        itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+      } catch (e) {
+        itens = ag.itens || [];
+      }
+      if (Array.isArray(itens)) {
+        for (const item of itens) {
+          if (item.colaborador_nome) profs.add(item.colaborador_nome);
+          if (item.auxiliar_nome) profs.add(item.auxiliar_nome);
+        }
+      }
+      return Array.from(profs).join(', ') || 'Não informado';
+    };
+
+    for (const ag of agendamentos) {
+      if (targetColabId && targetColabId !== 'todos' && !agendamentoPertenceColaborador(ag, targetColabId)) {
+        continue;
+      }
+
+      const valorTotal = Number(ag.valor_total || 0);
+      const valorPago = Number(ag.valor_pago || 0);
+      const valorRestante = Math.max(0, Number((valorTotal - valorPago).toFixed(2)));
+      const profNomes = getProfissionaisAgendamento(ag);
+
+      const naoTotalmentePago = ag.status !== 'concluido' || valorRestante > 0.01;
+      if (naoTotalmentePago) {
+        const itemPend = {
+          id: ag.id,
+          tipo: 'agendamento_pagamento',
+          categoria: 'Agendamento Não Pago',
+          numero: ag.numero,
+          documento: ag.numero != null ? `${String(ag.numero).padStart(6, '0')} | S` : '—',
+          data: ag.data_hora,
+          cliente_nome: ag.cliente_nome || 'Consumidor',
+          profissionais: profNomes,
+          descricao: `Agendamento com pagamento pendente (${ag.status || 'agendado'})`,
+          status_atual: ag.status || 'agendado',
+          valor_total: valorTotal,
+          valor_pago: valorPago,
+          valor_restante: valorRestante,
+          link_tipo: 'agendamento'
+        };
+        agendamentos_nao_pagos.push(itemPend);
+        todas_pendencias.push(itemPend);
+      }
+
+      let itens = [];
+      try {
+        itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
+      } catch (e) {
+        itens = ag.itens || [];
+      }
+
+      const servicosInsumosPendentes = [];
+      if (Array.isArray(itens)) {
+        for (const item of itens) {
+          const s_model = servicos.find(x => x.id === item.servico_id);
+          const linkedCount = s_model?.produtos_vinculados?.length || 0;
+          const utilizedCount = item.produtos_utilizados?.length || 0;
+          if (linkedCount > 0 && utilizedCount === 0) {
+            servicosInsumosPendentes.push(item.nome || 'Serviço');
+          }
+        }
+      }
+
+      if (servicosInsumosPendentes.length > 0) {
+        const descServicos = servicosInsumosPendentes.join(', ');
+        const itemPend = {
+          id: ag.id,
+          tipo: 'agendamento_insumos',
+          categoria: 'Insumos Pendentes',
+          numero: ag.numero,
+          documento: ag.numero != null ? `${String(ag.numero).padStart(6, '0')} | S` : '—',
+          data: ag.data_hora,
+          cliente_nome: ag.cliente_nome || 'Consumidor',
+          profissionais: profNomes,
+          descricao: `Insumos não lançados: ${descServicos}`,
+          status_atual: ag.status || 'agendado',
+          valor_total: valorTotal,
+          valor_pago: valorPago,
+          valor_restante: valorRestante,
+          servicos_pendentes: servicosInsumosPendentes,
+          link_tipo: 'agendamento'
+        };
+        agendamentos_insumos_pendentes.push(itemPend);
+        todas_pendencias.push(itemPend);
+      }
+    }
+
+    for (const v of vendas) {
+      if (targetColabId && targetColabId !== 'todos' && String(v.colaborador_id) !== String(targetColabId)) {
+        continue;
+      }
+
+      const valorTotal = Number(v.valor_total || 0);
+      const valorPago = Number(v.valor_pago || 0);
+      const valorRestante = Math.max(0, Number((valorTotal - valorPago).toFixed(2)));
+
+      const isPendente = v.status === 'pendente' || valorRestante > 0.01;
+      if (isPendente) {
+        const itemPend = {
+          id: v.id,
+          tipo: 'venda_pendente',
+          categoria: 'Venda Pendente',
+          numero: v.numero_venda,
+          documento: v.numero_venda != null ? `${String(v.numero_venda).padStart(6, '0')} | V` : '—',
+          data: v.data_venda,
+          cliente_nome: v.cliente_nome || 'Consumidor',
+          profissionais: v.colaborador_nome || 'Não informado',
+          descricao: `Venda direta com status ${v.status || 'pendente'} - ${v.produto_nome || 'Produto'}`,
+          status_atual: v.status || 'pendente',
+          valor_total: valorTotal,
+          valor_pago: valorPago,
+          valor_restante: valorRestante,
+          link_tipo: 'venda'
+        };
+        vendas_pendentes.push(itemPend);
+        todas_pendencias.push(itemPend);
+      }
+    }
+
+    const total_pendencias = todas_pendencias.length;
+    const total_valor_pendente = todas_pendencias.reduce((acc, p) => acc + p.valor_restante, 0);
+
+    res.json({
+      periodo: `${start}_${end}`,
+      data_inicio: start,
+      data_fim: end,
+      total_pendencias,
+      total_valor_pendente: Number(total_valor_pendente.toFixed(2)),
+      qtd_agendamentos_nao_pagos: agendamentos_nao_pagos.length,
+      qtd_agendamentos_insumos_pendentes: agendamentos_insumos_pendentes.length,
+      qtd_vendas_pendentes: vendas_pendentes.length,
+      agendamentos_nao_pagos,
+      agendamentos_insumos_pendentes,
+      vendas_pendentes,
+      todas_pendencias
+    });
+  } catch (error) {
+    console.error('Erro ao verificar pendências de comissões:', error);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 export {
   listComissoes,
   pagarComissao,
-  desfazerPagamento
+  desfazerPagamento,
+  verificarPendenciasComissoes
 };
+
