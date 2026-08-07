@@ -47,6 +47,11 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
     type: DataTypes.INTEGER,
     defaultValue: null,
     allowNull: true
+  },
+  aceitar_agendamento_online_automatico: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
   }
 }, {
   tableName: 'configuracao_sistema',

@@ -15,6 +15,8 @@ import { getConfig } from '../modules/whatsapp/whatsapp.service.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { normalizeAgendaDateTime, buildAgendaDayRange } from '../utils/agendaDateTime.js';
 import { findClienteByTelefone } from '../utils/clienteUtils.js';
+import { sequelize } from '../config/db.js';
+import { executarAprovacaoSolicitacao, enviarNotificacaoConfirmacaoOnline } from './solicitacaoController.js';
 
 // ---- Middleware: verificar se agendamento online está ativo ----
 const checkOnlineAtivo = async () => {
@@ -37,6 +39,7 @@ export const getOnlineConfig = async (req, res) => {
       agendamento_online_ativo: config ? config.agendamento_online_ativo !== false : true,
       ocultar_valores_online: config ? Boolean(config.ocultar_valores_online) : false,
       max_servicos_agendamento_online: config ? (config.max_servicos_agendamento_online || null) : null,
+      aceitar_agendamento_online_automatico: config ? Boolean(config.aceitar_agendamento_online_automatico) : false,
       nome_fantasia: nomeEmpresa,
       logomarca: empresa?.logomarca || null,
       logomarca_dark: empresa?.logomarca_dark || null
@@ -221,6 +224,34 @@ export const getCategoriasOnline = async (req, res) => {
   }
 };
 
+// Helper: verifica se o colaborador está habilitado para realizar os serviços no agendamento online.
+// Por padrão, o colaborador está habilitado para o serviço, a menos que haja um registro explícito com agendamento_online_ativo = false.
+const isColaboradorHabilitadoParaServicos = async (ColabServico, colaboradorId, servicoIds) => {
+  if (!servicoIds || servicoIds.length === 0) return true;
+
+  const vinculos = await ColabServico.findAll({
+    where: {
+      colaborador_id: colaboradorId,
+      servico_id: { [Op.in]: servicoIds }
+    }
+  });
+
+  const desativadosMap = new Map();
+  vinculos.forEach(v => {
+    if (v.agendamento_online_ativo === false) {
+      desativadosMap.set(v.servico_id, true);
+    }
+  });
+
+  for (const sId of servicoIds) {
+    if (desativadosMap.has(sId)) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 export const getProfissionaisOnline = async (req, res) => {
   try {
     await checkOnlineAtivo();
@@ -247,18 +278,11 @@ export const getProfissionaisOnline = async (req, res) => {
         : servicosParam.split(',').map(s => s.trim()).filter(Boolean);
 
       if (servicoIds.length > 0) {
-        // Para cada colaborador, verificar se ele realiza TODOS os serviços selecionados no online
+        // Para cada colaborador, verificar se ele não possui nenhum dos serviços desativados explicitamente no agendamento online
         const filtrados = [];
         for (const prof of profissionais) {
-          const vinculos = await ColabServico.findAll({
-            where: {
-              colaborador_id: prof.id,
-              servico_id: { [Op.in]: servicoIds },
-              agendamento_online_ativo: true
-            }
-          });
-          // O colaborador deve ter o vínculo ativo para todos os serviços requisitados
-          if (vinculos.length >= servicoIds.length) {
+          const habilitado = await isColaboradorHabilitadoParaServicos(ColabServico, prof.id, servicoIds);
+          if (habilitado) {
             filtrados.push(prof);
           }
         }
@@ -416,17 +440,11 @@ export const getDisponibilidadeOnline = async (req, res) => {
       attributes: ['id']
     });
 
-    // Filtrar por serviços: o colaborador deve ter o vínculo online ativo para todos os serviços requisitados
+    // Filtrar por serviços: o colaborador não pode ter nenhum dos serviços requisitados desativados no agendamento online
     const colabsHabilitados = [];
     for (const colab of todosColabs) {
-      const vinculos = await ColabServico.findAll({
-        where: {
-          colaborador_id: colab.id,
-          servico_id: { [Op.in]: servicoIds },
-          agendamento_online_ativo: true
-        }
-      });
-      if (vinculos.length >= servicoIds.length) {
+      const habilitado = await isColaboradorHabilitadoParaServicos(ColabServico, colab.id, servicoIds);
+      if (habilitado) {
         colabsHabilitados.push(colab.id);
       }
     }
@@ -533,6 +551,46 @@ export const solicitarAgendamento = async (req, res) => {
       status: 'pendente',
       data_expiracao_reserva: null
     };
+
+    const autoAccept = Boolean(sysConfig?.aceitar_agendamento_online_automatico);
+
+    if (autoAccept) {
+      const transaction = await sequelize.transaction();
+      try {
+        let savedSolicitacao;
+        if (solicitacao) {
+          await solicitacao.update(dataToSave, { transaction });
+          savedSolicitacao = solicitacao;
+        } else {
+          savedSolicitacao = await Solicitacao.create({
+            id: uuidv4(),
+            ...dataToSave
+          }, { transaction });
+        }
+
+        const agendamentoCreated = await executarAprovacaoSolicitacao({
+          solicitacao: savedSolicitacao,
+          transaction,
+          reqUser: req.user
+        });
+
+        await transaction.commit();
+
+        await enviarNotificacaoConfirmacaoOnline(savedSolicitacao, agendamentoCreated);
+
+        const Empresa = getEmpresaModel();
+        const empresaObj = await Empresa.findOne().catch(() => null);
+        const nomeEmp = empresaObj?.nome_fantasia?.trim();
+        const msgConfirmacao = nomeEmp 
+          ? `Agendamento realizado e confirmado com sucesso em ${nomeEmp}!`
+          : 'Agendamento realizado e confirmado com sucesso!';
+
+        return res.json({ ok: true, autoConfirmado: true, message: msgConfirmacao });
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
+    }
 
     if (solicitacao) {
       await solicitacao.update(dataToSave);
