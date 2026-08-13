@@ -173,6 +173,7 @@ const createVenda = async (req, res) => {
       const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
       const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
       const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
+      const permitirAlterarPreco = systemConfig ? !!systemConfig.permitir_alterar_preco_produto_venda : false;
 
       if (produto.quantidade_estoque < neededStock && !permitirEstoqueNegativo) {
         const dispQty = qtyPerUnit > 0 ? (produto.quantidade_estoque / qtyPerUnit) : produto.quantidade_estoque;
@@ -183,7 +184,10 @@ const createVenda = async (req, res) => {
         });
       }
 
-      const preco_unitario = Number(item.preco_unitario || produto.preco_venda);
+      let preco_unitario = Number(produto.preco_venda);
+      if (permitirAlterarPreco && item.preco_unitario !== undefined && item.preco_unitario !== null && item.preco_unitario !== '' && !isNaN(Number(item.preco_unitario)) && Number(item.preco_unitario) >= 0) {
+        preco_unitario = Number(item.preco_unitario);
+      }
       const subtotal = qtd * preco_unitario;
 
       itensProcessados.push({
@@ -1088,6 +1092,7 @@ const addItemCarrinho = async (req, res) => {
     const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
     const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
     const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
+    const permitirAlterarPreco = systemConfig ? !!systemConfig.permitir_alterar_preco_produto_venda : false;
 
     if (estoqueDisponivel < neededStock && !permitirEstoqueNegativo) {
       const dispQty = qtyPerUnit > 0 ? (estoqueDisponivel / qtyPerUnit) : estoqueDisponivel;
@@ -1098,7 +1103,10 @@ const addItemCarrinho = async (req, res) => {
       });
     }
 
-    const precoUnit = Number(preco_unitario || produto.preco_venda);
+    let precoUnit = Number(produto.preco_venda);
+    if (permitirAlterarPreco && preco_unitario !== undefined && preco_unitario !== null && preco_unitario !== '' && !isNaN(Number(preco_unitario)) && Number(preco_unitario) >= 0) {
+      precoUnit = Number(preco_unitario);
+    }
     const subtotal = qtd * precoUnit;
 
     const novoItem = {
@@ -1133,7 +1141,7 @@ const addItemCarrinho = async (req, res) => {
  * Atualiza a quantidade de um item pelo índice (bloqueado se houver pagamento).
  */
 const updateItemCarrinho = async (req, res) => {
-  const { quantidade } = req.body;
+  const { quantidade, preco_unitario } = req.body;
   const itemIndex = parseInt(req.params.itemIndex, 10);
   const transaction = await sequelize.transaction();
 
@@ -1189,6 +1197,7 @@ const updateItemCarrinho = async (req, res) => {
     const { getConfiguracaoSistemaModel } = await import('../models/ConfiguracaoSistema.js');
     const systemConfig = await getConfiguracaoSistemaModel().findOne({ transaction });
     const permitirEstoqueNegativo = systemConfig ? !!systemConfig.permitir_estoque_negativo : false;
+    const permitirAlterarPreco = systemConfig ? !!systemConfig.permitir_alterar_preco_produto_venda : false;
 
     if (estoqueDisponivel < neededStock && !permitirEstoqueNegativo) {
       const dispQty = qtyPerUnit > 0 ? (estoqueDisponivel / qtyPerUnit) : estoqueDisponivel;
@@ -1199,10 +1208,18 @@ const updateItemCarrinho = async (req, res) => {
       });
     }
 
+    let precoUnit = Number(item.preco_unitario || produto.preco_venda);
+    if (permitirAlterarPreco && preco_unitario !== undefined && preco_unitario !== null && preco_unitario !== '' && !isNaN(Number(preco_unitario)) && Number(preco_unitario) >= 0) {
+      precoUnit = Number(preco_unitario);
+    } else if (!permitirAlterarPreco) {
+      precoUnit = Number(produto.preco_venda);
+    }
+
     itens[itemIndex] = {
       ...item,
       quantidade: qtd,
-      subtotal: qtd * Number(item.preco_unitario)
+      preco_unitario: precoUnit,
+      subtotal: qtd * precoUnit
     };
 
     venda.itens = itens;

@@ -57,6 +57,11 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
     type: DataTypes.INTEGER,
     defaultValue: null,
     allowNull: true
+  },
+  permitir_alterar_preco_produto_venda: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
   }
 }, {
   tableName: 'configuracao_sistema',
