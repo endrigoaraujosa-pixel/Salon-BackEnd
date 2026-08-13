@@ -68,6 +68,10 @@ const Despesa = sequelize.define('Despesa', {
     type: DataTypes.TEXT,
     defaultValue: ''
   },
+  entrada_estoque_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true
+  },
   deletado: {
     type: DataTypes.STRING(1),
     defaultValue: 'N',

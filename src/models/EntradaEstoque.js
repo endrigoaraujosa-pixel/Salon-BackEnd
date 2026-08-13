@@ -39,6 +39,36 @@ const EntradaEstoque = sequelize.define('EntradaEstoque', {
     allowNull: false,
     defaultValue: 0
   },
+  natureza_operacao: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    defaultValue: 'compra_prazo'
+  },
+  gerar_financeiro: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true
+  },
+  condicao_pagamento: {
+    type: DataTypes.STRING(50),
+    allowNull: true,
+    defaultValue: 'avista'
+  },
+  qtd_parcelas: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: 1
+  },
+  usuario_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true,
+    defaultValue: null
+  },
+  usuario_nome: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    defaultValue: null
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

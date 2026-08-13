@@ -3048,6 +3048,157 @@ const relatorioEstoquePerdasQuebras = async (req, res) => {
   }
 };
 
+const relatorioEstoqueEntradas = async (req, res) => {
+  const { data_inicio, data_fim, fornecedor_id, produto_id, categorias } = req.query;
+  try {
+    const { getEntradaEstoqueModel } = await import('../models/EntradaEstoque.js');
+    const { getEntradaEstoqueItemModel } = await import('../models/EntradaEstoqueItem.js');
+    const { getMovimentacaoEstoqueModel } = await import('../models/MovimentacaoEstoque.js');
+    const { getCategoriaModel } = await import('../models/Categoria.js');
+
+    const where = {};
+    if (data_inicio && data_fim) {
+      where[Op.or] = [
+        { data_entrada: { [Op.between]: [data_inicio, data_fim] } },
+        { criado_em: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] } }
+      ];
+    }
+    if (fornecedor_id && fornecedor_id !== 'todos') {
+      where.fornecedor_id = fornecedor_id;
+    }
+
+    const entradas = await getEntradaEstoqueModel().findAll({
+      where,
+      order: [['data_entrada', 'DESC'], ['criado_em', 'DESC']]
+    });
+
+    const entradaIds = entradas.map(e => e.id);
+    let itensWhere = {};
+    if (entradaIds.length > 0) {
+      itensWhere.entrada_estoque_id = { [Op.in]: entradaIds };
+    }
+    if (produto_id && produto_id !== 'todos') {
+      itensWhere.produto_id = produto_id;
+    }
+
+    const itensList = entradaIds.length > 0 
+      ? await getEntradaEstoqueItemModel().findAll({ where: itensWhere })
+      : [];
+
+    const itensMap = new Map();
+    for (const item of itensList) {
+      if (!itensMap.has(item.entrada_estoque_id)) {
+        itensMap.set(item.entrada_estoque_id, []);
+      }
+      itensMap.get(item.entrada_estoque_id).push(item);
+    }
+
+    const movList = entradaIds.length > 0
+      ? await getMovimentacaoEstoqueModel().findAll({
+          where: { referencia_id: { [Op.in]: entradaIds }, tipo: 'entrada' }
+        })
+      : [];
+    const movUserMap = new Map();
+    for (const m of movList) {
+      if (m.referencia_id && m.usuario_nome && !movUserMap.has(m.referencia_id)) {
+        movUserMap.set(m.referencia_id, m.usuario_nome);
+      }
+    }
+
+    let categoriasIds = [];
+    if (categorias && categorias !== 'todos' && categorias !== '') {
+      categoriasIds = (typeof categorias === 'string' ? categorias.split(',') : categorias).filter(Boolean);
+    }
+
+    const produtos = await getProdutoModel().findAll();
+    const produtosMap = new Map(produtos.map(p => [p.id, p]));
+
+    const categoriesList = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
+    const categoriesMap = new Map(categoriesList.map(c => [c.id, c.nome]));
+
+    let totalEntradasCount = 0;
+    let totalItensCount = 0;
+    let totalQuantidadeSum = 0;
+    let totalValorSum = 0;
+
+    const resultEntradas = [];
+
+    for (const entrada of entradas) {
+      let entryItens = itensMap.get(entrada.id) || [];
+
+      if (categoriasIds.length > 0) {
+        entryItens = entryItens.filter(item => {
+          const prod = produtosMap.get(item.produto_id);
+          return prod && categoriasIds.includes(prod.categoria_id);
+        });
+      }
+
+      if ((produto_id && produto_id !== 'todos') || categoriasIds.length > 0) {
+        if (entryItens.length === 0) continue;
+      }
+
+      const formattedItens = entryItens.map(item => {
+        const prod = produtosMap.get(item.produto_id);
+        const qte = item.quantidade || 0;
+        const sub = item.subtotal || (qte * (item.valor_custo || 0));
+        
+        totalItensCount += 1;
+        totalQuantidadeSum += qte;
+
+        return {
+          id: item.id,
+          produto_id: item.produto_id,
+          produto_nome: item.produto_nome || (prod ? prod.nome : 'Produto'),
+          categoria_nome: prod ? (categoriesMap.get(prod.categoria_id) || prod.categoria || 'Sem Categoria') : 'Sem Categoria',
+          quantidade: qte,
+          valor_custo: item.valor_custo || 0,
+          subtotal: sub,
+          unidade_medida: prod ? (prod.unidade_medida || 'un') : 'un'
+        };
+      });
+
+      const entryTotalValue = (produto_id && produto_id !== 'todos') || categoriasIds.length > 0
+        ? formattedItens.reduce((acc, i) => acc + i.subtotal, 0)
+        : (entrada.valor_total || formattedItens.reduce((acc, i) => acc + i.subtotal, 0));
+
+      totalEntradasCount += 1;
+      totalValorSum += entryTotalValue;
+
+      const userName = entrada.usuario_nome 
+        || movUserMap.get(entrada.id) 
+        || 'Sistema / Não identificado';
+
+      resultEntradas.push({
+        id: entrada.id,
+        data_entrada: entrada.data_entrada,
+        criado_em: entrada.criado_em,
+        fornecedor_id: entrada.fornecedor_id,
+        fornecedor_nome: entrada.fornecedor_nome,
+        numero_nota: entrada.numero_nota,
+        serie_nota: entrada.serie_nota,
+        observacoes: entrada.observacoes,
+        valor_total: entryTotalValue,
+        usuario_id: entrada.usuario_id || null,
+        usuario_nome: userName,
+        itens: formattedItens
+      });
+    }
+
+    res.json({
+      entradas: resultEntradas,
+      totais: {
+        total_entradas: totalEntradasCount,
+        total_itens: totalItensCount,
+        total_quantidade: totalQuantidadeSum,
+        total_valor: totalValorSum
+      }
+    });
+  } catch (error) {
+    console.error('RELATORIO ENTRADAS ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 const relatorioCartoes = async (req, res) => {
   const { data_inicio, data_fim, adquirente_id, cartao_tipo, forma_pagamento } = req.query;
 
@@ -3270,6 +3421,7 @@ export {
   relatorioEstoqueHistoricoAjustes,
   relatorioEstoqueInventario,
   relatorioEstoquePerdasQuebras,
+  relatorioEstoqueEntradas,
   relatorioCartoes,
   relatorioAgendamentosCancelados
 };
