@@ -9,6 +9,7 @@ import { Op } from 'sequelize';
 import bcrypt from 'bcryptjs';
 import { getUserModel } from '../models/User.js';
 import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
+import { getDespesaModel } from '../models/Despesa.js';
 
 // List all stock entries
 const listEntradas = async (req, res) => {
@@ -33,9 +34,13 @@ const getEntradaDetail = async (req, res) => {
     const itens = await getEntradaEstoqueItemModel().findAll({
       where: { entrada_estoque_id: id }
     });
+    const despesas = await getDespesaModel().findAll({
+      where: { entrada_estoque_id: id, deletado: 'N' }
+    });
     res.json({
       ...entrada.toJSON(),
-      itens
+      itens,
+      despesas
     });
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -46,7 +51,21 @@ const getEntradaDetail = async (req, res) => {
 const registrarEntrada = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    const { fornecedor_id, fornecedor_nome, data_entrada, numero_nota, serie_nota, observacoes, itens } = req.body;
+    const { 
+      fornecedor_id, 
+      fornecedor_nome, 
+      data_entrada, 
+      numero_nota, 
+      serie_nota, 
+      observacoes, 
+      itens,
+      natureza_operacao = 'compra_prazo',
+      gerar_financeiro = true,
+      condicao_pagamento = 'avista',
+      qtd_parcelas = 1,
+      vencimento_primeira_parcela,
+      categoria_despesa = 'Suprimentos'
+    } = req.body;
 
     if (!fornecedor_nome || !data_entrada || !itens || !Array.isArray(itens) || itens.length === 0) {
       await transaction.rollback();
@@ -88,7 +107,7 @@ const registrarEntrada = async (req, res) => {
     let valorTotal = 0;
     const processedItens = [];
 
-    // Create the stock entry record (Sequelize will auto-generate UUID for id)
+    // Create the stock entry record
     const entrada = await getEntradaEstoqueModel().create({
       fornecedor_id,
       fornecedor_nome,
@@ -97,6 +116,10 @@ const registrarEntrada = async (req, res) => {
       serie_nota: serie_nota.trim(),
       observacoes: observacoes || '',
       valor_total: 0, // Will update below
+      natureza_operacao,
+      gerar_financeiro: !!gerar_financeiro,
+      condicao_pagamento: condicao_pagamento || 'avista',
+      qtd_parcelas: parseInt(qtd_parcelas) || 1,
       usuario_id: req.user ? req.user.id : null,
       usuario_nome: req.user ? req.user.name : null
     }, { transaction });
@@ -154,7 +177,7 @@ const registrarEntrada = async (req, res) => {
         quantidade_anterior: qtdAnterior,
         quantidade_atual: qtdAtual,
         valor_unitario: custo,
-        motivo: `Entrada de mercadoria - NF: ${numero_nota.trim()} (Série: ${serie_nota.trim()})`,
+        motivo: `Entrada de mercadoria (${natureza_operacao}) - NF: ${numero_nota.trim()} (Série: ${serie_nota.trim()})`,
         referencia_id: entrada.id,
         usuario_id: req.user ? req.user.id : null,
         usuario_nome: req.user ? req.user.name : null
@@ -164,13 +187,89 @@ const registrarEntrada = async (req, res) => {
     // Update total entry value
     await entrada.update({ valor_total: valorTotal }, { transaction });
 
+    // Financial entry logic conditioned by Natureza da Operação
+    const isNonFinancialOp = ['bonificacao', 'garantia', 'troca', 'transferencia'].includes(natureza_operacao);
+    const shouldCreateExpenses = !!gerar_financeiro && !isNonFinancialOp && valorTotal > 0;
+    const createdDespesas = [];
+
+    if (shouldCreateExpenses) {
+      const category = categoria_despesa || 'Suprimentos';
+      const docNum = numero_nota.trim();
+      const supplier = fornecedor_nome.trim();
+
+      if (natureza_operacao === 'compra_vista') {
+        const despesa = await getDespesaModel().create({
+          descricao: `Compra de Produtos - NF ${docNum} (À Vista)`,
+          valor: valorTotal,
+          tipo: 'variavel',
+          categoria: category,
+          data_documento: data_entrada,
+          data_vencimento: data_entrada,
+          data_pagamento: data_entrada,
+          pago: true,
+          status: 'Pago',
+          numero_documento: docNum,
+          fornecedor: supplier,
+          baixado_por: req.user ? req.user.name : 'Sistema',
+          baixado_em: new Date(),
+          observacoes: `Lançamento automático via Entrada de Estoque (NF ${docNum})`,
+          entrada_estoque_id: entrada.id
+        }, { transaction });
+        createdDespesas.push(despesa);
+      } else if (natureza_operacao === 'compra_prazo') {
+        const numParcelas = Math.max(1, parseInt(qtd_parcelas) || 1);
+        const valorBase = Math.floor((valorTotal / numParcelas) * 100) / 100;
+        const diff = Number((valorTotal - (valorBase * numParcelas)).toFixed(2));
+
+        const baseVencimentoStr = vencimento_primeira_parcela && vencimento_primeira_parcela.trim() 
+          ? vencimento_primeira_parcela.trim() 
+          : data_entrada;
+
+        for (let i = 0; i < numParcelas; i++) {
+          const valParcela = i === 0 ? Number((valorBase + diff).toFixed(2)) : valorBase;
+
+          let dueDateStr = baseVencimentoStr;
+          if (i > 0) {
+            const [y, m, d] = baseVencimentoStr.split('-').map(Number);
+            if (y && m && d) {
+              const dt = new Date(Date.UTC(y, m - 1 + i, d));
+              dueDateStr = dt.toISOString().split('T')[0];
+            }
+          }
+
+          const desc = numParcelas > 1 
+            ? `Compra de Produtos - NF ${docNum} (${i + 1}/${numParcelas})` 
+            : `Compra de Produtos - NF ${docNum}`;
+
+          const numDoc = numParcelas > 1 ? `${docNum}-${i + 1}` : docNum;
+
+          const despesa = await getDespesaModel().create({
+            descricao: desc,
+            valor: valParcela,
+            tipo: 'variavel',
+            categoria: category,
+            data_documento: data_entrada,
+            data_vencimento: dueDateStr,
+            pago: false,
+            status: 'Aberto',
+            numero_documento: numDoc,
+            fornecedor: supplier,
+            observacoes: `Lançamento automático via Entrada de Estoque (NF ${docNum})`,
+            entrada_estoque_id: entrada.id
+          }, { transaction });
+          createdDespesas.push(despesa);
+        }
+      }
+    }
+
     await transaction.commit();
 
     res.status(201).json({
       ok: true,
       entrada: {
         ...entrada.toJSON(),
-        itens: processedItens
+        itens: processedItens,
+        despesas: createdDespesas
       }
     });
   } catch (error) {
