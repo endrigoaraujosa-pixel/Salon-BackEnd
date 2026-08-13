@@ -39,6 +39,7 @@ export const getOnlineConfig = async (req, res) => {
       agendamento_online_ativo: config ? config.agendamento_online_ativo !== false : true,
       ocultar_valores_online: config ? Boolean(config.ocultar_valores_online) : false,
       max_servicos_agendamento_online: config ? (config.max_servicos_agendamento_online || null) : null,
+      max_agendamentos_online_futuros: config ? (config.max_agendamentos_online_futuros || null) : null,
       aceitar_agendamento_online_automatico: config ? Boolean(config.aceitar_agendamento_online_automatico) : false,
       nome_fantasia: nomeEmpresa,
       logomarca: empresa?.logomarca || null,
@@ -53,6 +54,86 @@ export const getOnlineConfig = async (req, res) => {
 };
 
 // ---- Helpers ----
+const validarLimiteAgendamentosFuturos = async (telefone, currentSolicitacaoId = null) => {
+  const Config = getConfiguracaoSistemaModel();
+  const sysConfig = await Config.findOne().catch(() => null);
+  const maxFuturos = sysConfig?.max_agendamentos_online_futuros;
+
+  if (maxFuturos === null || maxFuturos === undefined || isNaN(maxFuturos) || Number(maxFuturos) <= 0) {
+    return; // Sem limite configurado
+  }
+
+  const limitNum = Number(maxFuturos);
+  const now = new Date();
+
+  // Buscar cliente existente por telefone
+  const cliente = await findClienteByTelefone(telefone);
+  const clienteId = cliente?.id || null;
+
+  const phoneDigits = telefone ? String(telefone).replace(/\D/g, '') : '';
+
+  // 1. Solicitações online pendentes futuras
+  const Solicitacao = getAgendamentoOnlineSolicitacaoModel();
+  const solWhere = {
+    status: 'pendente',
+    data_hora_desejada: { [Op.gt]: now }
+  };
+
+  if (currentSolicitacaoId) {
+    solWhere.id = { [Op.ne]: currentSolicitacaoId };
+  }
+
+  const solOrConditions = [];
+  if (clienteId) {
+    solOrConditions.push({ cliente_id: clienteId });
+  }
+  if (telefone) {
+    solOrConditions.push({ telefone });
+  }
+
+  if (solOrConditions.length > 0) {
+    solWhere[Op.or] = solOrConditions;
+  }
+
+  const pendentesList = await Solicitacao.findAll({ where: solWhere });
+
+  let countPendentes = 0;
+  if (phoneDigits && phoneDigits.length >= 8) {
+    const last8 = phoneDigits.slice(-8);
+    countPendentes = pendentesList.filter(s => {
+      if (clienteId && s.cliente_id === clienteId) return true;
+      if (!s.telefone) return false;
+      const sDigits = String(s.telefone).replace(/\D/g, '');
+      return sDigits.endsWith(last8) || phoneDigits.endsWith(sDigits.slice(-8));
+    }).length;
+  } else {
+    countPendentes = pendentesList.length;
+  }
+
+  // 2. Agendamentos reais ativos futuros
+  let countAgendamentos = 0;
+  if (clienteId) {
+    const Agendamento = getAgendamentoModel();
+    countAgendamentos = await Agendamento.count({
+      where: {
+        cliente_id: clienteId,
+        deletado: 'N',
+        status: { [Op.notIn]: ['cancelado', 'concluido'] },
+        data_hora: { [Op.gt]: now }
+      }
+    });
+  }
+
+  const totalEmAberto = countPendentes + countAgendamentos;
+
+  if (totalEmAberto >= limitNum) {
+    const msg = limitNum === 1
+      ? `Você já possui 1 agendamento futuro em aberto. O limite máximo permitido é de 1 agendamento por cliente.`
+      : `Você já possui ${totalEmAberto} agendamento(s) futuro(s) em aberto. O limite máximo permitido simultaneamente é de ${limitNum} agendamento(s).`;
+    throw new Error(msg);
+  }
+};
+
 const timeToMinutes = (t) => {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
@@ -521,6 +602,13 @@ export const solicitarAgendamento = async (req, res) => {
       return res.status(400).json({ detail: 'Campos obrigatórios: cliente_nome, telefone, data_hora, servicos.' });
     }
 
+    // Validar limite de agendamentos futuros em aberto por cliente
+    try {
+      await validarLimiteAgendamentosFuturos(telefone, solicitacaoId);
+    } catch (limiteErr) {
+      return res.status(400).json({ detail: limiteErr.message });
+    }
+
     // Buscar cliente existente pelo telefone como identificador principal
     let cliente = await findClienteByTelefone(telefone);
     let clienteId = cliente?.id || null;
@@ -642,6 +730,13 @@ export const requestCode = async (req, res) => {
     const phoneDigits = telefone.replace(/\D/g, '');
     if (!phoneDigits) {
       return res.status(400).json({ detail: 'Telefone inválido.' });
+    }
+
+    // Validar limite de agendamentos futuros em aberto antes de gerar código
+    try {
+      await validarLimiteAgendamentosFuturos(telefone);
+    } catch (limiteErr) {
+      return res.status(400).json({ detail: limiteErr.message });
     }
 
     const waConfig = await getConfig();
