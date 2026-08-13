@@ -39,6 +39,7 @@ import {
   relatorioEstoqueInventario,
   relatorioEstoquePerdasQuebras,
   relatorioEstoqueEntradas,
+  relatorioVariacaoPreco,
   relatorioCartoes,
   relatorioAgendamentosCancelados
 } from './controllers/reportController.js';
@@ -229,6 +230,7 @@ app.get('/api/relatorios/estoque/historico-ajustes', protect, requirePermission(
 app.get('/api/relatorios/estoque/inventario', protect, requirePermission('relatorios.estoque'), relatorioEstoqueInventario);
 app.get('/api/relatorios/estoque/perdas-quebras', protect, requirePermission('relatorios.estoque'), relatorioEstoquePerdasQuebras);
 app.get('/api/relatorios/estoque/entradas', protect, requirePermission('relatorios.estoque'), relatorioEstoqueEntradas);
+app.get('/api/relatorios/estoque/variacao-preco', protect, requirePermission('relatorios.estoque'), relatorioVariacaoPreco);
 app.get('/api/relatorios/agendamentos-cancelados', protect, requirePermission('relatorios.cancelados'), relatorioAgendamentosCancelados);
 
 // Users Routes

@@ -3199,6 +3199,158 @@ const relatorioEstoqueEntradas = async (req, res) => {
   }
 };
 
+const relatorioVariacaoPreco = async (req, res) => {
+  const { data_inicio, data_fim, fornecedor_id, produto_id, apenas_com_variacao } = req.query;
+  try {
+    const { getEntradaEstoqueModel } = await import('../models/EntradaEstoque.js');
+    const { getEntradaEstoqueItemModel } = await import('../models/EntradaEstoqueItem.js');
+    const { getProdutoModel } = await import('../models/Produto.js');
+
+    // 1. Fetch ALL stock entries chronologically to correctly track price changes over time
+    const entradas = await getEntradaEstoqueModel().findAll({
+      order: [['data_entrada', 'ASC'], ['createdAt', 'ASC']]
+    });
+
+    const entradaIds = entradas.map(e => e.id);
+    const entradaMap = new Map(entradas.map(e => [e.id, e]));
+
+    // 2. Fetch all entry items
+    const itensList = entradaIds.length > 0 
+      ? await getEntradaEstoqueItemModel().findAll({
+          where: { entrada_estoque_id: { [Op.in]: entradaIds } },
+          order: [['createdAt', 'ASC']]
+        })
+      : [];
+
+    const produtos = await getProdutoModel().findAll();
+    const produtosMap = new Map(produtos.map(p => [p.id, p]));
+
+    // Map to keep track of the latest unit cost per product
+    const lastCostMap = new Map();
+
+    const allAnalysedItems = [];
+
+    // Chronologically process each entry and its items
+    for (const item of itensList) {
+      const entrada = entradaMap.get(item.entrada_estoque_id);
+      if (!entrada) continue;
+
+      const prod = produtosMap.get(item.produto_id);
+      const custoAtual = Number(item.valor_custo || 0);
+
+      const previousRecord = lastCostMap.get(item.produto_id);
+      const ultimoCusto = previousRecord ? previousRecord.valor_custo : null;
+
+      let variacaoValor = 0;
+      let variacaoPercentual = 0;
+      let tendencia = 'inicial';
+
+      if (ultimoCusto !== null) {
+        variacaoValor = Number((custoAtual - ultimoCusto).toFixed(2));
+        variacaoPercentual = ultimoCusto > 0 
+          ? Number((((custoAtual - ultimoCusto) / ultimoCusto) * 100).toFixed(2)) 
+          : 0;
+
+        if (variacaoValor > 0) tendencia = 'aumento';
+        else if (variacaoValor < 0) tendencia = 'reducao';
+        else tendencia = 'mantido';
+      }
+
+      // Update tracker map
+      lastCostMap.set(item.produto_id, {
+        valor_custo: custoAtual,
+        data_entrada: entrada.data_entrada,
+        fornecedor_nome: entrada.fornecedor_nome
+      });
+
+      const itemRecord = {
+        id: item.id,
+        entrada_id: entrada.id,
+        produto_id: item.produto_id,
+        produto_nome: item.produto_nome || (prod ? prod.nome : 'Produto'),
+        unidade_medida: prod ? (prod.unidade_medida || 'un') : 'un',
+        fornecedor_id: entrada.fornecedor_id || null,
+        fornecedor_nome: entrada.fornecedor_nome,
+        data_entrada: entrada.data_entrada,
+        numero_nota: entrada.numero_nota || '',
+        serie_nota: entrada.serie_nota || '',
+        quantidade: Number(item.quantidade || 0),
+        subtotal: Number(item.subtotal || 0),
+        custo_unitario: custoAtual,
+        ultimo_custo_unitario: ultimoCusto,
+        ultimo_fornecedor_nome: previousRecord ? previousRecord.fornecedor_nome : null,
+        ultima_data_entrada: previousRecord ? previousRecord.data_entrada : null,
+        variacao_valor: variacaoValor,
+        variacao_percentual: variacaoPercentual,
+        tendencia: tendencia
+      };
+
+      allAnalysedItems.push(itemRecord);
+    }
+
+    // 3. Apply user filters on the calculated list
+    let filtered = allAnalysedItems;
+
+    if (data_inicio && data_fim) {
+      filtered = filtered.filter(item => item.data_entrada >= data_inicio && item.data_entrada <= data_fim);
+    }
+
+    if (fornecedor_id && fornecedor_id !== 'todos') {
+      filtered = filtered.filter(item => item.fornecedor_id === fornecedor_id || item.fornecedor_nome.toLowerCase().includes(fornecedor_id.toLowerCase()));
+    }
+
+    if (produto_id && produto_id !== 'todos') {
+      filtered = filtered.filter(item => item.produto_id === produto_id);
+    }
+
+    if (apenas_com_variacao === 'true' || apenas_com_variacao === true) {
+      filtered = filtered.filter(item => item.tendencia === 'aumento' || item.tendencia === 'reducao');
+    }
+
+    // Order filtered result DESC (newest entries first)
+    filtered.sort((a, b) => b.data_entrada.localeCompare(a.data_entrada));
+
+    // 4. Calculate summary metrics
+    const totalItens = filtered.length;
+    const aumentos = filtered.filter(i => i.tendencia === 'aumento');
+    const reducoes = filtered.filter(i => i.tendencia === 'reducao');
+    const mantidos = filtered.filter(i => i.tendencia === 'mantido');
+    const iniciais = filtered.filter(i => i.tendencia === 'inicial');
+
+    const itensComComparacao = filtered.filter(i => i.ultimo_custo_unitario !== null);
+    const variacaoMediaPercentual = itensComComparacao.length > 0
+      ? Number((itensComComparacao.reduce((acc, i) => acc + i.variacao_percentual, 0) / itensComComparacao.length).toFixed(2))
+      : 0;
+
+    let maiorAumento = 0;
+    if (aumentos.length > 0) {
+      maiorAumento = Math.max(...aumentos.map(i => i.variacao_percentual));
+    }
+
+    let maiorReducao = 0;
+    if (reducoes.length > 0) {
+      maiorReducao = Math.min(...reducoes.map(i => i.variacao_percentual));
+    }
+
+    res.json({
+      registros: filtered,
+      resumo: {
+        total_registros: totalItens,
+        qtd_aumento: aumentos.length,
+        qtd_reducao: reducoes.length,
+        qtd_mantido: mantidos.length,
+        qtd_inicial: iniciais.length,
+        variacao_media_percentual: variacaoMediaPercentual,
+        maior_aumento_percentual: maiorAumento,
+        maior_reducao_percentual: maiorReducao
+      }
+    });
+  } catch (error) {
+    console.error('RELATORIO VARIACAO PRECO ERROR:', error.message);
+    res.status(500).json({ detail: error.message });
+  }
+};
+
 const relatorioCartoes = async (req, res) => {
   const { data_inicio, data_fim, adquirente_id, cartao_tipo, forma_pagamento } = req.query;
 
@@ -3422,6 +3574,7 @@ export {
   relatorioEstoqueInventario,
   relatorioEstoquePerdasQuebras,
   relatorioEstoqueEntradas,
+  relatorioVariacaoPreco,
   relatorioCartoes,
   relatorioAgendamentosCancelados
 };
