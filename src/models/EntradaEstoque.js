@@ -39,6 +39,16 @@ const EntradaEstoque = sequelize.define('EntradaEstoque', {
     allowNull: false,
     defaultValue: 0
   },
+  usuario_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true,
+    defaultValue: null
+  },
+  usuario_nome: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+    defaultValue: null
+  },
   criado_em: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

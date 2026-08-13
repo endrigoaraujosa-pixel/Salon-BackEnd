@@ -96,7 +96,9 @@ const registrarEntrada = async (req, res) => {
       numero_nota: numero_nota.trim(),
       serie_nota: serie_nota.trim(),
       observacoes: observacoes || '',
-      valor_total: 0 // Will update below
+      valor_total: 0, // Will update below
+      usuario_id: req.user ? req.user.id : null,
+      usuario_nome: req.user ? req.user.name : null
     }, { transaction });
 
     for (const item of itens) {
