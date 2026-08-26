@@ -9,6 +9,16 @@ export const formatPhoneNumber = (number) => {
   return cleanPhone;
 }
 
+export const maskPhoneNumber = (number) => {
+  if (!number) return '';
+  const clean = String(number).replace(/\D/g, '');
+  if (clean.length < 8) return '****';
+  const prefix = clean.substring(0, Math.min(5, clean.length - 4));
+  const suffix = clean.substring(clean.length - 4);
+  return `${prefix}****${suffix}`;
+};
+
+
 /**
  * Formata os nomes dos profissionais de um agendamento.
  * Se houver 1 profissional, exibe o nome dele.

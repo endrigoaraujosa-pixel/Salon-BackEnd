@@ -157,9 +157,21 @@ export async function resendReminder(reminderId) {
     throw new Error("Lembrete não encontrado.");
   }
 
-  if (reminder.status !== "Falhou") {
-    throw new Error("Apenas lembretes que falharam podem ser reenviados.");
+  if (reminder.status === "Processando") {
+    throw new Error("Este lembrete já está sendo processado no momento.");
   }
+
+  if (reminder.status === "Enviado") {
+    throw new Error("Este lembrete já foi enviado com sucesso.");
+  }
+
+  if (reminder.status !== "Falhou" && reminder.status !== "Pendente") {
+    throw new Error("Apenas lembretes pendentes ou com falha podem ser reenviados.");
+  }
+
+  // Reservar imediatamente alterando status para Processando
+  reminder.status = 'Processando';
+  await reminder.save();
 
   // Obter agendamento e cliente
   const agendamento = await getAgendamentoModel().findByPk(reminder.agendamento_id);

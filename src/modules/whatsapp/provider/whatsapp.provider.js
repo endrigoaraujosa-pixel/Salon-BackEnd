@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { sendLocalMessage } from '../local-client.js';
-import { formatPhoneNumber } from '../../../utils/index.js';
+import { formatPhoneNumber, maskPhoneNumber } from '../../../utils/index.js';
 
 function getEvolutionBaseUrl(config = {}) {
   const configuredUrl = String(config.api_url || '').trim();
@@ -37,17 +37,17 @@ export class WhatsAppProvider {
   async sendMessage(phone, message, config = null, mediaOptions = null) {
     // Se não tiver configurações de API, executa a simulação
     if (!config || !config.instancia) {
-      console.log(`[WhatsAppProvider - Simulação] Mensagem simulada para ${phone}: ${message}${mediaOptions ? ' [Com Mídia]' : ''}`);
+      console.log(`[WhatsAppProvider - Simulação] Mensagem simulada para ${maskPhoneNumber(phone)}: ${message}${mediaOptions ? ' [Com Mídia]' : ''}`);
       return { success: true, messageId: `simulated_${Date.now()}` };
     }
 
     // Se for Modo Local
     if (config.api_url === 'local' || config.instancia === 'local') {
       try {
-        console.log(`[WhatsAppProvider] Enviando mensagem via WhatsApp Local para ${phone}`);
+        console.log(`[WhatsAppProvider] Enviando mensagem via WhatsApp Local para ${maskPhoneNumber(phone)}`);
         return await sendLocalMessage(phone, message, mediaOptions);
       } catch (err) {
-        console.error(`[WhatsAppProvider] Erro ao enviar mensagem via WhatsApp Local para ${phone}:`, err.message);
+        console.error(`[WhatsAppProvider] Erro ao enviar mensagem via WhatsApp Local para ${maskPhoneNumber(phone)}:`, err.message);
         return {
           success: false,
           error: `Erro no WhatsApp Local: ${err.message}`
@@ -64,17 +64,18 @@ export class WhatsAppProvider {
       const checkResult = await this.checkNumber(cleanPhone, config);
       if (checkResult && checkResult.exists && checkResult.jid) {
         targetNumber = checkResult.jid;
-        console.log(`[WhatsAppProvider] Número verificado com sucesso. Usando JID: ${targetNumber}`);
+        console.log(`[WhatsAppProvider] Número verificado com sucesso (${maskPhoneNumber(cleanPhone)}). Usando JID: ${targetNumber}`);
       } else if (checkResult && checkResult.exists === false && !checkResult.error) {
         // Se a verificação retornou explicitamente que o número não existe no WhatsApp
-        console.warn(`[WhatsAppProvider] O número ${cleanPhone} não foi encontrado no WhatsApp.`);
+        console.warn(`[WhatsAppProvider] O número ${maskPhoneNumber(cleanPhone)} não foi encontrado no WhatsApp.`);
         return {
           success: false,
-          error: `O número ${phone} não está cadastrado no WhatsApp.`
+          isPermanent: true,
+          error: `O número ${maskPhoneNumber(phone)} não está cadastrado no WhatsApp.`
         };
       } else {
         // Caso ocorra algum erro na checagem, prossegue com o número limpo original como fallback
-        console.warn(`[WhatsAppProvider] Erro ou resposta inválida na validação do número ${cleanPhone}. Prosseguindo com o número original como fallback.`);
+        console.warn(`[WhatsAppProvider] Erro ou resposta inválida na validação do número ${maskPhoneNumber(cleanPhone)}. Prosseguindo com o número original como fallback.`);
       }
 
       // Monta a URL e os headers
