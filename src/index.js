@@ -380,8 +380,13 @@ app.listen(PORT, async () => {
   try {
     await connectDB();
     console.log('Database boot sequence successfully completed.');
-    // Start background WhatsApp reminder processing job
-    // startReminderJob();
+    // Start background WhatsApp reminder processing job if not disabled via env
+    if (process.env.DISABLE_EMBEDDED_WORKER !== 'true') {
+      console.log('[App] Iniciando job de lembretes embutido...');
+      startReminderJob();
+    } else {
+      console.log('[App] Worker embutido desativado via DISABLE_EMBEDDED_WORKER=true.');
+    }
 
     // Initialize Local WhatsApp Web Client
     // initLocalClient();
