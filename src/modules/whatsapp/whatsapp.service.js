@@ -8,7 +8,7 @@ import { DEFAULT_TEMPLATE, formatMessage } from './templates/reminder.template.j
 import { DEFAULT_THANKYOU_TEMPLATE, formatThankYouMessage } from './templates/thankyou.template.js';
 import { TZDate } from '@date-fns/tz';
 import { format } from 'date-fns';
-import { formatAgendaDate, formatAgendaTime, getContextualDayOfWeek } from '../../utils/agendaDateTime.js';
+import { formatAgendaDate, formatAgendaTime, getContextualDayOfWeek, normalizeAgendaDateTime } from '../../utils/agendaDateTime.js';
 import { formatProfissionalNames } from '../../utils/index.js';
 
 /**
@@ -83,10 +83,11 @@ export async function getHistory(filters = {}) {
   if (startDate || endDate) {
     whereClause.data_programada = {};
     if (startDate) {
-      whereClause.data_programada[Op.gte] = new Date(`${startDate}T00:00:00.000Z`);
+      // As datas do filtro representam dias da agenda (Recife), não dias UTC.
+      whereClause.data_programada[Op.gte] = normalizeAgendaDateTime(`${startDate}T00:00:00.000`);
     }
     if (endDate) {
-      whereClause.data_programada[Op.lte] = new Date(`${endDate}T23:59:59.999Z`);
+      whereClause.data_programada[Op.lte] = normalizeAgendaDateTime(`${endDate}T23:59:59.999`);
     }
   }
   // Se precisar filtrar cliente (com um OR entre o nome do Cliente E o cliente_nome gravado no agendamento)
