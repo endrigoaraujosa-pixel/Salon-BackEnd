@@ -14,6 +14,8 @@ import { getContextualDayOfWeek } from '../utils/agendaDateTime.js';
 import { formatProfissionalNames, formatPhoneNumber, maskPhoneNumber } from '../utils/index.js';
 
 let heartbeatCounter = 0;
+let reminderJobTimer = null;
+let remindersAreProcessing = false;
 
 /**
  * Auxiliar para formatar data e hora no fuso horário da agenda (America/Recife).
@@ -97,13 +99,14 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
     const candidateIds = candidates.map(c => c.id);
 
     // Etapa B: Travar atômicos apenas os que continuam em 'Pendente'
-    const [updatedCount] = await getWhatsappLembreteModel().update(
+    const [updatedCount, lockedReminders] = await getWhatsappLembreteModel().update(
       { status: 'Processando', atualizado_em: new Date() },
       {
         where: {
           id: { [Op.in]: candidateIds },
           status: 'Pendente'
-        }
+        },
+        returning: true
       }
     );
 
@@ -112,12 +115,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
     }
 
     // Buscar as instâncias de Model reais com status 'Processando' reservadas
-    const pendentes = await getWhatsappLembreteModel().findAll({
-      where: {
-        id: { [Op.in]: candidateIds },
-        status: 'Processando'
-      }
-    });
+    const pendentes = lockedReminders || [];
 
     if (!pendentes || pendentes.length === 0) {
       return;
@@ -234,20 +232,12 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
 
           const cliente = clientesMap[ag.cliente_id];
           if (!cliente || cliente.deletado === 'S') {
-            console.log(`[WhatsAppReminderJob] Cliente ID ${ag.cliente_id} deletado ou não encontrado.`);
-            reminder.status = 'Falhou';
-            reminder.erro = 'Cliente deletado ou não encontrado';
-            await reminder.save();
-            return;
+            throw new Error('Cliente deletado ou não encontrado');
           }
 
           const phone = formatPhoneNumber(cliente.telefone || '');
           if (!phone) {
-            console.log(`[WhatsAppReminderJob] Cliente ${cliente.nome} não possui telefone válido.`);
-            reminder.status = 'Falhou';
-            reminder.erro = 'Cliente sem telefone cadastrado';
-            await reminder.save();
-            return;
+            throw new Error('Cliente sem telefone válido cadastrado');
           }
 
           const colabNome = formatProfissionalNames(ag.profissionais);
@@ -320,6 +310,9 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
       });
 
       await Promise.allSettled(promises);
+      if (chunk !== chunks[chunks.length - 1]) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
     }
   } catch (error) {
     console.error('[WhatsAppReminderJob] Erro geral na execução de runSingleTenantProcessReminders:', error);
@@ -331,6 +324,12 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
  * Caso o dialeto não seja PostgreSQL multi-tenant, roda no contexto padrão.
  */
 export async function processReminders() {
+  if (remindersAreProcessing) {
+    console.log('[WhatsAppReminderJob] Execução anterior ainda está em andamento; ciclo ignorado.');
+    return;
+  }
+
+  remindersAreProcessing = true;
   try {
     heartbeatCounter++;
     if (heartbeatCounter % 15 === 0) {
@@ -366,6 +365,8 @@ export async function processReminders() {
     }
   } catch (error) {
     console.error('[WhatsAppReminderJob] Erro ao processar lembretes nos schemas:', error);
+  } finally {
+    remindersAreProcessing = false;
   }
 }
 
@@ -373,9 +374,13 @@ export async function processReminders() {
  * Inicializa a execução do job em intervalos regulares.
  */
 export function startReminderJob() {
+  if (reminderJobTimer) {
+    console.log('[WhatsAppReminderJob] Rotina já inicializada; nova inicialização ignorada.');
+    return;
+  }
   console.log('[WhatsAppReminderJob] Inicializando rotina de verificação de lembretes (intervalo: 60s).');
   // Execução imediata na inicialização
   processReminders();
   // Agendamento periódico
-  setInterval(processReminders, 60000);
+  reminderJobTimer = setInterval(processReminders, 60000);
 }

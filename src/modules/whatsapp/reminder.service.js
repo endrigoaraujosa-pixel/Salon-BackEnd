@@ -4,7 +4,6 @@ import { getClienteModel } from '../../models/Cliente.js';
 import { DEFAULT_TEMPLATE } from './templates/reminder.template.js';
 import { DEFAULT_THANKYOU_TEMPLATE } from './templates/thankyou.template.js';
 import { sequelize } from '../../config/db.js';
-import { formatPhoneNumber } from '../../utils/index.js';
 import { normalizeAgendaDateTime } from '../../utils/agendaDateTime.js';
 import { addMinutes } from 'date-fns';
 import { Op } from 'sequelize';
@@ -42,9 +41,7 @@ export async function generateReminders(agendamento) {
       return;
     }
 
-    const phone = formatPhoneNumber(client?.telefone || "");
-
-    if (!phone) {
+    if (!String(client?.telefone || '').trim()) {
       console.warn(`[WhatsAppReminderService] O cliente ${client.nome} (ID: ${client.id}) não possui telefone cadastrado. Lembrete NÃO gerado para agendamento ${agendamento.id}.`);
       return;
     }
@@ -181,8 +178,7 @@ export async function generateThankYouReminder(agendamento) {
       return;
     }
 
-    const phone = formatPhoneNumber(client?.telefone || "");
-    if (!phone) {
+    if (!String(client?.telefone || '').trim()) {
       console.warn(`[WhatsAppThankYouService] O cliente ${client.nome} (ID: ${client.id}) não possui telefone cadastrado. Agradecimento NÃO gerado para agendamento ${agendamento.id}.`);
       return;
     }
