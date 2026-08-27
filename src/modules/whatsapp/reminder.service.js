@@ -6,24 +6,10 @@ import { DEFAULT_THANKYOU_TEMPLATE } from './templates/thankyou.template.js';
 import { sequelize } from '../../config/db.js';
 import { formatPhoneNumber } from '../../utils/index.js';
 import { normalizeAgendaDateTime } from '../../utils/agendaDateTime.js';
-import axios from 'axios';
 import { addMinutes } from 'date-fns';
 import { Op } from 'sequelize';
 
-function getEvolutionBaseUrl(config = {}) {
-  const configuredUrl = String(config.api_url || '').trim();
-  const envUrl = String(process.env.EVOLUTION_API_URL || '').trim();
 
-  if (configuredUrl && configuredUrl !== 'external' && configuredUrl !== 'local') {
-    return configuredUrl.replace(/\/+$/, '');
-  }
-
-  return envUrl.replace(/\/+$/, '');
-}
-
-function getEvolutionApiKey(config = {}) {
-  return String(process.env.EVOLUTION_API_TOKEN || config.token || '').trim();
-}
 
 /**
  * Gera os lembretes automáticos na tabela whatsapp_lembretes para um agendamento.
@@ -61,33 +47,6 @@ export async function generateReminders(agendamento) {
     if (!phone) {
       console.warn(`[WhatsAppReminderService] O cliente ${client.nome} (ID: ${client.id}) não possui telefone cadastrado. Lembrete NÃO gerado para agendamento ${agendamento.id}.`);
       return;
-    }
-
-    const instance = config?.instancia;
-    const baseUrl = getEvolutionBaseUrl(config);
-    const apiKey = getEvolutionApiKey(config);
-    
-    // Apenas verifica se o numero existe se estiver usando provedor externo e com configuracoes
-    if (config.api_url !== 'local' && baseUrl && instance) {
-      const urlCheckNumber = `${baseUrl}/chat/whatsappNumbers/${instance}`;
-      try {
-        const response = await axios.post(urlCheckNumber, {
-          numbers: [phone]
-        }, {
-          headers: {
-            ...(apiKey ? { apikey: apiKey } : {}),
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (!response.data || !response.data[0] || !response.data[0].exists) {
-          console.log(`[WhatsAppReminderService] O número ${phone} não está cadastrado no WhatsApp. Lembrete não gerado.`);
-          return;
-        }
-      } catch (err) {
-        console.error(`[WhatsAppReminderService] Erro ao verificar número na API externa:`, err.message);
-        // Em caso de falha da API externa de verificação, não impedimos a criação do lembrete localmente
-      }
     }
 
     // 3. Identificar lembretes habilitados.

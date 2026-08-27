@@ -248,6 +248,9 @@ export async function resendReminder(reminderId) {
       throw new Error(result.error || "Erro desconhecido no provedor de envio.");
     }
   } catch (err) {
+    // Reenvio manual com falha → marca como Falhou sem reagendar.
+    // Não inicia nova rodada automática; o usuário deverá clicar em Reenviar novamente.
+    reminder.status = 'Falhou';
     reminder.erro = err.message || "Erro durante o reenvio.";
     await reminder.save();
     throw err;

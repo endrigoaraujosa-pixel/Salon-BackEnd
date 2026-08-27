@@ -83,7 +83,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
           [Op.lte]: new Date()
         },
         tentativas: {
-          [Op.lt]: 3
+          [Op.lt]: 5
         }
       },
       limit: 20,
@@ -282,7 +282,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
           }
 
           const masked = maskPhoneNumber(phone);
-          console.log(`[WhatsAppReminderJob] Disparando Lembrete ID ${reminder.id} (Tipo: ${reminder.tipo_lembrete}) para ${masked} | Tentativa ${reminder.tentativas}/3...`);
+          console.log(`[WhatsAppReminderJob] Disparando Lembrete ID ${reminder.id} (Tipo: ${reminder.tipo_lembrete}) para ${masked} | Tentativa ${reminder.tentativas}/5...`);
 
           const result = await whatsappProvider.sendMessage(phone, messageText, config);
 
@@ -295,27 +295,25 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
             console.log(`[WhatsAppReminderJob] Lembrete ID ${reminder.id} ENVIADO COM SUCESSO para ${masked}. (Agendamento #${ag.numero || ag.id})`);
           } else {
             const errReason = (result && result.error) || 'Erro desconhecido retornado pela API.';
-            const isPermanent = result && result.isPermanent === true;
-            throw { message: errReason, isPermanent };
+            throw new Error(errReason);
           }
 
         } catch (err) {
           const errMsg = err.message || (typeof err === 'string' ? err : 'Erro inesperado no envio.');
-          const isPermanent = err.isPermanent === true;
 
-          console.error(`[WhatsAppReminderJob] Falha no Lembrete ID ${reminder.id} (Tentativa ${reminder.tentativas}/3):`, errMsg);
+          console.error(`[WhatsAppReminderJob] Falha no Lembrete ID ${reminder.id} (Tentativa ${reminder.tentativas}/5):`, errMsg);
           reminder.erro = errMsg;
 
-          // Se for erro definitivo ou atingiu 3 tentativas, define como Falhou
-          if (isPermanent || reminder.tentativas >= 3) {
+          // Após 5 tentativas automáticas, marca definitivamente como Falhou.
+          // Entre as tentativas 1–4, reagenda para +5 minutos (intervalo fixo) e mantém Pendente.
+          if (reminder.tentativas >= 5) {
             reminder.status = 'Falhou';
-            console.log(`[WhatsAppReminderJob] Lembrete ID ${reminder.id} marcado definitivamente como FALHOU.`);
+            console.log(`[WhatsAppReminderJob] Lembrete ID ${reminder.id} atingiu 5 tentativas — marcado como FALHOU.`);
           } else {
-            // Retry com Backoff Incremental: Tentativa 1 -> +5 minutos; Tentativa 2 -> +15 minutos
-            const delayMinutes = reminder.tentativas === 1 ? 5 : 15;
+            // Retry com intervalo fixo de 5 minutos
             reminder.status = 'Pendente';
-            reminder.data_programada = new Date(Date.now() + delayMinutes * 60 * 1000);
-            console.log(`[WhatsAppReminderJob] Lembrete ID ${reminder.id} REAGENDADO para +${delayMinutes}m (Próxima tentativa em ${reminder.data_programada.toISOString()}).`);
+            reminder.data_programada = new Date(Date.now() + 5 * 60 * 1000);
+            console.log(`[WhatsAppReminderJob] Lembrete ID ${reminder.id} REAGENDADO para +5min (Próxima tentativa em ${reminder.data_programada.toISOString()}).`);
           }
           await reminder.save();
         }
