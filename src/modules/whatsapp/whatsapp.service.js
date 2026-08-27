@@ -152,26 +152,33 @@ export async function getHistory(filters = {}) {
  * @param {number} reminderId - ID do lembrete falho
  */
 export async function resendReminder(reminderId) {
-  const reminder = await getWhatsappLembreteModel().findByPk(reminderId);
-  if (!reminder) {
-    throw new Error("Lembrete não encontrado.");
+  const [reservedCount, reservedRows] = await getWhatsappLembreteModel().update(
+    { status: 'Processando', atualizado_em: new Date() },
+    {
+      where: {
+        id: reminderId,
+        [Op.or]: [
+          { status: 'Falhou' },
+          { status: 'Pendente', tentativas: { [Op.gt]: 0 } }
+        ]
+      },
+      returning: true
+    }
+  );
+
+  if (reservedCount === 0) {
+    const current = await getWhatsappLembreteModel().findByPk(reminderId);
+    if (!current) throw new Error("Lembrete não encontrado.");
+    if (current.status === 'Processando') throw new Error("Este lembrete já está sendo processado no momento.");
+    if (current.status === 'Enviado') throw new Error("Este lembrete já foi enviado com sucesso.");
+    throw new Error("O reenvio só está disponível após uma falha.");
   }
 
-  if (reminder.status === "Processando") {
-    throw new Error("Este lembrete já está sendo processado no momento.");
-  }
+  const reminder = reservedRows[0];
 
-  if (reminder.status === "Enviado") {
-    throw new Error("Este lembrete já foi enviado com sucesso.");
-  }
-
-  if (reminder.status !== "Falhou" && reminder.status !== "Pendente") {
-    throw new Error("Apenas lembretes pendentes ou com falha podem ser reenviados.");
-  }
-
-  // Reservar imediatamente alterando status para Processando
-  reminder.status = 'Processando';
-  await reminder.save();
+  try {
+  // Toda tentativa manual, inclusive uma falha de validação, entra no histórico.
+  reminder.tentativas = (reminder.tentativas || 0) + 1;
 
   // Obter agendamento e cliente
   const agendamento = await getAgendamentoModel().findByPk(reminder.agendamento_id);
@@ -232,21 +239,17 @@ export async function resendReminder(reminderId) {
     });
   }
 
-  // Incrementar tentativa
-  reminder.tentativas = (reminder.tentativas || 0) + 1;
+  const result = await whatsappProvider.sendMessage(phone, messageText, config);
+  if (result.success) {
+    reminder.status = 'Enviado';
+    reminder.data_envio = new Date();
+    reminder.mensagem = messageText;
+    reminder.erro = null;
+    await reminder.save();
+    return { success: true, reminder };
+  }
 
-  try {
-    const result = await whatsappProvider.sendMessage(phone, messageText, config);
-    if (result.success) {
-      reminder.status = 'Enviado';
-      reminder.data_envio = new Date();
-      reminder.mensagem = messageText;
-      reminder.erro = null;
-      await reminder.save();
-      return { success: true, reminder };
-    } else {
-      throw new Error(result.error || "Erro desconhecido no provedor de envio.");
-    }
+  throw new Error(result.error || "Erro desconhecido no provedor de envio.");
   } catch (err) {
     // Reenvio manual com falha → marca como Falhou sem reagendar.
     // Não inicia nova rodada automática; o usuário deverá clicar em Reenviar novamente.
