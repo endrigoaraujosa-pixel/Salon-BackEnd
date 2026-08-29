@@ -31,7 +31,7 @@ const getQuantidadeCustoEstoque = (produto, quantidade = produto?.quantidade_est
 };
 
 const isCardPayment = (p, ratesList) => {
-  return p.cartao_tipo !== null || ratesList.some(r => r.forma_pagamento === p.forma_pagamento);
+  return (p.cartao_tipo != null) || ratesList.some(r => r.forma_pagamento === p.forma_pagamento);
 };
 
 const calculatePaymentFee = (p, rates) => {
