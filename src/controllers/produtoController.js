@@ -4,11 +4,64 @@ import { Op } from "sequelize";
 
 const listProd = async (req, res) => {
   try {
-    const prods = await getProdutoModel().findAll({
-      where: { deletado: 'N' },
-      order: [['nome', 'ASC']]
+    const { paginate, page = '1', limit = '25', search = '', only_low_stock } = req.query;
+    const Produto = getProdutoModel();
+    const where = { deletado: 'N' };
+
+    if (search.trim()) {
+      where[Op.or] = [
+        { nome: { [Op.iLike]: `%${search.trim()}%` } },
+        { fornecedor: { [Op.iLike]: `%${search.trim()}%` } }
+      ];
+    }
+
+    if (only_low_stock === 'true') {
+      where[Op.and] = [
+        sequelize.where(sequelize.col('quantidade_estoque'), Op.lte, sequelize.col('estoque_minimo'))
+      ];
+    }
+
+    if (paginate !== 'true') {
+      const prods = await Produto.findAll({ where, order: [['nome', 'ASC']] });
+      return res.json(prods);
+    }
+
+    const currentPage = Math.max(1, Number.parseInt(page, 10) || 1);
+    const pageSize = Math.min(100, Math.max(10, Number.parseInt(limit, 10) || 25));
+    const [result, summary] = await Promise.all([
+      Produto.findAndCountAll({
+        where,
+        order: [['nome', 'ASC']],
+        limit: pageSize,
+        offset: (currentPage - 1) * pageSize
+      }),
+      Produto.findOne({
+        where: { deletado: 'N' },
+        attributes: [
+          [sequelize.fn('COUNT', sequelize.col('id')), 'totalProdutos'],
+          [sequelize.literal('COALESCE(SUM(CASE WHEN quantidade_por_unidade > 0 THEN quantidade_estoque / quantidade_por_unidade ELSE quantidade_estoque END), 0)'), 'totalItens'],
+          [sequelize.literal('COALESCE(SUM(CASE WHEN quantidade_por_unidade > 0 THEN quantidade_estoque * custo_unitario / quantidade_por_unidade ELSE quantidade_estoque * custo_unitario END), 0)'), 'totalValor'],
+          [sequelize.literal('COALESCE(SUM(CASE WHEN quantidade_estoque <= estoque_minimo THEN 1 ELSE 0 END), 0)'), 'alertaBaixoEstoque']
+        ],
+        raw: true
+      })
+    ]);
+
+    res.json({
+      data: result.rows,
+      pagination: {
+        page: currentPage,
+        limit: pageSize,
+        total: result.count,
+        totalPages: Math.max(1, Math.ceil(result.count / pageSize))
+      },
+      summary: {
+        totalProdutos: Number(summary?.totalProdutos || 0),
+        totalItens: Number(summary?.totalItens || 0),
+        totalValor: Number(summary?.totalValor || 0),
+        alertaBaixoEstoque: Number(summary?.alertaBaixoEstoque || 0)
+      }
     });
-    res.json(prods);
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
