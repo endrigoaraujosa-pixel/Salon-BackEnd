@@ -10,6 +10,7 @@ import bcrypt from 'bcryptjs';
 import { getUserModel } from '../models/User.js';
 import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
 import { getDespesaModel } from '../models/Despesa.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
 
 // List all stock entries
 const listEntradas = async (req, res) => {
@@ -587,6 +588,9 @@ const listMovimentacoes = async (req, res) => {
     const { getVendaDiretaModel } = await import('../models/VendaDireta.js');
     const { Op } = await import('sequelize');
     const vendaIds = [...new Set(movements.filter(m => m.referencia_id).map(m => m.referencia_id))];
+    const agendamentoIds = [...new Set(movements
+      .filter(m => m.referencia_id && (m.motivo || '').startsWith('Consumo de insumos - Agendamento:'))
+      .map(m => m.referencia_id))];
 
     let vendasMap = new Map();
     if (vendaIds.length > 0) {
@@ -594,6 +598,14 @@ const listMovimentacoes = async (req, res) => {
         where: { id: { [Op.in]: vendaIds } }
       });
       vendasMap = new Map(vendas.map(v => [v.id, v]));
+    }
+
+    let agendamentosMap = new Map();
+    if (agendamentoIds.length > 0) {
+      const agendamentos = await getAgendamentoModel().findAll({
+        where: { id: { [Op.in]: agendamentoIds } }
+      });
+      agendamentosMap = new Map(agendamentos.map(ag => [ag.id, ag]));
     }
 
     const formattedMovements = movements.map(m => {
@@ -605,6 +617,10 @@ const listMovimentacoes = async (req, res) => {
         if (m.tipo === 'saida') {
           motivoFormatado = `Saída Venda - Código: ${String(v.numero_venda || '').padStart(6, '0')} | V`;
         }
+      } else if (m.referencia_id && agendamentosMap.has(m.referencia_id)) {
+        const ag = agendamentosMap.get(m.referencia_id);
+        const identificacaoServico = ag.numero != null ? `${String(ag.numero).padStart(6, '0')} | S` : 'Serviço sem número';
+        motivoFormatado = `Consumo de insumos - Serviço: ${identificacaoServico}`;
       } else if (motivoFormatado.startsWith('Venda Direta - Código:')) {
         const uuid = motivoFormatado.replace('Venda Direta - Código:', '').trim();
         const shortId = uuid.length > 8 ? uuid.substring(0, 8) : uuid;
