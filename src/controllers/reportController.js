@@ -2298,12 +2298,23 @@ const relatorioMovimentacaoEstoque = async (req, res) => {
     });
 
     const vendaIds = [...new Set(movimentacoes.filter(m => m.referencia_id).map(m => m.referencia_id))];
+    const agendamentoIds = [...new Set(movimentacoes
+      .filter(m => m.referencia_id && (m.motivo || '').startsWith('Consumo de insumos - Agendamento:'))
+      .map(m => m.referencia_id))];
     let vendasMap = new Map();
     if (vendaIds.length > 0) {
       const vendas = await getVendaDiretaModel().findAll({
         where: { id: { [Op.in]: vendaIds } }
       });
       vendasMap = new Map(vendas.map(v => [v.id, v]));
+    }
+
+    let agendamentosMap = new Map();
+    if (agendamentoIds.length > 0) {
+      const agendamentos = await getAgendamentoModel().findAll({
+        where: { id: { [Op.in]: agendamentoIds } }
+      });
+      agendamentosMap = new Map(agendamentos.map(ag => [ag.id, ag]));
     }
 
     const produtosIds = [...new Set(movimentacoes.map(m => m.produto_id))];
@@ -2348,6 +2359,10 @@ const relatorioMovimentacaoEstoque = async (req, res) => {
         if (m.tipo === 'saida') {
           motivoFormatado = `Saída Venda - Código: ${String(v.numero_venda || '').padStart(6, '0')} | V`;
         }
+      } else if (m.referencia_id && agendamentosMap.has(m.referencia_id)) {
+        const ag = agendamentosMap.get(m.referencia_id);
+        const identificacaoServico = ag.numero != null ? `${String(ag.numero).padStart(6, '0')} | S` : 'Serviço sem número';
+        motivoFormatado = `Consumo de insumos - Serviço: ${identificacaoServico}`;
       } else if (motivoFormatado.startsWith('Venda Direta - Código:')) {
         const uuid = motivoFormatado.replace('Venda Direta - Código:', '').trim();
         const shortId = uuid.length > 8 ? uuid.substring(0, 8) : uuid;

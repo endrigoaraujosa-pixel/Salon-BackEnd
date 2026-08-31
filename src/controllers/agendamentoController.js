@@ -61,8 +61,11 @@ export const adjustStock = async (ag, type, options = {}) => {
 
           const qtdAtual = prod.quantidade_estoque;
           const tipoMovimentacao = type === 'deduct' ? 'saida' : 'entrada';
+          const identificacaoServico = ag.numero != null
+            ? `${String(ag.numero).padStart(6, '0')} | S`
+            : 'Serviço sem número';
           const motivo = type === 'deduct'
-            ? `Consumo de insumos - Agendamento: ${ag.id}`
+            ? `Consumo de insumos - Serviço: ${identificacaoServico}`
             : `Devolução de insumos por cancelamento`;
 
           await getMovimentacaoEstoqueModel().create({
