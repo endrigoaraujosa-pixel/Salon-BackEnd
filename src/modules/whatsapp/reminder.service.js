@@ -1,3 +1,4 @@
+import { MANUAL_CANCELLATION } from './reminder-cancellation.service.js';
 import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
 import { getWhatsappLembreteModel } from '../../models/WhatsappLembrete.js';
 import { getClienteModel } from '../../models/Cliente.js';
@@ -80,13 +81,19 @@ export async function generateReminders(agendamento) {
             console.log(`[WhatsAppReminderService] Lembrete ${item.type} criado para agendamento ${agendamento.id} para ${scheduledTime.toISOString()}.`);
           } else {
             // Se já existe e não foi enviado, atualiza a data e redefine
+            if (existing.status === 'CANC MANUAL' || (existing.status === 'Cancelado' && existing.erro === MANUAL_CANCELLATION)) continue;
+            if (existing.status === 'Processando') continue;
             if (existing.status !== 'Enviado') {
+              const previousStatus = existing.status;
               existing.data_programada = scheduledTime;
               existing.status = 'Pendente';
               existing.tentativas = 0;
               existing.mensagem = null;
               existing.erro = null;
-              await existing.save();
+              await getWhatsappLembreteModel().update({
+                data_programada: existing.data_programada, status: existing.status,
+                tentativas: 0, mensagem: null, erro: null
+              }, { where: { id: existing.id, status: previousStatus } });
               console.log(`[WhatsAppReminderService] Lembrete ${item.type} atualizado para agendamento ${agendamento.id} para ${scheduledTime.toISOString()}.`);
             } else {
               // Se já foi enviado, mas o horário agendado mudou, precisamos arquivar o antigo e criar um novo

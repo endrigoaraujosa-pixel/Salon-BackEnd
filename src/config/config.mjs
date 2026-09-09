@@ -1,13 +1,19 @@
 import pg from 'pg';
+import 'dotenv/config';
+
+const databaseConfig = {
+  username: process.env.DB_USERNAME || process.env.DB_USENAME || 'postgres',
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_DATABASE || process.env.DB || 'salon_backend',
+  host: process.env.DB_HOST || '127.0.0.1',
+  port: Number(process.env.DB_PORT || 5432),
+  dialect: 'postgres',
+  dialectModule: pg,
+  timestamps: false,
+};
+
 export default {
-  development: {
-    username: "postgres",
-    password: "teste",
-    database: "postgres",
-    host: "127.0.0.1",
-    dialect: "postgres",
-    timestamps: false,
-  },
+  development: databaseConfig,
   test: {
     username: "root",
     password: null,
@@ -15,16 +21,6 @@ export default {
     host: "127.0.0.1",
     dialect: "mysql"
   },
-  production: {
-    username: process.env.DB_USENAME,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB,
-    host: process.env.DB_HOST,
-    dialect: "postgres",
-    port: process.env.DB_PORT,
-    dialectModule: pg,
-    timestamps: false,
-
-  }
+  production: databaseConfig,
 }
 

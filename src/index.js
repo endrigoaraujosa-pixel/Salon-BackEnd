@@ -14,7 +14,7 @@ import { createIndisponibilidade, listIndisponibilidades, updateIndisponibilidad
 import { desfazerPagamento, listComissoes, pagarComissao, verificarPendenciasComissoes } from './controllers/comissaoController.js';
 
 import { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
-import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, getLocalStatus, postLocalDisconnect, startLocalIntegration, getExternalStatus, getExternalQrCode, postCheckWhatsappNumber, listCampanhas, getCampanha, createCampanha, cancelarCampanha } from './modules/whatsapp/whatsapp.controller.js';
+import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, postCancelReminder, postUndoCancelReminder, getLocalStatus, postLocalDisconnect, startLocalIntegration, getExternalStatus, getExternalQrCode, postCheckWhatsappNumber, listCampanhas, getCampanha, createCampanha, cancelarCampanha } from './modules/whatsapp/whatsapp.controller.js';
 import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
 import { createReceita, deleteReceita, listReceitas, updateReceita } from './controllers/outrasReceitasController.js';
@@ -295,6 +295,8 @@ configRoutes.get('/whatsapp', protect, requirePermission(['configuracoes.whatsap
 configRoutes.post('/whatsapp', protect, requirePermission(['configuracoes.whatsapp', 'configuracoes.whatsapp_mensagem_massa']), saveWhatsappConfig);
 configRoutes.get('/whatsapp/historico', protect, requirePermission('agenda.whatsapp_historico'), getWhatsappHistory);
 configRoutes.post('/whatsapp/reenviar/:id', protect, requirePermission('agenda.whatsapp_historico'), postResendReminder);
+configRoutes.post('/whatsapp/cancelar/:id', protect, requirePermission('agenda.whatsapp_historico'), postCancelReminder);
+configRoutes.post('/whatsapp/desfazer-cancelamento/:id', protect, requirePermission('agenda.whatsapp_historico'), postUndoCancelReminder);
 configRoutes.get('/whatsapp/local-status', protect, requirePermission('configuracoes.whatsapp'), getLocalStatus);
 configRoutes.post('/whatsapp/iniciar-integracao', protect, requirePermission('configuracoes.whatsapp'), startLocalIntegration);
 configRoutes.get('/whatsapp/status-integracao/:instance', protect, requirePermission('configuracoes.whatsapp'), getExternalStatus);

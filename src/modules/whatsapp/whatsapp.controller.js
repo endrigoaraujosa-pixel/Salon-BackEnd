@@ -1,3 +1,4 @@
+import { changeReminderCancellation } from './reminder-cancellation.service.js';
 import * as whatsappService from './whatsapp.service.js';
 import * as campanhaService from './campanha.service.js';
 import { getLocalClientStatus, disconnectLocalClient } from './local-client.js';
@@ -198,6 +199,22 @@ export const cancelarCampanha = async (req, res) => {
     const { id } = req.params;
     const campanha = await campanhaService.cancelarCampanha(id);
     res.json(campanha);
+  } catch (error) {
+    res.status(400).json({ detail: error.message });
+  }
+};
+
+export const postCancelReminder = async (req, res) => {
+  try {
+    res.json(await changeReminderCancellation(req.params.id, true));
+  } catch (error) {
+    res.status(400).json({ detail: error.message });
+  }
+};
+
+export const postUndoCancelReminder = async (req, res) => {
+  try {
+    res.json(await changeReminderCancellation(req.params.id, false));
   } catch (error) {
     res.status(400).json({ detail: error.message });
   }
