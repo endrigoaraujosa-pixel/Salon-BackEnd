@@ -317,7 +317,7 @@ const registrarAjusteInventario = async (req, res) => {
       quantidade: diferenca,
       quantidade_anterior: qtdAnterior,
       quantidade_atual: qtdAtual,
-      valor_unitario: product.custo_unitario || 0,
+      valor_unitario: (product.custo_unitario || 0) / (Number(product.quantidade_por_unidade) > 0 ? Number(product.quantidade_por_unidade) : 1),
       motivo: observacoes || `Ajuste de Inventário (Diferença de ${diferenca > 0 ? '+' : ''}${diferenca})`,
       usuario_id: req.user ? req.user.id : null,
       usuario_nome: req.user ? req.user.name : null
@@ -510,7 +510,7 @@ const registrarInventarioAssistido = async (req, res) => {
       const qtdAnterior = product.quantidade_estoque || 0;
       const qtdAtual = Number(Number(quantidade_contada).toFixed(3));
       const diferenca = Number((qtdAtual - qtdAnterior).toFixed(3));
-      const custo = product.custo_unitario || 0;
+      const custo = (product.custo_unitario || 0) / (Number(product.quantidade_por_unidade) > 0 ? Number(product.quantidade_por_unidade) : 1);
 
       if (diferenca !== 0) {
         qtdDivergencias++;

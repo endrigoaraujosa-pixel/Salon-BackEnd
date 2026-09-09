@@ -1,2 +1,6 @@
 node_modules/
 .env
+.git/
+.wwebjs_auth/
+.wwebjs_cache/
+scratch/

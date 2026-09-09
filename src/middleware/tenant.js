@@ -11,7 +11,10 @@ export const tenantMiddleware = async (req, res, next) => {
     });
   }
 
-  const schemaName = schemaHeader?.trim().toLowerCase();
+  const requestedTenant = schemaHeader?.trim().toLowerCase();
+  const schemaName = requestedTenant === 'salon' && process.env.LOCAL_SALON_TENANT
+    ? process.env.LOCAL_SALON_TENANT
+    : requestedTenant;
   const schema = schemaHeader ? `company_${schemaName}` : undefined;
   // const isValidSchema = /^[a-z0-9_]+$/.test(schema);
 
