@@ -13,7 +13,7 @@ import { createColab, deleteColab, listColab, updateColab, getComissoesServico, 
 import { createIndisponibilidade, listIndisponibilidades, updateIndisponibilidade, deleteIndisponibilidade } from './controllers/colaboradorIndisponibilidadeController.js';
 import { desfazerPagamento, listComissoes, pagarComissao, verificarPendenciasComissoes } from './controllers/comissaoController.js';
 
-import { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema } from './controllers/configuracaoController.js';
+import { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema, getB2Config, saveB2Config } from './controllers/configuracaoController.js';
 import { getWhatsappConfig, saveWhatsappConfig, getWhatsappHistory, postResendReminder, postCancelReminder, postUndoCancelReminder, getLocalStatus, postLocalDisconnect, startLocalIntegration, getExternalStatus, getExternalQrCode, postCheckWhatsappNumber, listCampanhas, getCampanha, createCampanha, cancelarCampanha } from './modules/whatsapp/whatsapp.controller.js';
 import { initLocalClient } from './modules/whatsapp/local-client.js';
 import { createDespesa, deleteDespesa, listDespesas, updateDespesa } from './controllers/despesaController.js';
@@ -329,6 +329,9 @@ app.use('/api/whatsapp/campanhas', campanhaRoutes);
 configRoutes.get('/motivos-estoque', protect, requirePermission(['cadastros.motivos_estoque', 'estoque.movimentar', 'estoque.entrada', 'estoque.visualizar']), listMotivos);
 configRoutes.post('/motivos-estoque', protect, requirePermission('cadastros.motivos_estoque'), createMotivo);
 configRoutes.put('/motivos-estoque/:id', protect, requirePermission('cadastros.motivos_estoque'), updateMotivo);
+// Credenciais Backblaze B2 — nunca retorna a applicationKey no GET
+configRoutes.get('/b2', protect, requirePermission('configuracoes.sistema'), getB2Config);
+configRoutes.post('/b2', protect, requirePermission('configuracoes.sistema'), saveB2Config);
 app.use('/api/configuracoes', configRoutes);
 
 // Categorias Routes

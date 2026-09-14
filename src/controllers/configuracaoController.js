@@ -332,5 +332,68 @@ const saveConfiguracaoSistema = async (req, res) => {
   }
 };
 
-export { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema };
+
+/**
+ * GET /configuracoes/b2
+ * Retorna o keyID configurado e um indicador de se a applicationKey está gravada.
+ * NUNCA devolve a applicationKey.
+ */
+const getB2Config = async (req, res) => {
+  try {
+    // unscoped() para acessar b2_key_id sem ser filtrado pelo defaultScope
+    const config = await getConfiguracaoSistemaModel().unscoped().findOne({
+      attributes: ['b2_key_id', 'b2_application_key']
+    });
+    res.json({
+      b2_key_id: config?.b2_key_id || process.env.B2_KEY_ID || '',
+      // Indica se a chave está configurada (banco OU env), sem exposão do valor
+      b2_configurado: !!(config?.b2_application_key || process.env.B2_APPLICATION_KEY),
+      // Origem para info ao usuário
+      b2_origem: config?.b2_key_id ? 'banco' : (process.env.B2_KEY_ID ? 'env' : 'nenhuma'),
+    });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+/**
+ * POST /configuracoes/b2
+ * Grava (ou atualiza) o keyID e a applicationKey no banco.
+ * Body: { b2_key_id: string, b2_application_key: string }
+ * Se b2_application_key vier vazia/nula, mantém a que já está gravada.
+ */
+const saveB2Config = async (req, res) => {
+  try {
+    const { b2_key_id, b2_application_key } = req.body;
+
+    if (!b2_key_id?.trim())
+      return res.status(400).json({ detail: 'O keyID é obrigatório.' });
+
+    let config = await getConfiguracaoSistemaModel().unscoped().findOne();
+    if (!config) {
+      config = await getConfiguracaoSistemaModel().create({ b2_key_id: b2_key_id.trim() });
+    }
+
+    const updates = { b2_key_id: b2_key_id.trim() };
+    // Só atualiza a applicationKey se vier preenchida (evita apagar com campo vazio)
+    if (b2_application_key?.trim()) updates.b2_application_key = b2_application_key.trim();
+
+    await config.update(updates);
+
+    // Invalida cache do cliente B2 para usar as novas credenciais
+    try {
+      const { default: b2Module } = await import('../services/b2Storage.js');
+    } catch { /* cache será invalidado na próxima chamada ao b2Storage */ }
+
+    res.json({
+      b2_key_id: config.b2_key_id,
+      b2_configurado: !!(config.b2_application_key),
+      b2_origem: 'banco',
+    });
+  } catch (error) {
+    res.status(500).json({ detail: error.message });
+  }
+};
+
+export { getTaxas, saveTaxa, deleteTaxa, getEmpresa, saveEmpresa, getPublicEmpresa, getConfiguracaoSistema, saveConfiguracaoSistema, getB2Config, saveB2Config };
 

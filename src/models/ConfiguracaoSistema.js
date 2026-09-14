@@ -8,6 +8,11 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
     defaultValue: false,
     allowNull: false
   },
+  // Credenciais B2 — armazenadas no banco para configuração via UI sem redeploy.
+  // Têm prioridade sobre as variáveis de ambiente B2_KEY_ID / B2_APPLICATION_KEY.
+  // A applicationKey nunca é devolvida pela API GET (veja configuracaoController).
+  b2_key_id: { type: DataTypes.STRING(100), allowNull: true },
+  b2_application_key: { type: DataTypes.STRING(255), allowNull: true },
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
@@ -71,7 +76,9 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
 }, {
   tableName: 'configuracao_sistema',
   createdAt: 'criado_em',
-  updatedAt: 'atualizado_em'
+  updatedAt: 'atualizado_em',
+  // Nunca expõe a chave secreta do B2 nas consultas padrão
+  defaultScope: { attributes: { exclude: ['b2_application_key'] } }
 });
 
 export const getConfiguracaoSistemaModel = () => {
