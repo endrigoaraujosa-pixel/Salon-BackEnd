@@ -173,6 +173,20 @@ agendRoutes.delete('/:aid/pagamentos/:pid', protect, requirePermission('agenda.p
 agendRoutes.post('/:aid/aplicar-desconto', protect, requirePermission('agenda.aplicar_desconto'), aplicarDescontoAgendamento);
 app.use('/api/agendamentos', agendRoutes);
 
+// Private appointment photographs: every route checks tenant, permission and owner.
+const { fotosAtivas, listarFotos, albumCliente, enviarFoto, removerFoto, imagemFoto } = await import('./controllers/atendimentoFotoController.js');
+const fotoBase = '/api/clientes/:cid/atendimentos/:aid/fotos';
+const fotoRead = requirePermission(['clientes.visualizar', 'agenda.visualizar']);
+const rawFoto = express.raw({ type: ['image/*', 'application/octet-stream'], limit: '10mb' });
+app.get('/api/clientes/:cid/album', protect, requirePermission('clientes.visualizar'), fotosAtivas, albumCliente);
+app.get(fotoBase, protect, fotoRead, fotosAtivas, listarFotos);
+app.get(`${fotoBase}/:fid/imagem`, protect, fotoRead, fotosAtivas, imagemFoto);
+app.put(`${fotoBase}/:fid`, protect, requirePermission('agenda.editar'), fotosAtivas,
+  (req, res, next) => rawFoto(req, res, error => error
+    ? res.status(error.status || 400).json({ detail: error.type === 'entity.too.large' ? 'Arquivo acima do tamanho permitido de 10 MB.' : 'Não foi possível ler a imagem.' })
+    : next()), enviarFoto);
+app.delete(`${fotoBase}/:fid`, protect, requirePermission('agenda.editar'), fotosAtivas, removerFoto);
+
 // Agendamento Online Routes (Público)
 import { getServicosOnline, getCategoriasOnline, getProfissionaisOnline, getDisponibilidadeOnline, requestCode, validateCode, registrarCliente, solicitarAgendamento, reservarHorario, getOnlineConfig } from './controllers/onlineController.js';
 const onlineRoutes = express.Router();

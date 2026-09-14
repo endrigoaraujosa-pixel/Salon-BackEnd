@@ -486,12 +486,20 @@ const createAgend = async (req, res) => {
 const updateAgend = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction });
+    const ag = await getAgendamentoModel().findByPk(req.params.aid, { transaction, lock: transaction.LOCK.UPDATE });
     if (!ag) {
       await transaction.rollback();
       return res.status(404).json({ detail: 'Não encontrado' });
     }
 
+    // Never transfer treatment photographs to another client, including while hidden.
+    if (req.body.cliente_id && req.body.cliente_id !== ag.cliente_id) {
+      const { getAtendimentoFotoModel } = await import('../models/AtendimentoFoto.js');
+      if (await getAtendimentoFotoModel().count({ where: { agendamento_id: ag.id }, transaction })) {
+        await transaction.rollback();
+        return res.status(409).json({ detail: 'Este atendimento possui fotos. Remova as fotos antes de trocar o cliente.' });
+      }
+    }
     const wasConcluido = ag.status === 'concluido';
     if (wasConcluido) {
       await adjustStock(ag, 'restore', { transaction, user: req.user });
