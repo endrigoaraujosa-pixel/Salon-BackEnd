@@ -3,6 +3,11 @@ import { sequelize } from '../config/db.js';
 import { getTenantSchema } from '../config/tenantContext.js';
 
 const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
+  permitir_fotos_atendimentos: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false
+  },
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
