@@ -9,8 +9,14 @@ const Foto = sequelize.define('AtendimentoFoto', {
   largura: { type: DataTypes.INTEGER, allowNull: false },
   altura: { type: DataTypes.INTEGER, allowNull: false },
   bytes: { type: DataTypes.INTEGER, allowNull: false },
-  imagem: { type: DataTypes.BLOB, allowNull: false },
-  miniatura: { type: DataTypes.BLOB, allowNull: false },
+  // B2: chaves do objeto no Backblaze (null = foto antiga armazenada como BLOB)
+  b2_imagem_key: { type: DataTypes.STRING(255), allowNull: true },
+  b2_miniatura_key: { type: DataTypes.STRING(255), allowNull: true },
+  b2_imagem_version: { type: DataTypes.STRING(255), allowNull: true },
+  b2_miniatura_version: { type: DataTypes.STRING(255), allowNull: true },
+  // BLOB mantido apenas para retrocompatibilidade — novas fotos não gravam aqui
+  imagem: { type: DataTypes.BLOB, allowNull: true },
+  miniatura: { type: DataTypes.BLOB, allowNull: true },
   criado_por_id: DataTypes.STRING(36),
   criado_em: { type: DataTypes.DATE, allowNull: false }
 }, { tableName: 'atendimento_fotos', timestamps: false,

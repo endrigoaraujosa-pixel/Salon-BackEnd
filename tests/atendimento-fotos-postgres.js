@@ -8,7 +8,17 @@ import { tenantStorage } from '../src/config/tenantContext.js';
 import { getAgendamentoModel } from '../src/models/Agendamento.js';
 import { getConfiguracaoSistemaModel } from '../src/models/ConfiguracaoSistema.js';
 import { getAtendimentoFotoModel } from '../src/models/AtendimentoFoto.js';
-import { enviarFoto } from '../src/controllers/atendimentoFotoController.js';
+import { mock } from 'node:test';
+const objects = new Map();
+mock.module('../src/services/b2Storage.js', { namedExports: {
+  b2Configurado: async () => true,
+  uploadFoto: async (id, bytes, tipo) => {
+    const key = id + '/' + tipo; objects.set(key, bytes); return { key, version: 'v1' };
+  },
+  deletarFoto: async key => objects.delete(key),
+  gerarUrlAssinada: async () => 'https://private.example/image'
+} });
+const { enviarFoto } = await import('../src/controllers/atendimentoFotoController.js');
 import migration from '../src/migrations/20260914120000-create-atendimento-fotos.js';
 
 if (process.env.FOTOS_TEST_ALLOW_TEMP_SCHEMA !== 'true') throw new Error('Defina FOTOS_TEST_ALLOW_TEMP_SCHEMA=true para autorizar o schema temporário.');
@@ -22,6 +32,8 @@ try {
     await getConfiguracaoSistemaModel().sync();
     await sequelize.getQueryInterface().removeColumn({ schema, tableName: 'configuracao_sistema' }, 'permitir_fotos_atendimentos');
     await migration.up(sequelize.getQueryInterface(), Sequelize);
+    await (await import('../src/migrations/20260914130000-add-b2-key-to-atendimento-fotos.js')).default.up(sequelize.getQueryInterface(), Sequelize);
+    await (await import('../src/migrations/20260915120000-fotos-b2-references-only.js')).default.up(sequelize.getQueryInterface(), Sequelize);
     await getConfiguracaoSistemaModel().create({ permitir_fotos_atendimentos: true });
     const aid = randomUUID(); const cid = randomUUID();
     await getAgendamentoModel().create({ id: aid, cliente_id: cid, data_hora: new Date() });
@@ -37,8 +49,9 @@ try {
     console.log('PASS: PostgreSQL aceitou 5 de 8 envios simultâneos; 3 excedentes bloqueados.');
     const rows = await getAtendimentoFotoModel().findAll();
     assert.equal(rows[0].get('imagem'), undefined);
-    assert.ok((await getAtendimentoFotoModel().findOne({ attributes: ['imagem'] })).get('imagem').length > 0);
-    console.log('PASS: bytes armazenados, metadados sem binários e migração real verificados.');
+    assert.equal((await getAtendimentoFotoModel().findOne({ attributes: ['imagem'] })).get('imagem'), null);
+    assert.equal(objects.size, 10);
+    console.log('PASS: somente referências armazenadas, metadados sem binários e migração real verificados.');
   });
 } finally {
   const quoted = sequelize.getQueryInterface().queryGenerator.quoteIdentifier(schema);

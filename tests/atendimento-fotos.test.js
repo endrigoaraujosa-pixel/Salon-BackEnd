@@ -7,6 +7,22 @@ import sharp from 'sharp';
 // Isolated in-memory SQL database. Production PostgreSQL is never accessed.
 const db = new Sequelize('sqlite::memory:', { logging: false });
 mock.module('../src/config/db.js', { namedExports: { sequelize: db, connectDB: async () => {} } });
+const objects = new Map();
+let storageAvailable = true, failThumbnail = false;
+mock.module('../src/services/b2Storage.js', { namedExports: {
+  b2Configurado: async () => storageAvailable,
+  uploadFoto: async (id, data, type) => {
+    if (failThumbnail && type === 'miniatura') throw new Error('B2 indisponível');
+    const key = id + '/' + randomUUID() + '/' + type;
+    objects.set(key, Buffer.from(data)); return { key, version: 'v1' };
+  },
+  deletarFoto: async key => { objects.delete(key); },
+  gerarUrlAssinada: async key => 'https://private.example/' + key,
+  verificarFoto: async (key, data) => {
+    assert.deepEqual(objects.get(key), data); return 'v1';
+  }
+} });
+const { migrarFotoB2 } = await import('../src/services/migrarFotoB2.js');
 const { getAgendamentoModel } = await import('../src/models/Agendamento.js');
 const { getConfiguracaoSistemaModel } = await import('../src/models/ConfiguracaoSistema.js');
 const { getAtendimentoFotoModel, getAtendimentoFotoEventoModel } = await import('../src/models/AtendimentoFoto.js');
@@ -26,8 +42,11 @@ before(async () => {
   await getConfiguracaoSistemaModel().sync();
   await db.getQueryInterface().removeColumn('configuracao_sistema', 'permitir_fotos_atendimentos');
   await migration.up(db.getQueryInterface(), Sequelize);
+  await (await import('../src/migrations/20260914130000-add-b2-key-to-atendimento-fotos.js')).default.up(db.getQueryInterface(), Sequelize);
+  await (await import('../src/migrations/20260915120000-fotos-b2-references-only.js')).default.up(db.getQueryInterface(), Sequelize);
 });
 beforeEach(async () => {
+  objects.clear(); storageAvailable = true; failThumbnail = false;
   await getAtendimentoFotoModel().destroy({ where: {} });
   await getAtendimentoFotoEventoModel().destroy({ where: {} });
   await getAgendamentoModel().destroy({ where: {} });
@@ -104,8 +123,9 @@ test('não consulta, envia, remove ou baixa fotos com outro cliente ou agendamen
     assert.equal((await call(controller[name], wrongClient)).statusCode, 404, name);
   assert.equal((await call(controller.imagemFoto, req('ag-b', 'cliente-b', original.params.fid))).statusCode, 404);
   assert.equal((await call(controller.albumCliente, req('ag-b', 'cliente-b'))).body.atendimentos.length, 0);
+  original.query.referencia = '1';
   const download = await call(controller.imagemFoto, original);
-  assert.ok(Buffer.isBuffer(download.body));
+  assert.match(download.body.url, /^https:\/\/private.example\//);
   assert.equal(download.headers['Cache-Control'], 'private, no-store');
 });
 test('restrição de concluído e permissão de edição são respeitadas', async () => {
@@ -137,4 +157,86 @@ test('álbum pagina sem limite total e não retorna blobs nos metadados', async 
   assert.equal(new Set(all.map(a => a.id)).size, 105);
   assert.ok(new Date(all[0].data_hora) > new Date(all[104].data_hora));
   assert.equal(all[0].fotos[0].imagem, undefined);
+});
+
+
+test('B2 obrigatório: falha não grava BLOB e limpa upload parcial', async () => {
+  storageAvailable = false;
+  assert.equal((await call(controller.enviarFoto, req())).statusCode, 503);
+  assert.equal(await getAtendimentoFotoModel().count(), 0);
+  storageAvailable = true; failThumbnail = true;
+  assert.equal((await call(controller.enviarFoto, req())).statusCode, 500);
+  assert.equal(await getAtendimentoFotoModel().count(), 0);
+  assert.equal(objects.size, 0);
+});
+
+test('grava somente referências; reenvio não gera objetos adicionais', async () => {
+  const request = req();
+  await call(controller.enviarFoto, request);
+  await call(controller.enviarFoto, request);
+  assert.equal(objects.size, 2);
+  const row = await getAtendimentoFotoModel().unscoped().findByPk(request.params.fid);
+  assert.equal(row.imagem, null); assert.equal(row.miniatura, null);
+  assert.ok(row.b2_imagem_key); assert.equal(row.b2_imagem_version, 'v1');
+});
+
+test('migração verifica cópias e retira BLOB; falha preserva originais', async () => {
+  const processed = await processarFoto(buffer);
+  const row = await getAtendimentoFotoModel().create({ ...processed, id: randomUUID(),
+    agendamento_id: 'ag-a', cliente_id: 'cliente-a', criado_em: new Date() });
+  failThumbnail = true;
+  await assert.rejects(db.transaction(t => migrarFotoB2(row, t)));
+  await row.reload();
+  const original = await getAtendimentoFotoModel().unscoped().findByPk(row.id);
+  assert.deepEqual(original.imagem, processed.imagem);
+  failThumbnail = false;
+  await db.transaction(t => migrarFotoB2(original, t));
+  const migrated = await getAtendimentoFotoModel().unscoped().findByPk(row.id);
+  assert.equal(migrated.imagem, null); assert.equal(migrated.miniatura, null);
+  assert.ok(migrated.b2_imagem_key); assert.ok(migrated.b2_miniatura_key);
+  assert.equal(await db.transaction(t => migrarFotoB2(migrated, t)), 0);
+});
+
+
+test('foto antiga continua legível e cópia divergente não remove BLOB', async () => {
+  const processed = await processarFoto(buffer);
+  const request = req();
+  const row = await getAtendimentoFotoModel().create({ ...processed,
+    id: request.params.fid, agendamento_id: 'ag-a', cliente_id: 'cliente-a', criado_em: new Date(),
+    b2_imagem_key: 'copia-antiga', b2_miniatura_key: 'miniatura-antiga' });
+  objects.set('copia-antiga', Buffer.from('corrompido'));
+  objects.set('miniatura-antiga', processed.miniatura);
+  await assert.rejects(db.transaction(t => migrarFotoB2(row, t)));
+  let saved = await getAtendimentoFotoModel().unscoped().findByPk(row.id);
+  assert.deepEqual(saved.imagem, processed.imagem);
+  objects.set('copia-antiga', processed.imagem);
+  await db.transaction(t => migrarFotoB2(saved, t));
+  saved = await getAtendimentoFotoModel().unscoped().findByPk(row.id);
+  assert.equal(saved.imagem, null); assert.equal(saved.miniatura, null);
+  assert.equal(saved.b2_imagem_key, 'copia-antiga');
+  const legacyRequest = req();
+  await getAtendimentoFotoModel().create({ ...processed, id: legacyRequest.params.fid,
+    agendamento_id: 'ag-a', cliente_id: 'cliente-a', criado_em: new Date() });
+  const downloaded = await call(controller.imagemFoto, legacyRequest);
+  assert.deepEqual(downloaded.body, processed.imagem);
+});
+
+
+test('configuração B2 salva nome e segredo, preserva senha e rejeita troca de ID sem senha', async () => {
+  const { saveB2Config, saveConfiguracaoSistema } = await import('../src/controllers/configuracaoController.js');
+  const request = { body: { b2_key_id: 'test-id', b2_key_name: 'Fotos teste', b2_application_key: 'fake-test-secret' } };
+  let result = await call(saveB2Config, request);
+  assert.equal(result.statusCode, 200); assert.equal(result.body.b2_key_name, 'Fotos teste');
+  assert.equal(result.body.b2_application_key, undefined);
+  assert.equal(result.headers['Cache-Control'], 'private, no-store');
+  request.body = { b2_key_id: 'test-id', b2_key_name: 'Novo nome' };
+  assert.equal((await call(saveB2Config, request)).statusCode, 200);
+  let saved = await getConfiguracaoSistemaModel().unscoped().findOne();
+  assert.equal(saved.b2_application_key, 'fake-test-secret');
+  request.body.b2_key_id = 'different-id';
+  assert.equal((await call(saveB2Config, request)).statusCode, 400);
+  await call(saveConfiguracaoSistema, { body: { b2_application_key: 'injected' } });
+  saved = await getConfiguracaoSistemaModel().unscoped().findOne();
+  assert.equal(saved.b2_application_key, 'fake-test-secret');
+  assert.equal((await getConfiguracaoSistemaModel().findOne()).b2_application_key, undefined);
 });

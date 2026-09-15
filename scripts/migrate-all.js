@@ -8,6 +8,7 @@ import Sequelize from 'sequelize';
 const schemasParaMigrar = await sequelize.query(`SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'company_%';`, { type: QueryTypes.SELECT });
 
 async function runMigrations() {
+  let failures = 0;
   for (const { schema_name } of schemasParaMigrar) {
     console.log(`\n=========================================`);
     console.log(`🚀 Iniciando migrations no schema: [${schema_name}]`);
@@ -56,13 +57,18 @@ async function runMigrations() {
       }
     } catch (error) {
       console.error(`❌ Erro ao migrar o schema [${schema_name}]:`, error);
-      // Opcional: break; se quiser interromper caso um dê erro
+      failures++;
     }
   }
 
   // Fecha a conexão com o banco ao finalizar tudo
   await sequelize.close();
-  console.log('\n🏁 Processo de migração concluído para todos os schemas.');
+  if (failures) {
+    process.exitCode = 1;
+    console.error(`Migrations falharam em ${failures} schema(s). Não iniciar a nova versão.`);
+  } else {
+    console.log('Migrations concluídas em todos os schemas.');
+  }
 }
 
 runMigrations();
