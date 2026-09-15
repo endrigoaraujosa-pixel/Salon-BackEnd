@@ -5,7 +5,7 @@ import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getAtendimentoFotoModel, getAtendimentoFotoEventoModel } from '../models/AtendimentoFoto.js';
 import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
 import { processarFoto } from '../services/processarFoto.js';
-import { uploadFoto, deletarFoto, gerarUrlAssinada, b2Configurado } from '../services/b2Storage.js';
+import { uploadFoto, deletarFoto, gerarUrlAssinada, b2Configurado, resolverB2 } from '../services/b2Storage.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 
@@ -34,6 +34,9 @@ async function atendimento(req, transaction, editar = false) {
 
 const handle = fn => async (req, res) => {
   try { await fn(req, res); } catch (e) {
+    if (['AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'NoSuchBucket'].includes(e.name)) {
+      e.status = 502; e.message = 'O B2 recusou o acesso. Confira o bucket, endpoint e a chave com permissão de leitura e escrita em Configurações → Gerais.';
+    }
     if (!e.status) console.error('Falha nas fotos do atendimento:', e.message);
     res.status(e.status || 500).json({ detail: e.status ? e.message : 'Não foi possível concluir a operação de fotos. Tente novamente.' });
   }
@@ -111,15 +114,16 @@ export const enviarFoto = handle(async (req, res) => {
 
     if (!await b2Configurado()) fail(503, 'Configure o armazenamento B2 antes de enviar fotos.');
     // O lock serializa limite/reenvios. Nunca gravar BLOB em caso de falha no B2.
+    const contextoB2 = await resolverB2();
     for (const tipo of ['imagem', 'miniatura']) {
-      uploaded.push(await uploadFoto(req.params.fid, processed[tipo], tipo));
+      uploaded.push(await uploadFoto(req.params.fid, processed[tipo], tipo, contextoB2));
     }
     const dadosGravacao = {
       ...where, id: req.params.fid, largura: processed.largura, altura: processed.altura,
       bytes: processed.bytes, criado_por_id: req.user.id, criado_em: new Date(),
       b2_imagem_key: uploaded[0].key, b2_imagem_version: uploaded[0].version,
       b2_miniatura_key: uploaded[1].key, b2_miniatura_version: uploaded[1].version,
-      imagem: null, miniatura: null
+      b2_destino: uploaded[0].destino, imagem: null, miniatura: null
     };
 
     const row = await Model.create(dadosGravacao, { transaction });
@@ -136,7 +140,7 @@ export const enviarFoto = handle(async (req, res) => {
       try {
         const saved = await getAtendimentoFotoModel().findByPk(req.params.fid);
         if (saved?.b2_imagem_key !== object.key && saved?.b2_miniatura_key !== object.key)
-          await deletarFoto(object.key, object.version);
+          await deletarFoto(object.key, object.version, object.destino);
       } catch { console.error('Limpeza B2 pendente para foto', req.params.fid); }
     }
     throw error;
@@ -152,8 +156,8 @@ export const removerFoto = handle(async (req, res) => {
     const row = await Model.findOne({ where, transaction, lock: transaction.LOCK.UPDATE });
     if (!row) return;
     // Mantém a referência para permitir nova tentativa se o B2 estiver indisponível.
-    await deletarFoto(row.b2_imagem_key, row.b2_imagem_version);
-    await deletarFoto(row.b2_miniatura_key, row.b2_miniatura_version);
+    await deletarFoto(row.b2_imagem_key, row.b2_imagem_version, row.b2_destino);
+    await deletarFoto(row.b2_miniatura_key, row.b2_miniatura_version, row.b2_destino);
     await row.destroy({ transaction });
     await getAtendimentoFotoEventoModel().create({
       id: randomUUID(), foto_id: req.params.fid,
@@ -171,7 +175,7 @@ export const imagemFoto = handle(async (req, res) => {
 
   // Busca apenas as colunas necessárias para decidir a origem
   const row = await getAtendimentoFotoModel().findOne({
-    attributes: ['b2_imagem_key', 'b2_miniatura_key', 'b2_imagem_version', 'b2_miniatura_version'],
+    attributes: ['b2_imagem_key', 'b2_miniatura_key', 'b2_imagem_version', 'b2_miniatura_version', 'b2_destino'],
     where: { id: req.params.fid, cliente_id: req.params.cid, agendamento_id: req.params.aid }
   });
   if (!row) fail(404, 'Foto não encontrada.');
@@ -181,7 +185,7 @@ export const imagemFoto = handle(async (req, res) => {
   // --- Foto nova: serve via URL assinada do B2 ---
   if (b2Key) {
     // URL temporária; gerada novamente ao abrir a foto.
-    const url = await gerarUrlAssinada(b2Key, 900, isMiniatura ? row.b2_miniatura_version : row.b2_imagem_version);
+    const url = await gerarUrlAssinada(b2Key, 900, isMiniatura ? row.b2_miniatura_version : row.b2_imagem_version, row.b2_destino);
     res.set('Cache-Control', 'private, no-store');
     if (req.query.referencia === '1') return res.json({ url });
     // Redireciona o browser para a URL assinada — sem expor credenciais

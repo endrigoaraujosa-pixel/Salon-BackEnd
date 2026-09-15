@@ -11,9 +11,11 @@ import { getAtendimentoFotoModel } from '../src/models/AtendimentoFoto.js';
 import { mock } from 'node:test';
 const objects = new Map();
 mock.module('../src/services/b2Storage.js', { namedExports: {
+  resolverB2: async () => ({ bucket: 'test-bucket', endpoint: 'https://s3.us-east-005.backblazeb2.com', region: 'us-east-005' }),
+  destinoPublicoB2: config => config,
   b2Configurado: async () => true,
   uploadFoto: async (id, bytes, tipo) => {
-    const key = id + '/' + tipo; objects.set(key, bytes); return { key, version: 'v1' };
+    const key = id + '/' + tipo; objects.set(key, bytes); return { key, version: 'v1', destino: { bucket: 'test-bucket', endpoint: 'https://s3.us-east-005.backblazeb2.com', region: 'us-east-005' } };
   },
   deletarFoto: async key => objects.delete(key),
   gerarUrlAssinada: async () => 'https://private.example/image'
@@ -30,10 +32,12 @@ try {
   await tenantStorage.run(schema, async () => {
     await getAgendamentoModel().sync();
     await getConfiguracaoSistemaModel().sync();
+    for (const col of ['b2_bucket', 'b2_endpoint', 'b2_region']) await sequelize.getQueryInterface().removeColumn({schema, tableName:'configuracao_sistema'}, col);
     await sequelize.getQueryInterface().removeColumn({ schema, tableName: 'configuracao_sistema' }, 'permitir_fotos_atendimentos');
     await migration.up(sequelize.getQueryInterface(), Sequelize);
     await (await import('../src/migrations/20260914130000-add-b2-key-to-atendimento-fotos.js')).default.up(sequelize.getQueryInterface(), Sequelize);
     await (await import('../src/migrations/20260915120000-fotos-b2-references-only.js')).default.up(sequelize.getQueryInterface(), Sequelize);
+    await (await import('../src/migrations/20260915140000-b2-destino-por-empresa.js')).default.up(sequelize.getQueryInterface(), Sequelize);
     await getConfiguracaoSistemaModel().create({ permitir_fotos_atendimentos: true });
     const aid = randomUUID(); const cid = randomUUID();
     await getAgendamentoModel().create({ id: aid, cliente_id: cid, data_hora: new Date() });

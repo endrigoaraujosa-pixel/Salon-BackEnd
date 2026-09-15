@@ -22,7 +22,7 @@ Consentimento: não foi introduzido um novo fluxo de consentimento; permanece a 
 ## Aplicação do B2
 
 1. Configurar no backend as variáveis do arquivo `b2.env.example`. Usar uma chave nova restrita ao bucket de fotos, com leitura, escrita e exclusão; não reutilizar a chave de backup. A configuração de credenciais por empresa já existente continua suportada e tem prioridade sobre o ambiente. Nunca versionar segredos.
-2. Antes de iniciar o novo backend, enviar e executar as migrations pendentes em **todos os schemas**: `20260914120000`, `20260914130000`, `20260914140000` `20260915120000` e `20260915130000`. Conferir a tabela SequelizeMeta de cada empresa. A migration 20260915120000 libera valores nulos nos binários e acrescenta IDs de versão do B2; 20260915130000 acrescenta o nome da chave. Não executar rollback depois da transferência: ele não recupera fotos no banco.
+2. Antes de iniciar o novo backend, enviar e executar as migrations pendentes em **todos os schemas**: `20260914120000`, `20260914130000`, `20260914140000` `20260915120000`, `20260915130000` e `20260915140000`. Conferir a tabela SequelizeMeta de cada empresa. A migration 20260915120000 libera valores nulos nos binários e acrescenta IDs de versão do B2; 20260915130000 acrescenta o nome da chave. Não executar rollback depois da transferência: ele não recupera fotos no banco.
 3. Implantar backend e frontend juntos. O frontend recebe a URL assinada por uma requisição autenticada e carrega a imagem diretamente do B2, sem enviar o token da aplicação ao bucket. Álbuns e listagens consultam somente metadados.
 4. Para cada empresa, executar primeiro `npm run migrar-fotos-b2 -- --schema company_nome --dry-run`. Depois, `npm run migrar-fotos-b2 -- --schema company_nome` no ambiente correto. O script exige schema explícito e usa a mesma configuração do backend.
 5. Conferir o resumo e o código de saída. Fotos com falha conservam seus binários; repetir o comando tenta novamente. O script também trata fotos já copiadas pelo script anterior que ainda mantinham BLOB.
@@ -35,13 +35,19 @@ Remover BLOBs libera espaço reutilizável no PostgreSQL e reduz os próximos ba
 
 ## Validação desta alteração
 
-- `npm run test:fotos`: 14 testes com SQLite e B2 simulado, incluindo limite, permissões, reenvio, falha parcial, ausência de BLOB em novos envios e migração verificada.
+- `npm run test:fotos`: 15 testes com SQLite e B2 simulado, incluindo limite, permissões, reenvio, falha parcial, ausência de BLOB em novos envios e migração verificada.
 - PostgreSQL 17 local: migrations executadas em schema temporário; oito envios simultâneos produziram cinco inclusões e três bloqueios. Conferidos binários nulos. Schema temporário removido ao terminar.
 - Frontend compilado com Vite.
 - Não realizado upload real no B2 nem migração dos dados de clientes nesta validação. Configurar credenciais válidas e testar envio, zoom e remoção antes de publicar em produção.
 
 ## Configuração pela tela
 
-Em Configurações → Gerais → Registro Fotográfico, informar keyName (nome de identificação), keyID e Application Key. Salvar credenciais B2. A senha não é devolvida pela API; deixar em branco mantém a senha do mesmo keyID. Trocar o ID exige a senha correspondente. O bucket padrão é salon-fotos-api, região us-east-005; B2_BUCKET_NAME, B2_ENDPOINT e B2_REGION podem sobrescrever os padrões no servidor.
+Em Configurações → Gerais → Registro Fotográfico, informar keyName (nome de identificação), keyID e Application Key. Salvar credenciais B2. A senha não é devolvida pela API; deixar em branco mantém a senha do mesmo keyID. Trocar o ID exige a senha correspondente. Bucket e endpoint são configurados por empresa na tela; a região é derivada do endpoint. B2_BUCKET_NAME, B2_ENDPOINT e B2_REGION são alternativas de configuração no servidor quando os campos da empresa estiverem vazios. Não há bucket fixo para novas empresas.
 
 A configuração é por empresa e por banco do ambiente. Funciona no Docker local e em produção; bases separadas exigem configurar a tela em cada ambiente. Não depende de arquivo do computador desktop. Em produção, aplicar todas as migrations pendentes antes de iniciar o backend, incluindo 20260915130000-add-b2-key-name.js. O indicador Configurado informa presença das credenciais, não valida a conexão com o B2.
+
+## Troca de conta ou bucket
+
+Aplicar 20260915140000-b2-destino-por-empresa.js antes de atualizar o backend. Ela registra nas fotos antigas o destino usado pela versão anterior. Fotos novas guardam b2_destino (bucket, endpoint e região), além das chaves e versões; nenhum segredo é copiado para a foto. A troca de conta não transfere arquivos e não preserva a senha antiga: para acessar fotos em outra conta é necessário manter acesso a ela ou transferir os objetos e ajustar as referências em um procedimento separado.
+
+Teste de destinos e isolamento de empresas: npm run test:b2. Endpoints aceitos são exclusivamente HTTPS da API S3 oficial do B2; isso impede enviar credenciais a um endereço arbitrário.
