@@ -88,25 +88,10 @@ export const enviarFoto = handle(async (req, res) => {
   let processed;
   try { processed = await processarFoto(req.body); } catch (e) { fail(400, e.message); }
 
-  // Upload para o B2 antes de abrir transação (operação lenta, fora do lock)
-  let b2_imagem_key = null;
-  let b2_miniatura_key = null;
-  let uploadFeito = false;
-
-  if (b2Configurado()) {
-    try {
-      [b2_imagem_key, b2_miniatura_key] = await Promise.all([
-        uploadFoto(req.params.fid, processed.imagem, 'imagem'),
-        uploadFoto(req.params.fid, processed.miniatura, 'miniatura'),
-      ]);
-      uploadFeito = true;
-    } catch (e) {
-      console.error('Falha no upload para o B2, salvando como BLOB:', e.message);
-      // Continua sem B2: grava BLOB como fallback
-    }
-  }
-
-  const foto = await sequelize.transaction(async transaction => {
+  const uploaded = [];
+  let foto;
+  try {
+    foto = await sequelize.transaction(async transaction => {
     await atendimento(req, transaction, true);
     const Model = getAtendimentoFotoModel();
     const where = { agendamento_id: req.params.aid, cliente_id: req.params.cid };
@@ -124,18 +109,17 @@ export const enviarFoto = handle(async (req, res) => {
     if (await Model.count({ where, transaction }) >= 5)
       fail(409, 'Este agendamento já possui o limite máximo de 5 fotos.');
 
+    if (!await b2Configurado()) fail(503, 'Configure o armazenamento B2 antes de enviar fotos.');
+    // O lock serializa limite/reenvios. Nunca gravar BLOB em caso de falha no B2.
+    for (const tipo of ['imagem', 'miniatura']) {
+      uploaded.push(await uploadFoto(req.params.fid, processed[tipo], tipo));
+    }
     const dadosGravacao = {
-      ...where,
-      id: req.params.fid,
-      largura: processed.largura,
-      altura: processed.altura,
-      bytes: processed.bytes,
-      criado_por_id: req.user.id,
-      criado_em: new Date(),
-      b2_imagem_key,
-      b2_miniatura_key,
-      // Grava BLOB somente se o B2 não estiver configurado ou falhou
-      ...(uploadFeito ? {} : { imagem: processed.imagem, miniatura: processed.miniatura }),
+      ...where, id: req.params.fid, largura: processed.largura, altura: processed.altura,
+      bytes: processed.bytes, criado_por_id: req.user.id, criado_em: new Date(),
+      b2_imagem_key: uploaded[0].key, b2_imagem_version: uploaded[0].version,
+      b2_miniatura_key: uploaded[1].key, b2_miniatura_version: uploaded[1].version,
+      imagem: null, miniatura: null
     };
 
     const row = await Model.create(dadosGravacao, { transaction });
@@ -146,38 +130,37 @@ export const enviarFoto = handle(async (req, res) => {
     return row;
   });
 
-  // Se houve upload mas a transação falhou, remove os objetos órfãos do B2
-  // (o catch do handle já trata o erro; aqui só limpamos o B2)
+  } catch (error) {
+    // Em resultado incerto do commit, conferir antes de apagar um objeto referenciado.
+    for (const object of uploaded) {
+      try {
+        const saved = await getAtendimentoFotoModel().findByPk(req.params.fid);
+        if (saved?.b2_imagem_key !== object.key && saved?.b2_miniatura_key !== object.key)
+          await deletarFoto(object.key, object.version);
+      } catch { console.error('Limpeza B2 pendente para foto', req.params.fid); }
+    }
+    throw error;
+  }
   res.json(metadata(foto));
 });
 
 export const removerFoto = handle(async (req, res) => {
-  // Busca as chaves B2 antes de deletar a linha
-  const fotoParaRemover = await getAtendimentoFotoModel().findOne({
-    attributes: ['id', 'b2_imagem_key', 'b2_miniatura_key'],
-    where: { id: req.params.fid, agendamento_id: req.params.aid, cliente_id: req.params.cid }
-  });
-
   await sequelize.transaction(async transaction => {
     await atendimento(req, transaction, true);
+    const Model = getAtendimentoFotoModel();
     const where = { id: req.params.fid, agendamento_id: req.params.aid, cliente_id: req.params.cid };
-    const removed = await getAtendimentoFotoModel().destroy({ where, transaction });
-    if (removed) {
-      await getAtendimentoFotoEventoModel().create({
-        id: randomUUID(), foto_id: req.params.fid,
-        agendamento_id: req.params.aid, cliente_id: req.params.cid,
-        operacao: 'REMOVER', usuario_id: req.user.id, criado_em: new Date()
-      }, { transaction });
-    }
+    const row = await Model.findOne({ where, transaction, lock: transaction.LOCK.UPDATE });
+    if (!row) return;
+    // Mantém a referência para permitir nova tentativa se o B2 estiver indisponível.
+    await deletarFoto(row.b2_imagem_key, row.b2_imagem_version);
+    await deletarFoto(row.b2_miniatura_key, row.b2_miniatura_version);
+    await row.destroy({ transaction });
+    await getAtendimentoFotoEventoModel().create({
+      id: randomUUID(), foto_id: req.params.fid,
+      agendamento_id: req.params.aid, cliente_id: req.params.cid,
+      operacao: 'REMOVER', usuario_id: req.user.id, criado_em: new Date()
+    }, { transaction });
   });
-
-  // Remove do B2 após commit da transação (sem bloquear a resposta)
-  if (fotoParaRemover?.b2_imagem_key || fotoParaRemover?.b2_miniatura_key) {
-    Promise.all([
-      deletarFoto(fotoParaRemover.b2_imagem_key),
-      deletarFoto(fotoParaRemover.b2_miniatura_key),
-    ]).catch(e => console.error('Falha ao remover objetos do B2:', e.message));
-  }
 
   res.json({ detail: 'Foto removida.' });
 });
@@ -188,7 +171,7 @@ export const imagemFoto = handle(async (req, res) => {
 
   // Busca apenas as colunas necessárias para decidir a origem
   const row = await getAtendimentoFotoModel().findOne({
-    attributes: ['b2_imagem_key', 'b2_miniatura_key', 'imagem', 'miniatura'],
+    attributes: ['b2_imagem_key', 'b2_miniatura_key', 'b2_imagem_version', 'b2_miniatura_version'],
     where: { id: req.params.fid, cliente_id: req.params.cid, agendamento_id: req.params.aid }
   });
   if (!row) fail(404, 'Foto não encontrada.');
@@ -197,14 +180,21 @@ export const imagemFoto = handle(async (req, res) => {
 
   // --- Foto nova: serve via URL assinada do B2 ---
   if (b2Key) {
-    // TTL de 1 hora; suficiente para qualquer sessão de visualização
-    const url = await gerarUrlAssinada(b2Key, 3600);
+    // URL temporária; gerada novamente ao abrir a foto.
+    const url = await gerarUrlAssinada(b2Key, 900, isMiniatura ? row.b2_miniatura_version : row.b2_imagem_version);
+    res.set('Cache-Control', 'private, no-store');
+    if (req.query.referencia === '1') return res.json({ url });
     // Redireciona o browser para a URL assinada — sem expor credenciais
     return res.redirect(302, url);
   }
 
   // --- Foto antiga: serve o BLOB armazenado no banco (retrocompatibilidade) ---
-  const blob = isMiniatura ? row.miniatura : row.imagem;
+  const column = isMiniatura ? 'miniatura' : 'imagem';
+  const legacy = await getAtendimentoFotoModel().findOne({
+    attributes: [column],
+    where: { id: req.params.fid, cliente_id: req.params.cid, agendamento_id: req.params.aid }
+  });
+  const blob = legacy?.[column];
   if (!blob) fail(404, 'Foto não encontrada.');
   res.set({
     'Content-Type': 'image/webp',

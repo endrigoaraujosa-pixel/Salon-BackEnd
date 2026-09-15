@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 user=$1
 commit=$(git rev-parse --short HEAD)
 

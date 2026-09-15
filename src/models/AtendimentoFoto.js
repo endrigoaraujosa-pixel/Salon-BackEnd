@@ -12,6 +12,8 @@ const Foto = sequelize.define('AtendimentoFoto', {
   // B2: chaves do objeto no Backblaze (null = foto antiga armazenada como BLOB)
   b2_imagem_key: { type: DataTypes.STRING(255), allowNull: true },
   b2_miniatura_key: { type: DataTypes.STRING(255), allowNull: true },
+  b2_imagem_version: { type: DataTypes.STRING(255), allowNull: true },
+  b2_miniatura_version: { type: DataTypes.STRING(255), allowNull: true },
   // BLOB mantido apenas para retrocompatibilidade — novas fotos não gravam aqui
   imagem: { type: DataTypes.BLOB, allowNull: true },
   miniatura: { type: DataTypes.BLOB, allowNull: true },

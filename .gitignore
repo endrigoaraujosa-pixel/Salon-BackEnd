@@ -39,3 +39,9 @@ coverage/
 # WhatsApp Web session credentials and cache
 .wwebjs_auth/
 .wwebjs_cache/
+
+# Configuracoes locais e segredos (exemplos podem ser versionados)
+.env
+.env.*
+!.env.example
+!.env.*.example

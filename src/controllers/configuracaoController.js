@@ -320,11 +320,12 @@ const getConfiguracaoSistema = async (req, res) => {
 
 const saveConfiguracaoSistema = async (req, res) => {
   try {
+    const body = Object.fromEntries(Object.entries(req.body || {}).filter(([key]) => !key.startsWith('b2_')));
     let config = await getConfiguracaoSistemaModel().findOne();
     if (!config) {
-      config = await getConfiguracaoSistemaModel().create(req.body);
+      config = await getConfiguracaoSistemaModel().create(body);
     } else {
-      await config.update(req.body);
+      await config.update(body);
     }
     res.json(config);
   } catch (error) {
@@ -338,60 +339,54 @@ const saveConfiguracaoSistema = async (req, res) => {
  * Retorna o keyID configurado e um indicador de se a applicationKey está gravada.
  * NUNCA devolve a applicationKey.
  */
+const b2Summary = config => {
+  const database = !!(config?.b2_key_id && config?.b2_application_key);
+  const environment = !!(process.env.B2_KEY_ID && process.env.B2_APPLICATION_KEY);
+  return {
+    b2_key_id: database ? config.b2_key_id : (process.env.B2_KEY_ID || ''),
+    b2_key_name: config?.b2_key_name || '',
+    b2_configurado: database || environment,
+    b2_origem: database ? 'banco' : environment ? 'env' : 'nenhuma'
+  };
+};
+
 const getB2Config = async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
-    // unscoped() para acessar b2_key_id sem ser filtrado pelo defaultScope
     const config = await getConfiguracaoSistemaModel().unscoped().findOne({
-      attributes: ['b2_key_id', 'b2_application_key']
+      attributes: ['b2_key_id', 'b2_key_name', 'b2_application_key']
     });
-    res.json({
-      b2_key_id: config?.b2_key_id || process.env.B2_KEY_ID || '',
-      // Indica se a chave está configurada (banco OU env), sem exposão do valor
-      b2_configurado: !!(config?.b2_application_key || process.env.B2_APPLICATION_KEY),
-      // Origem para info ao usuário
-      b2_origem: config?.b2_key_id ? 'banco' : (process.env.B2_KEY_ID ? 'env' : 'nenhuma'),
-    });
-  } catch (error) {
-    res.status(500).json({ detail: error.message });
+    const { b2Destino } = await import('../services/b2Storage.js');
+    res.json({ ...b2Summary(config), destino: b2Destino });
+  } catch {
+    res.status(500).json({ detail: 'Não foi possível carregar a configuração B2. Confira as migrations do ambiente.' });
   }
 };
 
-/**
- * POST /configuracoes/b2
- * Grava (ou atualiza) o keyID e a applicationKey no banco.
- * Body: { b2_key_id: string, b2_application_key: string }
- * Se b2_application_key vier vazia/nula, mantém a que já está gravada.
- */
 const saveB2Config = async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   try {
-    const { b2_key_id, b2_application_key } = req.body;
-
-    if (!b2_key_id?.trim())
-      return res.status(400).json({ detail: 'O keyID é obrigatório.' });
-
-    let config = await getConfiguracaoSistemaModel().unscoped().findOne();
-    if (!config) {
-      config = await getConfiguracaoSistemaModel().create({ b2_key_id: b2_key_id.trim() });
+    const input = req.body || {};
+    for (const [field, limit] of [['b2_key_id', 100], ['b2_key_name', 100], ['b2_application_key', 255]]) {
+      if (input[field] != null && (typeof input[field] !== 'string' || input[field].length > limit))
+        return res.status(400).json({ detail: 'Credenciais inválidas ou acima do tamanho permitido.' });
     }
-
-    const updates = { b2_key_id: b2_key_id.trim() };
-    // Só atualiza a applicationKey se vier preenchida (evita apagar com campo vazio)
-    if (b2_application_key?.trim()) updates.b2_application_key = b2_application_key.trim();
-
-    await config.update(updates);
-
-    // Invalida cache do cliente B2 para usar as novas credenciais
-    try {
-      const { default: b2Module } = await import('../services/b2Storage.js');
-    } catch { /* cache será invalidado na próxima chamada ao b2Storage */ }
-
-    res.json({
-      b2_key_id: config.b2_key_id,
-      b2_configurado: !!(config.b2_application_key),
-      b2_origem: 'banco',
-    });
-  } catch (error) {
-    res.status(500).json({ detail: error.message });
+    const id = input.b2_key_id?.trim();
+    const secret = input.b2_application_key?.trim();
+    if (!id) return res.status(400).json({ detail: 'O keyID é obrigatório.' });
+    let config = await getConfiguracaoSistemaModel().unscoped().findOne();
+    // keyName é apenas identificação. Nunca misturar o ID novo com a senha anterior.
+    const current = config?.b2_key_id === id && config?.b2_application_key;
+    const envSecret = process.env.B2_KEY_ID === id && process.env.B2_APPLICATION_KEY;
+    if (!secret && !current && !envSecret)
+      return res.status(400).json({ detail: 'Informe a Application Key correspondente a este keyID.' });
+    const updates = { b2_key_id: id, b2_application_key: secret || current || envSecret,
+      b2_key_name: input.b2_key_name?.trim() || null };
+    if (!config) config = await getConfiguracaoSistemaModel().create(updates);
+    else await config.update(updates);
+    res.json(b2Summary(config));
+  } catch {
+    res.status(500).json({ detail: 'Não foi possível salvar as credenciais B2.' });
   }
 };
 
