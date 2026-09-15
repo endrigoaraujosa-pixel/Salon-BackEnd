@@ -13,6 +13,9 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
   // A applicationKey nunca é devolvida pela API GET (veja configuracaoController).
   b2_key_id: { type: DataTypes.STRING(100), allowNull: true },
   b2_key_name: { type: DataTypes.STRING(100), allowNull: true },
+  b2_bucket: { type: DataTypes.STRING(63), allowNull: true },
+  b2_endpoint: { type: DataTypes.STRING(255), allowNull: true },
+  b2_region: { type: DataTypes.STRING(40), allowNull: true },
   b2_application_key: { type: DataTypes.STRING(255), allowNull: true },
   id: {
     type: DataTypes.INTEGER,

@@ -1,3 +1,4 @@
+import { validarDestinoB2, destinoConfigurado } from '../services/b2Config.js';
 import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
 import { getEmpresaModel } from '../models/Empresa.js';
 import { getConfiguracaoSistemaModel } from '../models/ConfiguracaoSistema.js';
@@ -346,7 +347,8 @@ const b2Summary = config => {
     b2_key_id: database ? config.b2_key_id : (process.env.B2_KEY_ID || ''),
     b2_key_name: config?.b2_key_name || '',
     b2_configurado: database || environment,
-    b2_origem: database ? 'banco' : environment ? 'env' : 'nenhuma'
+    b2_origem: database ? 'banco' : environment ? 'env' : 'nenhuma',
+    destino: destinoConfigurado(config)
   };
 };
 
@@ -354,10 +356,9 @@ const getB2Config = async (req, res) => {
   res.set('Cache-Control', 'private, no-store');
   try {
     const config = await getConfiguracaoSistemaModel().unscoped().findOne({
-      attributes: ['b2_key_id', 'b2_key_name', 'b2_application_key']
+      attributes: ['b2_key_id', 'b2_key_name', 'b2_application_key', 'b2_bucket', 'b2_endpoint', 'b2_region']
     });
-    const { b2Destino } = await import('../services/b2Storage.js');
-    res.json({ ...b2Summary(config), destino: b2Destino });
+    res.json(b2Summary(config));
   } catch {
     res.status(500).json({ detail: 'Não foi possível carregar a configuração B2. Confira as migrations do ambiente.' });
   }
@@ -380,13 +381,14 @@ const saveB2Config = async (req, res) => {
     const envSecret = process.env.B2_KEY_ID === id && process.env.B2_APPLICATION_KEY;
     if (!secret && !current && !envSecret)
       return res.status(400).json({ detail: 'Informe a Application Key correspondente a este keyID.' });
-    const updates = { b2_key_id: id, b2_application_key: secret || current || envSecret,
+    const destino = validarDestinoB2(input.destino || destinoConfigurado(config));
+    const updates = { b2_bucket: destino.bucket, b2_endpoint: destino.endpoint, b2_region: destino.region, b2_key_id: id, b2_application_key: secret || current || envSecret,
       b2_key_name: input.b2_key_name?.trim() || null };
     if (!config) config = await getConfiguracaoSistemaModel().create(updates);
     else await config.update(updates);
     res.json(b2Summary(config));
-  } catch {
-    res.status(500).json({ detail: 'Não foi possível salvar as credenciais B2.' });
+  } catch (error) {
+    res.status(error.status || 500).json({ detail: error.status ? error.message : 'Não foi possível salvar as credenciais B2.' });
   }
 };
 

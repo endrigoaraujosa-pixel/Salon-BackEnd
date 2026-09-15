@@ -10,11 +10,13 @@ mock.module('../src/config/db.js', { namedExports: { sequelize: db, connectDB: a
 const objects = new Map();
 let storageAvailable = true, failThumbnail = false;
 mock.module('../src/services/b2Storage.js', { namedExports: {
+  resolverB2: async () => ({ bucket: 'test-bucket', endpoint: 'https://s3.us-east-005.backblazeb2.com', region: 'us-east-005' }),
+  destinoPublicoB2: config => config,
   b2Configurado: async () => storageAvailable,
   uploadFoto: async (id, data, type) => {
     if (failThumbnail && type === 'miniatura') throw new Error('B2 indisponível');
     const key = id + '/' + randomUUID() + '/' + type;
-    objects.set(key, Buffer.from(data)); return { key, version: 'v1' };
+    objects.set(key, Buffer.from(data)); return { key, version: 'v1', destino: { bucket: 'test-bucket', endpoint: 'https://s3.us-east-005.backblazeb2.com', region: 'us-east-005' } };
   },
   deletarFoto: async key => { objects.delete(key); },
   gerarUrlAssinada: async key => 'https://private.example/' + key,
@@ -40,10 +42,12 @@ before(async () => {
   buffer = await sharp({ create: { width: 80, height: 40, channels: 3, background: '#3a6651' } }).png().toBuffer();
   await getAgendamentoModel().sync();
   await getConfiguracaoSistemaModel().sync();
+  for (const col of ['b2_bucket', 'b2_endpoint', 'b2_region']) await db.getQueryInterface().removeColumn('configuracao_sistema', col);
   await db.getQueryInterface().removeColumn('configuracao_sistema', 'permitir_fotos_atendimentos');
   await migration.up(db.getQueryInterface(), Sequelize);
   await (await import('../src/migrations/20260914130000-add-b2-key-to-atendimento-fotos.js')).default.up(db.getQueryInterface(), Sequelize);
   await (await import('../src/migrations/20260915120000-fotos-b2-references-only.js')).default.up(db.getQueryInterface(), Sequelize);
+  await (await import('../src/migrations/20260915140000-b2-destino-por-empresa.js')).default.up(db.getQueryInterface(), Sequelize);
 });
 beforeEach(async () => {
   objects.clear(); storageAvailable = true; failThumbnail = false;
@@ -224,7 +228,7 @@ test('foto antiga continua legível e cópia divergente não remove BLOB', async
 
 test('configuração B2 salva nome e segredo, preserva senha e rejeita troca de ID sem senha', async () => {
   const { saveB2Config, saveConfiguracaoSistema } = await import('../src/controllers/configuracaoController.js');
-  const request = { body: { b2_key_id: 'test-id', b2_key_name: 'Fotos teste', b2_application_key: 'fake-test-secret' } };
+  const request = { body: { b2_key_id: 'test-id', destino: { bucket: 'test-bucket', endpoint: 's3.us-east-005.backblazeb2.com' }, b2_key_name: 'Fotos teste', b2_application_key: 'fake-test-secret' } };
   let result = await call(saveB2Config, request);
   assert.equal(result.statusCode, 200); assert.equal(result.body.b2_key_name, 'Fotos teste');
   assert.equal(result.body.b2_application_key, undefined);
@@ -239,4 +243,22 @@ test('configuração B2 salva nome e segredo, preserva senha e rejeita troca de 
   saved = await getConfiguracaoSistemaModel().unscoped().findOne();
   assert.equal(saved.b2_application_key, 'fake-test-secret');
   assert.equal((await getConfiguracaoSistemaModel().findOne()).b2_application_key, undefined);
+});
+
+
+test('migration preserva o destino antigo sem impor bucket para empresa nova', async () => {
+  const temporary = new Sequelize('sqlite::memory:', { logging: false });
+  const q = temporary.getQueryInterface();
+  try {
+    await q.createTable('configuracao_sistema', { id: { type: Sequelize.INTEGER, primaryKey: true }, b2_key_id: Sequelize.STRING });
+    await q.createTable('atendimento_fotos', { id: { type: Sequelize.INTEGER, primaryKey: true }, b2_imagem_key: Sequelize.STRING, b2_miniatura_key: Sequelize.STRING });
+    await q.bulkInsert('configuracao_sistema', [{ id: 1, b2_key_id: 'existing' }, { id: 2, b2_key_id: null }]);
+    await q.bulkInsert('atendimento_fotos', [{ id: 1, b2_imagem_key: 'old-image', b2_miniatura_key: 'old-thumbnail' }]);
+    await (await import('../src/migrations/20260915140000-b2-destino-por-empresa.js')).default.up(q, Sequelize);
+    const [photos] = await temporary.query('SELECT b2_destino FROM atendimento_fotos');
+    const [configs] = await temporary.query('SELECT b2_bucket FROM configuracao_sistema ORDER BY id');
+    assert.equal(JSON.parse(photos[0].b2_destino).bucket, process.env.B2_BUCKET_NAME || 'salon-fotos-api');
+    assert.equal(configs[0].b2_bucket, process.env.B2_BUCKET_NAME || 'salon-fotos-api');
+    assert.equal(configs[1].b2_bucket, null);
+  } finally { await temporary.close(); }
 });

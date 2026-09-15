@@ -14,7 +14,8 @@
     "seed-user": "npx sequelize-cli db:seed --seed 20260520141621-demo-user.cjs",
     "worker": "node src/worker-runner.js",
     "migrar-fotos-b2": "node scripts/migrar-fotos-b2.js",
-    "migrar-fotos-b2:dry": "node scripts/migrar-fotos-b2.js --dry-run"
+    "migrar-fotos-b2:dry": "node scripts/migrar-fotos-b2.js --dry-run",
+    "test:b2": "node --experimental-test-module-mocks --test --test-isolation=none tests/b2-storage.test.js"
   },
   "keywords": [],
   "author": "",
