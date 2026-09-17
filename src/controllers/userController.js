@@ -1,3 +1,5 @@
+import { getAuthSessionModel } from '../models/AuthSession.js';
+import { validateUserGrant, canManageUser } from '../security/accessPolicy.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { getUserModel } from '../models/User.js';
@@ -37,6 +39,10 @@ const createUser = async (req, res) => {
     const existing = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
     if (existing) {
       return res.status(400).json({ detail: 'Este email já está cadastrado' });
+    }
+
+    if (!await validateUserGrant(req.user, req.body, {}, id => getPerfilAcessoModel().findByPk(id))) {
+      return res.status(403).json({ detail: 'Você não pode conceder permissões superiores às suas.' });
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -101,6 +107,14 @@ const updateUser = async (req, res) => {
 
     const { name, email, role, perfil_acesso_id, colaborador_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
 
+    if (isAdmin) {
+      const currentProfile = user.perfil_acesso_id ? await getPerfilAcessoModel().findByPk(user.perfil_acesso_id) : null;
+      if (!canManageUser(req.user, user, currentProfile) ||
+          !await validateUserGrant(req.user, req.body, user.toJSON(), id => getPerfilAcessoModel().findByPk(id))) {
+        return res.status(403).json({ detail: 'Você não pode administrar usuários com permissões superiores às suas.' });
+      }
+    }
+
     if (!isAdmin && isEditingSelf) {
       if (senha && senha.trim()) {
         const salt = await bcrypt.genSalt(10);
@@ -162,6 +176,7 @@ const updateUser = async (req, res) => {
     }
 
     await user.save();
+    if (!user.ativo) await getAuthSessionModel().update({ revoked_at: new Date() }, { where: { user_id: user.id } });
 
     res.json({
       id: user.id,
@@ -188,12 +203,18 @@ const deleteUser = async (req, res) => {
     }
     const user = await getUserModel().findByPk(req.params.id);
     if (user) {
+      const profile = user.perfil_acesso_id ? await getPerfilAcessoModel().findByPk(user.perfil_acesso_id) : null;
+      if (!canManageUser(req.user, user, profile)) {
+        return res.status(403).json({ detail: 'Você não pode excluir usuários com permissões superiores às suas.' });
+      }
       if (user.id === req.user.id) {
         return res.status(400).json({ detail: 'Você não pode excluir o próprio usuário conectado' });
       }
+      await getAuthSessionModel().update({ revoked_at: new Date() }, { where: { user_id: user.id } });
       await user.update({
         email: `${user.email}_deleted_${Date.now()}`,
         deletado: 'S',
+        ativo: false,
         deletado_por: req.user ? req.user.name : 'Sistema',
         deletado_em: new Date()
       });

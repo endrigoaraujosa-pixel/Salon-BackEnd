@@ -1,21 +1,10 @@
+import { evolutionConnection } from '../../../security/evolutionPolicy.js';
 import axios from 'axios';
 import { sendLocalMessage } from '../local-client.js';
 import { formatPhoneNumber, maskPhoneNumber } from '../../../utils/index.js';
 
-function getEvolutionBaseUrl(config = {}) {
-  const configuredUrl = String(config.api_url || '').trim();
-  const envUrl = String(process.env.EVOLUTION_API_URL || '').trim();
-
-  if (configuredUrl && configuredUrl !== 'external' && configuredUrl !== 'local') {
-    return configuredUrl.replace(/\/+$/, '');
-  }
-
-  return envUrl.replace(/\/+$/, '');
-}
-
-function getEvolutionApiKey(config = {}) {
-  return String(process.env.EVOLUTION_API_TOKEN || config.token || '').trim();
-}
+function getEvolutionBaseUrl(config = {}) { return evolutionConnection(config).baseUrl; }
+function getEvolutionApiKey(config = {}) { return evolutionConnection(config).apiKey; }
 
 function buildEvolutionHeaders(config = {}) {
   const apiKey = getEvolutionApiKey(config);
@@ -37,7 +26,7 @@ export class WhatsAppProvider {
   async sendMessage(phone, message, config = null, mediaOptions = null) {
     // Se não tiver configurações de API, executa a simulação
     if (!config || !config.instancia) {
-      console.log(`[WhatsAppProvider - Simulação] Mensagem simulada para ${maskPhoneNumber(phone)}: ${message}${mediaOptions ? ' [Com Mídia]' : ''}`);
+      console.log(`[WhatsAppProvider - Simulação] Mensagem simulada para ${maskPhoneNumber(phone)}: [conteúdo omitido]${mediaOptions ? ' [Com Mídia]' : ''}`);
       return { success: true, messageId: `simulated_${Date.now()}` };
     }
 
@@ -64,7 +53,7 @@ export class WhatsAppProvider {
       const checkResult = await this.checkNumber(cleanPhone, config);
       if (checkResult && checkResult.exists && checkResult.jid) {
         targetNumber = checkResult.jid;
-        console.log(`[WhatsAppProvider] Número verificado com sucesso (${maskPhoneNumber(cleanPhone)}). Usando JID: ${targetNumber}`);
+        console.log(`[WhatsAppProvider] Número verificado com sucesso (${maskPhoneNumber(cleanPhone)}). Usando JID: ${maskPhoneNumber(cleanPhone)}`);
       } else if (checkResult && checkResult.exists === false && !checkResult.error) {
         // Se a verificação retornou explicitamente que o número não existe no WhatsApp
         console.warn(`[WhatsAppProvider] O número ${maskPhoneNumber(cleanPhone)} não foi encontrado no WhatsApp.`);
@@ -80,7 +69,7 @@ export class WhatsAppProvider {
 
       // Monta a URL e os headers
       const baseUrl = getEvolutionBaseUrl(config);
-      const instance = config.instancia;
+      const instance = evolutionConnection(config).instance;
       if (!baseUrl) {
         return {
           success: false,
@@ -109,10 +98,11 @@ export class WhatsAppProvider {
         payload.mediatype = "image";
       }
 
-      console.log('Payload: ', payload);
+
 
       const response = await axios.post(url, payload, {
         headers: buildEvolutionHeaders(config),
+        maxRedirects: 0,
         timeout: 15000 // 15 segundos timeout
       });
 
@@ -149,7 +139,7 @@ export class WhatsAppProvider {
           errorMsg = Array.isArray(data.response.message) ? data.response.message.join(', ') : String(data.response.message);
         }
       }
-      console.error(`[WhatsAppProvider] Erro ao enviar mensagem real para ${phone}:`, errorMsg, error.response?.data);
+      console.error(`[WhatsAppProvider] Erro ao enviar mensagem real para ${maskPhoneNumber(phone)}:`, error.response?.status || 'falha de integração');
       return {
         success: false,
         error: `Erro na API do WhatsApp: ${errorMsg}`
@@ -171,7 +161,7 @@ export class WhatsAppProvider {
     try {
       let cleanPhone = formatPhoneNumber(phone);
       const baseUrl = getEvolutionBaseUrl(config);
-      const instance = config.instancia;
+      const instance = evolutionConnection(config).instance;
       if (!baseUrl || !instance) {
         return { exists: false, error: true };
       }
@@ -203,6 +193,7 @@ export class WhatsAppProvider {
 
       const response = await axios.post(url, payload, {
         headers: buildEvolutionHeaders(config),
+        maxRedirects: 0,
         timeout: 10000
       });
 
@@ -218,7 +209,7 @@ export class WhatsAppProvider {
 
       return { exists: false };
     } catch (error) {
-      console.error(`[WhatsAppProvider] Erro ao verificar número ${phone}:`, error.message);
+      console.error(`[WhatsAppProvider] Erro ao verificar número ${maskPhoneNumber(phone)}:`, error.response?.status || 'falha de integração');
       // Em caso de erro de API, não podemos afirmar se não existe, mas retornamos false ou um indicador de erro
       return { exists: false, error: true };
     }

@@ -1,3 +1,4 @@
+import { tenantInstance, evolutionConnection, publicWhatsappConfig } from '../../security/evolutionPolicy.js';
 import { changeReminderCancellation } from './reminder-cancellation.service.js';
 import * as whatsappService from './whatsapp.service.js';
 import * as campanhaService from './campanha.service.js';
@@ -8,7 +9,7 @@ import { getWhatsappConfigModel } from '../../models/WhatsappConfig.js';
 export const getWhatsappConfig = async (req, res) => {
   try {
     const config = await whatsappService.getConfig();
-    res.json(config);
+    res.json(publicWhatsappConfig(config));
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
@@ -16,8 +17,20 @@ export const getWhatsappConfig = async (req, res) => {
 
 export const saveWhatsappConfig = async (req, res) => {
   try {
-    const config = await whatsappService.saveConfig(req.body);
-    res.json(config);
+    const current = await whatsappService.getConfig();
+    const canConfigure = req.user.role === 'admin' || req.user.perfil?.permissoes?.['configuracoes.whatsapp'] === true;
+    const fields = canConfigure
+      ? ['ativo', 'lembrete_24h', 'lembrete_2h', 'lembrete_1h', 'modelo_mensagem', 'api_url', 'instancia', 'token', 'agradecimento_ativo', 'agradecimento_tempo_minutos', 'agradecimento_modelo_mensagem', 'massa_intervalo_min', 'massa_intervalo_max']
+      : ['massa_intervalo_min', 'massa_intervalo_max'];
+    const changes = Object.fromEntries(fields.filter(key => req.body[key] !== undefined).map(key => [key, req.body[key]]));
+    // An empty token means keep the saved secret; it is never returned to the browser.
+    if (!changes.token) delete changes.token;
+    const merged = { ...(current.toJSON ? current.toJSON() : current), ...changes };
+    if (merged.api_url && merged.api_url !== 'local' && merged.instancia) {
+      try { evolutionConnection(merged); } catch (error) { return res.status(400).json({ detail: error.message }); }
+    }
+    const config = await whatsappService.saveConfig(changes);
+    res.json(publicWhatsappConfig(config));
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
@@ -62,7 +75,7 @@ export const postLocalDisconnect = async (req, res) => {
 
 export const startLocalIntegration = async (req, res) => {
   try {
-    const instance = req.body.subdominio;
+    const instance = tenantInstance();
     const urlEvolution = process.env.EVOLUTION_API_URL + "/instance/create";
     const payload = {
       instanceName: instance,
@@ -72,6 +85,8 @@ export const startLocalIntegration = async (req, res) => {
 
     const response = await fetch(urlEvolution, {
       method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(15000),
       headers: {
         'Content-Type': 'application/json',
         'apiKey': process.env.EVOLUTION_API_TOKEN
@@ -91,7 +106,7 @@ export const startLocalIntegration = async (req, res) => {
       res.json({
         success: true,
         message: 'Integração iniciada com sucesso',
-        data: result
+        data: { instance: { instanceName: instance }, qrcode: result.qrcode }
       });
 
     } else {
@@ -105,11 +120,16 @@ export const startLocalIntegration = async (req, res) => {
 
 export const getExternalStatus = async (req, res) => {
   try {
-    const { instance } = req.params;
+    const instance = tenantInstance();
+    if (req.params.instance !== instance && req.params.instance !== req.headers['x-tenant-id']) {
+      return res.status(403).json({ detail: 'Instância não pertence a esta empresa.' });
+    }
     const urlEvolution = process.env.EVOLUTION_API_URL + `/instance/connectionState/${instance}`;
 
     const response = await fetch(urlEvolution, {
       method: 'GET',
+      redirect: 'error',
+      signal: AbortSignal.timeout(15000),
       headers: {
         'apiKey': process.env.EVOLUTION_API_TOKEN
       }
@@ -128,11 +148,16 @@ export const getExternalStatus = async (req, res) => {
 
 export const getExternalQrCode = async (req, res) => {
   try {
-    const { instance } = req.params;
+    const instance = tenantInstance();
+    if (req.params.instance !== instance && req.params.instance !== req.headers['x-tenant-id']) {
+      return res.status(403).json({ detail: 'Instância não pertence a esta empresa.' });
+    }
     const urlEvolution = process.env.EVOLUTION_API_URL + `/instance/connect/${instance}`;
 
     const response = await fetch(urlEvolution, {
       method: 'GET',
+      redirect: 'error',
+      signal: AbortSignal.timeout(15000),
       headers: {
         'apiKey': process.env.EVOLUTION_API_TOKEN
       }

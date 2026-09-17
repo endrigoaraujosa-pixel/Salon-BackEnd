@@ -1,3 +1,5 @@
+import { createSession, rotateSession, revokeSession } from '../security/sessions.js';
+import { isActiveUser } from '../security/accessPolicy.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { getUserModel } from '../models/User.js';
@@ -14,31 +16,28 @@ const isMobileRequest = (req) => {
 const login = async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !email.trim() || !password || !password.trim()) {
+  if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password.trim()) {
     return res.status(400).json({ detail: 'Email e senha são obrigatórios' });
   }
 
   try {
     const user = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash)) || !user.ativo) {
+    if (!isActiveUser(user) || !(await bcrypt.compare(password, user.password_hash))) {
       return res.status(400).json({ detail: 'Email ou senha inválidos' });
     }
 
     const isMobile = isMobileRequest(req);
     const activeTenant = getTenantSchema();
 
+    const session = await createSession(user);
     const token = jwt.sign(
-      { sub: user.id, email: user.email, tenant: activeTenant },
+      { sub: user.id, email: user.email, tenant: activeTenant, sid: session.sid },
       process.env.JWT_SECRET,
       { expiresIn: '30m' }
     );
 
-    const refreshToken = jwt.sign(
-      { sub: user.id, tenant: activeTenant },
-      process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh',
-      { expiresIn: '1d' }
-    );
+    const refreshToken = session.token;
 
     res.cookie('access_token', token, {
       httpOnly: true,
@@ -67,7 +66,7 @@ const login = async (req, res) => {
         role: user.role,
         colaborador_id: user.colaborador_id,
         perfil_acesso_id: user.perfil_acesso_id,
-        perfil: perfil ? perfil.toJSON() : null,
+        perfil: perfil && perfil.ativo !== false && perfil.deletado !== 'S' ? perfil.toJSON() : null,
         ativo: user.ativo,
         pode_alterar_concluido: user.pode_alterar_concluido,
         pode_excluir_agendamento: user.pode_excluir_agendamento,
@@ -92,31 +91,29 @@ const refreshToken = async (req, res) => {
     );
 
     const activeTenant = getTenantSchema();
-    if (decoded.tenant && decoded.tenant !== activeTenant) {
+    if (decoded.tenant !== activeTenant) {
       return res.status(401).json({ detail: 'Refresh token inválido para este tenant' });
     }
 
     const user = await getUserModel().findByPk(decoded.sub);
 
-    if (!user || !user.ativo) {
+    if (!isActiveUser(user)) {
       return res.status(401).json({ detail: 'Usuário não encontrado ou inativo' });
     }
 
     const isMobile = isMobileRequest(req);
+    const session = await rotateSession(decoded, token, user, isMobile);
+    if (!session) return res.status(401).json({ detail: 'Sessão expirada. Faça login novamente.' });
     const tokenExpiry = isMobile ? '30m' : '15m';
     const cookieMaxAge = isMobile ? 30 * 60 * 1000 : 15 * 60 * 1000;
 
     const newAccessToken = jwt.sign(
-      { sub: user.id, email: user.email, tenant: activeTenant },
+      { sub: user.id, email: user.email, tenant: activeTenant, sid: session.sid },
       process.env.JWT_SECRET,
       { expiresIn: tokenExpiry }
     );
 
-    const newRefreshToken = jwt.sign(
-      { sub: user.id, tenant: activeTenant },
-      process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET + '_refresh',
-      { expiresIn: isMobile ? '24h' : '1h' }
-    );
+    const newRefreshToken = session.token;
 
     res.cookie('access_token', newAccessToken, {
       httpOnly: true,
@@ -130,7 +127,7 @@ const refreshToken = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: isMobile ? 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000,
+      maxAge: isMobile ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000,
       path: '/'
     });
 
@@ -145,7 +142,7 @@ const refreshToken = async (req, res) => {
         role: user.role,
         colaborador_id: user.colaborador_id,
         perfil_acesso_id: user.perfil_acesso_id,
-        perfil: perfil ? perfil.toJSON() : null,
+        perfil: perfil && perfil.ativo !== false && perfil.deletado !== 'S' ? perfil.toJSON() : null,
         ativo: user.ativo,
         pode_alterar_concluido: user.pode_alterar_concluido,
         pode_excluir_agendamento: user.pode_excluir_agendamento,
@@ -163,6 +160,7 @@ const refreshToken = async (req, res) => {
 };
 
 const logout = async (req, res) => {
+  try { await revokeSession(req.cookies?.refresh_token); } catch { return res.status(503).json({ detail: 'Não foi possível encerrar a sessão. Tente novamente.' }); }
   res.clearCookie('access_token', { path: '/' });
   res.clearCookie('refresh_token', { path: '/' });
   res.json({ ok: true });

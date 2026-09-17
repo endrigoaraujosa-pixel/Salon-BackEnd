@@ -1,3 +1,4 @@
+import { canGrantPermissions, canManageProfile, isAdminProfile } from '../security/accessPolicy.js';
 import { getPerfilAcessoModel } from "../models/PerfilAcesso.js";
 import { getUserModel } from "../models/User.js";
 // List all profiles
@@ -37,6 +38,9 @@ const criarPerfil = async (req, res) => {
       return res.status(400).json({ detail: 'As permissões são obrigatórias.' });
     }
 
+    if (!canGrantPermissions(req.user, permissoes) || (req.user.role !== 'admin' && isAdminProfile({ nome }))) {
+      return res.status(403).json({ detail: 'Você não pode conceder permissões superiores às suas.' });
+    }
     const novoPerfil = await getPerfilAcessoModel().create({
       nome: nome.trim(),
       descricao: descricao || '',
@@ -59,6 +63,11 @@ const atualizarPerfil = async (req, res) => {
       return res.status(404).json({ detail: 'Perfil de acesso não encontrado.' });
     }
 
+    if (!canManageProfile(req.user, perfil) ||
+        (permissoes !== undefined && !canGrantPermissions(req.user, permissoes)) ||
+        (req.user.role !== 'admin' && isAdminProfile({ nome }))) {
+      return res.status(403).json({ detail: 'Você não pode conceder permissões superiores às suas.' });
+    }
     if (nome !== undefined) {
       if (!nome.trim()) {
         return res.status(400).json({ detail: 'O nome do perfil é obrigatório.' });
@@ -86,6 +95,9 @@ const deletarPerfil = async (req, res) => {
       return res.status(404).json({ detail: 'Perfil de acesso não encontrado.' });
     }
 
+    if (!canManageProfile(req.user, perfil)) {
+      return res.status(403).json({ detail: 'Você não pode excluir um perfil com permissões superiores às suas.' });
+    }
     // Check if any user is currently linked to this profile
     const userCount = await getUserModel().count({
       where: { perfil_acesso_id: perfil.id, deletado: 'N' }

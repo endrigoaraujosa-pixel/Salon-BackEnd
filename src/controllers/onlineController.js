@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto';
+import { issueOnlineProof, phoneProof, readOnlineProof, normalizePhone, otpDigest, matchesOtp } from '../security/onlineProof.js';
 import { Op } from 'sequelize';
 import { getServicoModel } from '../models/Servico.js';
 import { getColaboradorModel } from '../models/Colaborador.js';
@@ -21,7 +23,7 @@ import { executarAprovacaoSolicitacao, enviarNotificacaoConfirmacaoOnline } from
 // ---- Middleware: verificar se agendamento online está ativo ----
 const checkOnlineAtivo = async () => {
   const Config = getConfiguracaoSistemaModel();
-  const config = await Config.findOne().catch(() => null);
+  const config = await Config.findOne();
   if (config && config.agendamento_online_ativo === false) {
     throw new Error('Agendamento Online desabilitado.');
   }
@@ -602,6 +604,18 @@ export const solicitarAgendamento = async (req, res) => {
       return res.status(400).json({ detail: 'Campos obrigatórios: cliente_nome, telefone, data_hora, servicos.' });
     }
 
+    const proof = phoneProof(req, telefone);
+    const waConfigForProof = await getConfig();
+    if (!proof || (Number(waConfigForProof?.ativo) === 1 && !proof.verified)) {
+      return res.status(403).json({ detail: 'Valide o telefone antes de continuar.' });
+    }
+    if (solicitacaoId) {
+      const reservation = readOnlineProof(req.body.reservation_token, 'reservation');
+      if (reservation?.id !== solicitacaoId) {
+        return res.status(403).json({ detail: 'Reserva inválida. Selecione o horário novamente.' });
+      }
+    }
+
     // Validar limite de agendamentos futuros em aberto por cliente
     try {
       await validarLimiteAgendamentosFuturos(telefone, solicitacaoId);
@@ -618,6 +632,9 @@ export const solicitarAgendamento = async (req, res) => {
     let solicitacao = null;
     if (solicitacaoId) {
       solicitacao = await Solicitacao.findByPk(solicitacaoId);
+      if (!solicitacao || solicitacao.status !== 'reservado') {
+        return res.status(409).json({ detail: 'Esta reserva já foi utilizada. Selecione o horário novamente.' });
+      }
     }
 
     const parsedServicos = typeof servicos === 'string' ? JSON.parse(servicos) : servicos;
@@ -647,6 +664,11 @@ export const solicitarAgendamento = async (req, res) => {
       try {
         let savedSolicitacao;
         if (solicitacao) {
+          solicitacao = await Solicitacao.findByPk(solicitacaoId, { transaction, lock: transaction.LOCK.UPDATE });
+          if (!solicitacao || solicitacao.status !== 'reservado') {
+            await transaction.rollback();
+            return res.status(409).json({ detail: 'Esta reserva já foi utilizada.' });
+          }
           await solicitacao.update(dataToSave, { transaction });
           savedSolicitacao = solicitacao;
         } else {
@@ -681,7 +703,8 @@ export const solicitarAgendamento = async (req, res) => {
     }
 
     if (solicitacao) {
-      await solicitacao.update(dataToSave);
+      const [changed] = await Solicitacao.update(dataToSave, { where: { id: solicitacao.id, status: 'reservado' } });
+      if (!changed) return res.status(409).json({ detail: 'Esta reserva já foi utilizada.' });
     } else {
       await Solicitacao.create({
         id: uuidv4(),
@@ -746,6 +769,7 @@ export const requestCode = async (req, res) => {
       return res.json({
         ok: true,
         requiresVerification: false,
+        online_token: issueOnlineProof('phone', { phone: phoneDigits, verified: false }),
         message: 'Verificação de WhatsApp dispensada.'
       });
     }
@@ -769,21 +793,17 @@ export const requestCode = async (req, res) => {
       });
     }
 
-    const codigo_otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const codigo_otp = randomInt(100000, 1000000).toString();
+    const authId = uuidv4();
     const expira_em = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
     await AuthModel.create({
-      id: uuidv4(),
+      id: authId,
       telefone: phoneDigits,
-      codigo_otp,
+      codigo_otp: otpDigest(authId, codigo_otp),
       expira_em,
       tentativas: 0,
       validado: false,
     });
-
-    // LOG DE DEBUG PARA AMBIENTE DE TESTE LOCAL:
-    console.log('\n======================================================');
-    console.log(`[TESTE] CÓDIGO OTP GERADO PARA TELEFONE ${phoneDigits}: ${codigo_otp}`);
-    console.log('======================================================\n');
 
     // Enviar código por WhatsApp se ativo
     if (isWaAtivo) {
@@ -827,27 +847,25 @@ export const validateCode = async (req, res) => {
     const phoneDigits = telefone.replace(/\D/g, '');
     const AuthModel = getAgendamentoOnlineAuthModel();
 
-    const authRecord = await AuthModel.findOne({
-      where: {
-        telefone: phoneDigits,
-        codigo_otp: String(codigo_otp).trim(),
-        validado: false,
-        expira_em: { [Op.gt]: new Date() }
-      },
-      order: [['criado_em', 'DESC']]
+    const valid = await sequelize.transaction(async transaction => {
+      const authRecord = await AuthModel.findOne({
+        where: { telefone: phoneDigits, expira_em: { [Op.gt]: new Date() } },
+        order: [['criado_em', 'DESC']], transaction, lock: transaction.LOCK.UPDATE
+      });
+      if (!authRecord || authRecord.validado || authRecord.tentativas >= 5) return false;
+      authRecord.tentativas += 1;
+      const matches = matchesOtp(authRecord, codigo_otp);
+      if (matches) authRecord.validado = true;
+      await authRecord.save({ transaction });
+      return matches;
     });
-
-    if (!authRecord) {
-      return res.status(400).json({ detail: 'Código inválido ou expirado.' });
-    }
-
-    authRecord.validado = true;
-    await authRecord.save();
+    if (!valid) return res.status(400).json({ detail: 'Código inválido ou expirado.' });
 
     const cliente = await findClienteByTelefone(telefone);
 
     res.json({
       valid: true,
+      online_token: issueOnlineProof('phone', { phone: phoneDigits, verified: true }),
       cliente: cliente ? { id: cliente.id, nome: cliente.nome, telefone: cliente.telefone, email: cliente.email } : null
     });
   } catch (error) {
@@ -864,9 +882,14 @@ export const registrarCliente = async (req, res) => {
       return res.status(400).json({ detail: 'Nome e telefone são obrigatórios.' });
     }
 
+    const proof = phoneProof(req, telefone);
+    if (!proof) return res.status(403).json({ detail: 'Valide o telefone antes de continuar.' });
     let cliente = await findClienteByTelefone(telefone);
     const Cliente = getClienteModel();
 
+    if (cliente && !proof.verified) {
+      return res.json({ ok: true, cliente: { nome, telefone, email: email || null } });
+    }
     if (cliente) {
       if (nome) cliente.nome = nome;
       if (email) cliente.email = email;
@@ -951,7 +974,7 @@ export const reservarHorario = async (req, res) => {
       data_expiracao_reserva
     });
 
-    res.json({ ok: true, solicitacaoId: id });
+    res.json({ ok: true, solicitacaoId: id, reservation_token: issueOnlineProof('reservation', { id }) });
   } catch (error) {
     if (error.message === 'Agendamento Online desabilitado.') {
       return res.status(403).json({ detail: error.message });

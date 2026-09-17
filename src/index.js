@@ -1,3 +1,4 @@
+import { requestLimiter } from './security/requestLimiter.js';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
@@ -58,6 +59,7 @@ import { startReminderJob } from './jobs/whatsapp-reminder.job.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 
 const app = express();
+if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY.split(',').map(value => value.trim()).filter(Boolean));
 
 // Middleware
 const allowedOrigins = [
@@ -105,7 +107,7 @@ app.use(tenantMiddleware);
 
 // Routes
 const authRoutes = express.Router();
-authRoutes.post('/login', login);
+authRoutes.post('/login', requestLimiter({ limit: 100, windowMs: 600000 }), requestLimiter({ limit: 10, windowMs: 600000, identity: req => [req.ip, String(req.body?.email || '').trim().toLowerCase()] }), login);
 authRoutes.post('/logout', logout);
 authRoutes.get('/me', protect, me);
 authRoutes.post('/refresh', refreshToken);
@@ -196,11 +198,11 @@ onlineRoutes.get('/categorias', getCategoriasOnline);
 onlineRoutes.get('/profissionais', getProfissionaisOnline);
 onlineRoutes.get('/disponibilidade', getDisponibilidadeOnline);
 onlineRoutes.post('/disponibilidade', getDisponibilidadeOnline);
-onlineRoutes.post('/auth/request-code', requestCode);
-onlineRoutes.post('/auth/validate-code', validateCode);
+onlineRoutes.post('/auth/request-code', requestLimiter({ limit: 30, windowMs: 600000 }), requestCode);
+onlineRoutes.post('/auth/validate-code', requestLimiter({ limit: 60, windowMs: 600000 }), validateCode);
 onlineRoutes.post('/auth/register', registrarCliente);
-onlineRoutes.post('/reservar', reservarHorario);
-onlineRoutes.post('/solicitar', solicitarAgendamento);
+onlineRoutes.post('/reservar', requestLimiter({ limit: 30, windowMs: 600000 }), reservarHorario);
+onlineRoutes.post('/solicitar', requestLimiter({ limit: 30, windowMs: 600000 }), solicitarAgendamento);
 app.use('/api/online', onlineRoutes);
 
 // Solicitações Online Routes (Painel Administrativo)
