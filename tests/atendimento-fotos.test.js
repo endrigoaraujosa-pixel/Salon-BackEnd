@@ -1,3 +1,5 @@
+import { decryptCredential } from '../src/security/credentialEncryption.js';
+process.env.B2_CREDENTIAL_ENCRYPTION_KEY = 'a'.repeat(64);
 import { test, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -236,12 +238,14 @@ test('configuração B2 salva nome e segredo, preserva senha e rejeita troca de 
   request.body = { b2_key_id: 'test-id', b2_key_name: 'Novo nome' };
   assert.equal((await call(saveB2Config, request)).statusCode, 200);
   let saved = await getConfiguracaoSistemaModel().unscoped().findOne();
-  assert.equal(saved.b2_application_key, 'fake-test-secret');
+  assert.notEqual(saved.b2_application_key, 'fake-test-secret');
+  assert.equal(decryptCredential(saved.b2_application_key), 'fake-test-secret');
   request.body.b2_key_id = 'different-id';
   assert.equal((await call(saveB2Config, request)).statusCode, 400);
   await call(saveConfiguracaoSistema, { body: { b2_application_key: 'injected' } });
   saved = await getConfiguracaoSistemaModel().unscoped().findOne();
-  assert.equal(saved.b2_application_key, 'fake-test-secret');
+  assert.notEqual(saved.b2_application_key, 'fake-test-secret');
+  assert.equal(decryptCredential(saved.b2_application_key), 'fake-test-secret');
   assert.equal((await getConfiguracaoSistemaModel().findOne()).b2_application_key, undefined);
 });
 

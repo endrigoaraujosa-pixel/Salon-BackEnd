@@ -1,3 +1,4 @@
+import { decryptCredential } from '../security/credentialEncryption.js';
 /** Armazenamento B2 por empresa. Credenciais permanecem no servidor; fotos guardam apenas destino e referências. */
 
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
@@ -15,7 +16,7 @@ export async function resolverB2(destino) {
   });
   const useDatabase = !!config?.b2_key_id;
   const keyId = useDatabase ? config.b2_key_id : process.env.B2_KEY_ID;
-  const applicationKey = useDatabase ? config.b2_application_key : process.env.B2_APPLICATION_KEY;
+  const applicationKey = useDatabase ? decryptCredential(config.b2_application_key) : process.env.B2_APPLICATION_KEY;
   if (!keyId || !applicationKey) throw Object.assign(new Error('Configure as credenciais B2 em Configurações → Gerais.'), { status: 503 });
   const resolved = validarDestinoB2(destino || destinoConfigurado(config));
   return { ...resolved, keyId, applicationKey };

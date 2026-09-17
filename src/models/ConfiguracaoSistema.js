@@ -16,7 +16,7 @@ const ConfiguracaoSistema = sequelize.define('ConfiguracaoSistema', {
   b2_bucket: { type: DataTypes.STRING(63), allowNull: true },
   b2_endpoint: { type: DataTypes.STRING(255), allowNull: true },
   b2_region: { type: DataTypes.STRING(40), allowNull: true },
-  b2_application_key: { type: DataTypes.STRING(255), allowNull: true },
+  b2_application_key: { type: DataTypes.TEXT, allowNull: true },
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,

@@ -1,3 +1,5 @@
+import { validateAccessSession } from '../security/sessions.js';
+import { isActiveUser } from '../security/accessPolicy.js';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import PerfilAcesso from '../models/PerfilAcesso.js';
@@ -19,14 +21,16 @@ const protect = async (req, res, next) => {
   try {    
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const activeTenant = getTenantSchema();
-    if (decoded.tenant && decoded.tenant !== activeTenant) {
+    if (decoded.tenant !== activeTenant) {
       return res.status(401).json({ detail: 'Acesso negado: Token inválido para esta sessão/empresa.' });
     }
     const user = await User.schema(activeTenant).findByPk(decoded.sub);
 
-    if (!user) {
+    if (!isActiveUser(user)) {
       return res.status(401).json({ detail: 'Usuário não encontrado' });
     }
+
+    if (!await validateAccessSession(decoded, user)) return res.status(401).json({ detail: 'Sessão expirada. Faça login novamente.' });
 
     const perfil = user.perfil_acesso_id ? await PerfilAcesso.schema(getTenantSchema()).findByPk(user.perfil_acesso_id) : null;
 
@@ -37,7 +41,7 @@ const protect = async (req, res, next) => {
       role: user.role,
       colaborador_id: user.colaborador_id,
       perfil_acesso_id: user.perfil_acesso_id,
-      perfil: perfil ? perfil.toJSON() : null,
+      perfil: perfil && perfil.ativo !== false && perfil.deletado !== 'S' ? perfil.toJSON() : null,
       ativo: user.ativo,
       pode_alterar_concluido: user.pode_alterar_concluido,
       pode_excluir_agendamento: user.pode_excluir_agendamento,

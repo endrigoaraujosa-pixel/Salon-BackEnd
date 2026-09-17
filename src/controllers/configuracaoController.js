@@ -1,3 +1,4 @@
+import { encryptCredential } from '../security/credentialEncryption.js';
 import { validarDestinoB2, destinoConfigurado } from '../services/b2Config.js';
 import { getTaxaCartaoModel } from '../models/TaxaCartao.js';
 import { getEmpresaModel } from '../models/Empresa.js';
@@ -382,7 +383,7 @@ const saveB2Config = async (req, res) => {
     if (!secret && !current && !envSecret)
       return res.status(400).json({ detail: 'Informe a Application Key correspondente a este keyID.' });
     const destino = validarDestinoB2(input.destino || destinoConfigurado(config));
-    const updates = { b2_bucket: destino.bucket, b2_endpoint: destino.endpoint, b2_region: destino.region, b2_key_id: id, b2_application_key: secret || current || envSecret,
+    const updates = { b2_bucket: destino.bucket, b2_endpoint: destino.endpoint, b2_region: destino.region, b2_key_id: id, b2_application_key: encryptCredential(secret || current || envSecret),
       b2_key_name: input.b2_key_name?.trim() || null };
     if (!config) config = await getConfiguracaoSistemaModel().create(updates);
     else await config.update(updates);
