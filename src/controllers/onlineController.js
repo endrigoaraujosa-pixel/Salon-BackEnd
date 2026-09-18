@@ -249,6 +249,129 @@ const slotConflicts = async (dataISO, duraMin, colaboradorId) => {
   return false;
 };
 
+/**
+ * Encontra o primeiro colaborador habilitado e livre para o horário e lista de serviços fornecida.
+ */
+export const findPrimeiroProfissionalDisponivel = async (dataHoraISO, duracaoTotal, servicoIds) => {
+  const Colaborador = getColaboradorModel();
+  const { getColaboradorComissaoServicoModel } = await import('../models/ColaboradorComissaoServico.js');
+  const ColabServico = getColaboradorComissaoServicoModel();
+  const { getColaboradorOnlineDisponibilidadeModel } = await import('../models/ColaboradorOnlineDisponibilidade.js');
+  const ColabDisp = getColaboradorOnlineDisponibilidadeModel();
+
+  const parts = String(dataHoraISO).split('T');
+  const dataStr = parts[0];
+  const timeStr = parts[1] || '00:00';
+  const horaStr = timeStr.substring(0, 5);
+
+  const [year, month, day] = dataStr.split('-').map(Number);
+  const dateObj = new Date(year, month - 1, day);
+  const diaSemana = dateObj.getDay();
+
+  const Disponibilidade = getAgendamentoOnlineDisponibilidadeModel();
+  const regraSalao = await Disponibilidade.findOne({
+    where: { dia_semana: diaSemana, ativo: true }
+  });
+  if (!regraSalao) return null;
+
+  const inicioSalaoMin = timeToMinutes(regraSalao.hora_inicio);
+  const fimSalaoMin = timeToMinutes(regraSalao.hora_fim);
+  const slotMin = timeToMinutes(horaStr);
+
+  const todosColabs = await Colaborador.findAll({
+    where: { ativo: true, deletado: 'N', agendamento_online_ativo: true },
+    attributes: ['id', 'nome'],
+    order: [['nome', 'ASC']]
+  });
+
+  for (const colab of todosColabs) {
+    const habilitado = await isColaboradorHabilitadoParaServicos(ColabServico, colab.id, servicoIds);
+    if (!habilitado) continue;
+
+    const dispColab = await ColabDisp.findOne({
+      where: { colaborador_id: colab.id, dia_semana: diaSemana, ativo: true }
+    });
+    const totalDispColab = await ColabDisp.count({ where: { colaborador_id: colab.id } });
+
+    let colabInicioMin, colabFimMin;
+    if (totalDispColab > 0) {
+      if (!dispColab) continue; // Colaborador não atende neste dia
+      colabInicioMin = timeToMinutes(dispColab.hora_inicio);
+      colabFimMin = timeToMinutes(dispColab.hora_fim);
+    } else {
+      colabInicioMin = inicioSalaoMin;
+      colabFimMin = fimSalaoMin;
+    }
+
+    if (slotMin < colabInicioMin || slotMin + duracaoTotal > colabFimMin) continue;
+
+    const conflito = await slotConflicts(dataHoraISO, duracaoTotal, colab.id);
+    if (!conflito) {
+      return colab;
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Verifica se um colaborador específico está habilitado e livre para o horário e lista de serviços fornecida.
+ */
+export const isColaboradorDisponivelNoSlot = async (colaboradorId, dataHoraISO, duracaoTotal, servicoIds) => {
+  const Colaborador = getColaboradorModel();
+  const prof = await Colaborador.findByPk(colaboradorId);
+  if (!prof || !prof.ativo || prof.deletado === 'S' || prof.agendamento_online_ativo === false) {
+    return false;
+  }
+
+  const { getColaboradorComissaoServicoModel } = await import('../models/ColaboradorComissaoServico.js');
+  const ColabServico = getColaboradorComissaoServicoModel();
+  const habilitado = await isColaboradorHabilitadoParaServicos(ColabServico, colaboradorId, servicoIds);
+  if (!habilitado) return false;
+
+  const parts = String(dataHoraISO).split('T');
+  const dataStr = parts[0];
+  const timeStr = parts[1] || '00:00';
+  const horaStr = timeStr.substring(0, 5);
+
+  const [year, month, day] = dataStr.split('-').map(Number);
+  const dateObj = new Date(year, month - 1, day);
+  const diaSemana = dateObj.getDay();
+
+  const Disponibilidade = getAgendamentoOnlineDisponibilidadeModel();
+  const regraSalao = await Disponibilidade.findOne({
+    where: { dia_semana: diaSemana, ativo: true }
+  });
+  if (!regraSalao) return false;
+
+  const inicioSalaoMin = timeToMinutes(regraSalao.hora_inicio);
+  const fimSalaoMin = timeToMinutes(regraSalao.hora_fim);
+  const slotMin = timeToMinutes(horaStr);
+
+  const { getColaboradorOnlineDisponibilidadeModel } = await import('../models/ColaboradorOnlineDisponibilidade.js');
+  const ColabDisp = getColaboradorOnlineDisponibilidadeModel();
+  const dispColab = await ColabDisp.findOne({
+    where: { colaborador_id: colaboradorId, dia_semana: diaSemana, ativo: true }
+  });
+  const totalDispColab = await ColabDisp.count({ where: { colaborador_id: colaboradorId } });
+
+  let colabInicioMin, colabFimMin;
+  if (totalDispColab > 0) {
+    if (!dispColab) return false;
+    colabInicioMin = timeToMinutes(dispColab.hora_inicio);
+    colabFimMin = timeToMinutes(dispColab.hora_fim);
+  } else {
+    colabInicioMin = inicioSalaoMin;
+    colabFimMin = fimSalaoMin;
+  }
+
+  if (slotMin < colabInicioMin || slotMin + duracaoTotal > colabFimMin) return false;
+
+  const conflito = await slotConflicts(dataHoraISO, duracaoTotal, colaboradorId);
+  return !conflito;
+};
+
+
 
 // ============================================================
 // ENDPOINTS PÚBLICOS
@@ -638,11 +761,37 @@ export const solicitarAgendamento = async (req, res) => {
     }
 
     const parsedServicos = typeof servicos === 'string' ? JSON.parse(servicos) : servicos;
+    const servicoIds = Array.isArray(parsedServicos)
+      ? parsedServicos.map(s => s.servico_id || s.id).filter(Boolean)
+      : [];
+
+    const Servico = getServicoModel();
+    let duracaoTotal = 0;
+    for (const sid of servicoIds) {
+      const s = await Servico.findByPk(sid).catch(() => null);
+      duracaoTotal += s?.duracao_minutos || 0;
+    }
+
+    let targetProfissionalId = profissional_id || solicitacao?.profissional_id || null;
+
+    if (!targetProfissionalId && servicoIds.length > 0) {
+      const colabLivre = await findPrimeiroProfissionalDisponivel(data_hora, duracaoTotal, servicoIds).catch(() => null);
+      if (colabLivre) {
+        targetProfissionalId = colabLivre.id;
+      }
+    }
+
+    const servicosComColab = Array.isArray(parsedServicos)
+      ? parsedServicos.map(s => ({
+          ...s,
+          colaborador_id: s.colaborador_id || targetProfissionalId
+        }))
+      : parsedServicos;
 
     const Config = getConfiguracaoSistemaModel();
     const sysConfig = await Config.findOne().catch(() => null);
     const maxServicos = sysConfig?.max_servicos_agendamento_online;
-    if (maxServicos && Number(maxServicos) > 0 && Array.isArray(parsedServicos) && parsedServicos.length > Number(maxServicos)) {
+    if (maxServicos && Number(maxServicos) > 0 && Array.isArray(servicosComColab) && servicosComColab.length > Number(maxServicos)) {
       return res.status(400).json({ detail: `Você pode selecionar no máximo ${maxServicos} serviço(s) por agendamento.` });
     }
     const dataToSave = {
@@ -650,8 +799,8 @@ export const solicitarAgendamento = async (req, res) => {
       nome_cliente: cliente_nome,
       telefone,
       data_hora_desejada: normalizeAgendaDateTime(data_hora),
-      servicos: parsedServicos,
-      profissional_id: profissional_id || null,
+      servicos: servicosComColab,
+      profissional_id: targetProfissionalId,
       observacoes: observacoes || '',
       status: 'pendente',
       data_expiracao_reserva: null
@@ -950,10 +1099,21 @@ export const reservarHorario = async (req, res) => {
     }
     if (duracaoTotal === 0) return res.status(400).json({ detail: 'Serviços não encontrados.' });
 
-    // Verificar se ainda está livre de conflitos
-    const conflito = await slotConflicts(data_hora, duracaoTotal, profissional_id || null);
-    if (conflito) {
-      return res.status(400).json({ detail: 'Este horário já não está mais disponível.' });
+    // Verificar se o profissional escolhido ou qualquer profissional está disponível
+    let targetProfissionalId = profissional_id || null;
+
+    if (targetProfissionalId) {
+      const disponivel = await isColaboradorDisponivelNoSlot(targetProfissionalId, data_hora, duracaoTotal, servicoIds);
+      if (!disponivel) {
+        return res.status(400).json({ detail: 'Este horário já não está mais disponível.' });
+      }
+    } else {
+      // Caso "Qualquer Profissional": atribui o primeiro profissional habilitado e livre no horário escolhido
+      const colabLivre = await findPrimeiroProfissionalDisponivel(data_hora, duracaoTotal, servicoIds);
+      if (!colabLivre) {
+        return res.status(400).json({ detail: 'Este horário já não está mais disponível.' });
+      }
+      targetProfissionalId = colabLivre.id;
     }
 
     // Criar a reserva temporária por 5 minutos
@@ -967,8 +1127,8 @@ export const reservarHorario = async (req, res) => {
       nome_cliente: 'Reserva Temporária',
       telefone: '00000000000',
       data_hora_desejada: normalizeAgendaDateTime(data_hora),
-      servicos: servicoIds.map(id => ({ servico_id: id })),
-      profissional_id: profissional_id || null,
+      servicos: servicoIds.map(id => ({ servico_id: id, colaborador_id: targetProfissionalId })),
+      profissional_id: targetProfissionalId,
       observacoes: '',
       status: 'reservado',
       data_expiracao_reserva
