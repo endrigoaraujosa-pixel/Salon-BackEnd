@@ -78,11 +78,33 @@ export const executarAprovacaoSolicitacao = async ({ solicitacao, transaction, r
   const profsMap = new Map();
   let valorTotal = 0;
 
+  let defaultColabId = solicitacao.profissional_id || null;
+  if (!defaultColabId && solicitacao.data_hora_desejada) {
+    const sIds = [];
+    let durTotal = 0;
+    for (const item of servicosList) {
+      const sId = item.servico_id || item.id;
+      if (sId) {
+        sIds.push(sId);
+        const s = await Servico.findByPk(sId, { transaction }).catch(() => null);
+        durTotal += s?.duracao_minutos || 0;
+      }
+    }
+    const { findPrimeiroProfissionalDisponivel } = await import('./onlineController.js');
+    const dataHoraStr = typeof solicitacao.data_hora_desejada === 'string'
+      ? solicitacao.data_hora_desejada
+      : new Date(solicitacao.data_hora_desejada).toISOString();
+    const colabLivre = await findPrimeiroProfissionalDisponivel(dataHoraStr, durTotal || 30, sIds);
+    if (colabLivre) {
+      defaultColabId = colabLivre.id;
+    }
+  }
+
   for (const item of servicosList) {
     const sId = item.servico_id || item.id;
     const s = sId ? await Servico.findByPk(sId, { transaction }) : null;
     const val = Number(s?.valor || item.valor || 0);
-    const colabId = item.colaborador_id || solicitacao.profissional_id || null;
+    const colabId = item.colaborador_id || defaultColabId || null;
 
     itens.push({
       servico_id: sId || null,
