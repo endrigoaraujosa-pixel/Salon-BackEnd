@@ -958,7 +958,7 @@ export const requestCode = async (req, res) => {
       try {
         const sendResult = await whatsappProvider.sendMessage(
           phoneDigits,
-          `Seu código de verificação para o agendamento online é: ${codigo_otp}. Ele expira em 10 minutos.`,
+          `Seu código de verificação para o agendamento online é: *${codigo_otp}*. Ele expira em 10 minutos.`,
           waConfig
         );
 
