@@ -270,7 +270,7 @@ export const rejeitarSolicitacao = async (req, res) => {
       const dataFmt = new Date(solicitacao.data_hora_desejada).toLocaleString('pt-BR', { timeZone: 'America/Recife' });
       await whatsappProvider.sendMessage(
         solicitacao.telefone, 
-        `Infelizmente não pudemos confirmar seu agendamento para o dia ${dataFmt}. Motivo: ${motivo}`, 
+        `Infelizmente não pudemos confirmar seu agendamento para o dia ${dataFmt}.`,
         waConfig
       );
     }
