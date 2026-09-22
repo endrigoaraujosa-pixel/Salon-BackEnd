@@ -253,122 +253,21 @@ const slotConflicts = async (dataISO, duraMin, colaboradorId) => {
  * Encontra o primeiro colaborador habilitado e livre para o horário e lista de serviços fornecida.
  */
 export const findPrimeiroProfissionalDisponivel = async (dataHoraISO, duracaoTotal, servicoIds) => {
-  const Colaborador = getColaboradorModel();
-  const { getColaboradorComissaoServicoModel } = await import('../models/ColaboradorComissaoServico.js');
-  const ColabServico = getColaboradorComissaoServicoModel();
-  const { getColaboradorOnlineDisponibilidadeModel } = await import('../models/ColaboradorOnlineDisponibilidade.js');
-  const ColabDisp = getColaboradorOnlineDisponibilidadeModel();
-
-  const parts = String(dataHoraISO).split('T');
-  const dataStr = parts[0];
-  const timeStr = parts[1] || '00:00';
-  const horaStr = timeStr.substring(0, 5);
-
-  const [year, month, day] = dataStr.split('-').map(Number);
-  const dateObj = new Date(year, month - 1, day);
-  const diaSemana = dateObj.getDay();
-
-  const Disponibilidade = getAgendamentoOnlineDisponibilidadeModel();
-  const regraSalao = await Disponibilidade.findOne({
-    where: { dia_semana: diaSemana, ativo: true }
-  });
-  if (!regraSalao) return null;
-
-  const inicioSalaoMin = timeToMinutes(regraSalao.hora_inicio);
-  const fimSalaoMin = timeToMinutes(regraSalao.hora_fim);
-  const slotMin = timeToMinutes(horaStr);
-
-  const todosColabs = await Colaborador.findAll({
-    where: { ativo: true, deletado: 'N', agendamento_online_ativo: true },
-    attributes: ['id', 'nome'],
-    order: [['nome', 'ASC']]
-  });
-
-  for (const colab of todosColabs) {
-    const habilitado = await isColaboradorHabilitadoParaServicos(ColabServico, colab.id, servicoIds);
-    if (!habilitado) continue;
-
-    const dispColab = await ColabDisp.findOne({
-      where: { colaborador_id: colab.id, dia_semana: diaSemana, ativo: true }
-    });
-    const totalDispColab = await ColabDisp.count({ where: { colaborador_id: colab.id } });
-
-    let colabInicioMin, colabFimMin;
-    if (totalDispColab > 0) {
-      if (!dispColab) continue; // Colaborador não atende neste dia
-      colabInicioMin = timeToMinutes(dispColab.hora_inicio);
-      colabFimMin = timeToMinutes(dispColab.hora_fim);
-    } else {
-      colabInicioMin = inicioSalaoMin;
-      colabFimMin = fimSalaoMin;
-    }
-
-    if (slotMin < colabInicioMin || slotMin + duracaoTotal > colabFimMin) continue;
-
-    const conflito = await slotConflicts(dataHoraISO, duracaoTotal, colab.id);
-    if (!conflito) {
-      return colab;
-    }
-  }
-
-  return null;
+  const resolvidos = await resolverServicosComProfissionais(
+    servicoIds, null, dataHoraISO, duracaoTotal
+  );
+  if (!resolvidos || resolvidos.length === 0) return null;
+  return getColaboradorModel().findByPk(resolvidos[0].colaborador_id);
 };
 
 /**
  * Verifica se um colaborador específico está habilitado e livre para o horário e lista de serviços fornecida.
  */
 export const isColaboradorDisponivelNoSlot = async (colaboradorId, dataHoraISO, duracaoTotal, servicoIds) => {
-  const Colaborador = getColaboradorModel();
-  const prof = await Colaborador.findByPk(colaboradorId);
-  if (!prof || !prof.ativo || prof.deletado === 'S' || prof.agendamento_online_ativo === false) {
-    return false;
-  }
-
-  const { getColaboradorComissaoServicoModel } = await import('../models/ColaboradorComissaoServico.js');
-  const ColabServico = getColaboradorComissaoServicoModel();
-  const habilitado = await isColaboradorHabilitadoParaServicos(ColabServico, colaboradorId, servicoIds);
-  if (!habilitado) return false;
-
-  const parts = String(dataHoraISO).split('T');
-  const dataStr = parts[0];
-  const timeStr = parts[1] || '00:00';
-  const horaStr = timeStr.substring(0, 5);
-
-  const [year, month, day] = dataStr.split('-').map(Number);
-  const dateObj = new Date(year, month - 1, day);
-  const diaSemana = dateObj.getDay();
-
-  const Disponibilidade = getAgendamentoOnlineDisponibilidadeModel();
-  const regraSalao = await Disponibilidade.findOne({
-    where: { dia_semana: diaSemana, ativo: true }
-  });
-  if (!regraSalao) return false;
-
-  const inicioSalaoMin = timeToMinutes(regraSalao.hora_inicio);
-  const fimSalaoMin = timeToMinutes(regraSalao.hora_fim);
-  const slotMin = timeToMinutes(horaStr);
-
-  const { getColaboradorOnlineDisponibilidadeModel } = await import('../models/ColaboradorOnlineDisponibilidade.js');
-  const ColabDisp = getColaboradorOnlineDisponibilidadeModel();
-  const dispColab = await ColabDisp.findOne({
-    where: { colaborador_id: colaboradorId, dia_semana: diaSemana, ativo: true }
-  });
-  const totalDispColab = await ColabDisp.count({ where: { colaborador_id: colaboradorId } });
-
-  let colabInicioMin, colabFimMin;
-  if (totalDispColab > 0) {
-    if (!dispColab) return false;
-    colabInicioMin = timeToMinutes(dispColab.hora_inicio);
-    colabFimMin = timeToMinutes(dispColab.hora_fim);
-  } else {
-    colabInicioMin = inicioSalaoMin;
-    colabFimMin = fimSalaoMin;
-  }
-
-  if (slotMin < colabInicioMin || slotMin + duracaoTotal > colabFimMin) return false;
-
-  const conflito = await slotConflicts(dataHoraISO, duracaoTotal, colaboradorId);
-  return !conflito;
+  const resolvidos = await resolverServicosComProfissionais(
+    servicoIds, colaboradorId, dataHoraISO, duracaoTotal
+  );
+  return Boolean(resolvidos && resolvidos.length === servicoIds.length);
 };
 
 
@@ -458,6 +357,132 @@ const isColaboradorHabilitadoParaServicos = async (ColabServico, colaboradorId, 
   return true;
 };
 
+// Mantém a regra histórica do agendamento online: um vínculo ausente significa
+// habilitado; somente agendamento_online_ativo=false desabilita explicitamente.
+const isColaboradorHabilitadoParaAlgumServico = async (ColabServico, colaboradorId, servicoIds) => {
+  if (!servicoIds || servicoIds.length === 0) return true;
+
+  const vinculos = await ColabServico.findAll({
+    where: {
+      colaborador_id: colaboradorId,
+      servico_id: { [Op.in]: servicoIds }
+    }
+  });
+  const desativados = new Set(
+    vinculos
+      .filter(v => v.agendamento_online_ativo === false)
+      .map(v => String(v.servico_id))
+  );
+
+  return servicoIds.some(servicoId => !desativados.has(String(servicoId)));
+};
+
+/**
+ * Resolve a cobertura profissional de todos os serviços para um slot.
+ * Prefere um único profissional; quando isso não é possível, associa cada
+ * serviço a um profissional habilitado e livre. Se o cliente escolheu um
+ * profissional, ele obrigatoriamente participa da resolução.
+ */
+export const resolverServicosComProfissionais = async (
+  servicoIds,
+  selectedProfId,
+  dataHoraISO,
+  duracaoTotal,
+  diaSemana = null,
+  regraSalao = null
+) => {
+  const ids = (servicoIds || []).filter(Boolean);
+  if (ids.length === 0) return [];
+
+  const Colaborador = getColaboradorModel();
+  const { getColaboradorComissaoServicoModel } = await import('../models/ColaboradorComissaoServico.js');
+  const ColabServico = getColaboradorComissaoServicoModel();
+  const { getColaboradorOnlineDisponibilidadeModel } = await import('../models/ColaboradorOnlineDisponibilidade.js');
+  const ColabDisp = getColaboradorOnlineDisponibilidadeModel();
+
+  const dataStr = String(dataHoraISO).split('T')[0];
+  const horaStr = (String(dataHoraISO).split('T')[1] || '00:00').substring(0, 5);
+  if (diaSemana === null || diaSemana === undefined) {
+    const [year, month, day] = dataStr.split('-').map(Number);
+    diaSemana = new Date(year, month - 1, day).getDay();
+  }
+  if (!regraSalao) {
+    const Disponibilidade = getAgendamentoOnlineDisponibilidadeModel();
+    regraSalao = await Disponibilidade.findOne({ where: { dia_semana: diaSemana, ativo: true } });
+  }
+  if (!regraSalao) return null;
+
+  const inicioSalaoMin = timeToMinutes(regraSalao.hora_inicio);
+  const fimSalaoMin = timeToMinutes(regraSalao.hora_fim);
+  const slotMin = timeToMinutes(horaStr);
+  if (slotMin < inicioSalaoMin || slotMin + duracaoTotal > fimSalaoMin) return null;
+
+  const colaboradores = await Colaborador.findAll({
+    where: { ativo: true, deletado: 'N', agendamento_online_ativo: true },
+    attributes: ['id', 'nome'],
+    order: [['nome', 'ASC']]
+  });
+
+  const candidatos = [];
+  for (const colaborador of colaboradores) {
+    const dispColab = await ColabDisp.findOne({
+      where: { colaborador_id: colaborador.id, dia_semana: diaSemana, ativo: true }
+    });
+    const totalDispColab = await ColabDisp.count({ where: { colaborador_id: colaborador.id } });
+    if (totalDispColab > 0 && !dispColab) continue;
+
+    const inicioMin = dispColab ? timeToMinutes(dispColab.hora_inicio) : inicioSalaoMin;
+    const fimMin = dispColab ? timeToMinutes(dispColab.hora_fim) : fimSalaoMin;
+    if (slotMin < inicioMin || slotMin + duracaoTotal > fimMin) continue;
+    if (await slotConflicts(dataHoraISO, duracaoTotal, colaborador.id)) continue;
+
+    const vinculos = await ColabServico.findAll({
+      where: { colaborador_id: colaborador.id, servico_id: { [Op.in]: ids } }
+    });
+    const desativados = new Set(
+      vinculos
+        .filter(v => v.agendamento_online_ativo === false)
+        .map(v => String(v.servico_id))
+    );
+    const habilitados = new Set(ids.filter(id => !desativados.has(String(id))).map(String));
+    if (habilitados.size > 0) candidatos.push({ colaborador, habilitados });
+  }
+
+  const selectedKey = selectedProfId ? String(selectedProfId) : null;
+  const selecionado = selectedKey
+    ? candidatos.find(c => String(c.colaborador.id) === selectedKey)
+    : null;
+  if (selectedKey && !selecionado) return null;
+
+  const cobreTodos = candidato => ids.every(id => candidato.habilitados.has(String(id)));
+  const candidatoUnico = (selecionado && cobreTodos(selecionado))
+    ? selecionado
+    : candidatos.find(cobreTodos);
+  if (candidatoUnico && (!selectedKey || String(candidatoUnico.colaborador.id) === selectedKey)) {
+    return ids.map(servicoId => ({
+      servico_id: servicoId,
+      colaborador_id: candidatoUnico.colaborador.id
+    }));
+  }
+
+  const resolvidos = [];
+  let selecionadoUsado = false;
+  for (const servicoId of ids) {
+    let candidato = null;
+    if (selecionado && selecionado.habilitados.has(String(servicoId))) {
+      candidato = selecionado;
+      selecionadoUsado = true;
+    } else {
+      candidato = candidatos.find(c => c.habilitados.has(String(servicoId)));
+    }
+    if (!candidato) return null;
+    resolvidos.push({ servico_id: servicoId, colaborador_id: candidato.colaborador.id });
+  }
+
+  if (selectedKey && !selecionadoUsado) return null;
+  return resolvidos;
+};
+
 export const getProfissionaisOnline = async (req, res) => {
   try {
     await checkOnlineAtivo();
@@ -487,7 +512,7 @@ export const getProfissionaisOnline = async (req, res) => {
         // Para cada colaborador, verificar se ele não possui nenhum dos serviços desativados explicitamente no agendamento online
         const filtrados = [];
         for (const prof of profissionais) {
-          const habilitado = await isColaboradorHabilitadoParaServicos(ColabServico, prof.id, servicoIds);
+          const habilitado = await isColaboradorHabilitadoParaAlgumServico(ColabServico, prof.id, servicoIds);
           if (habilitado) {
             filtrados.push(prof);
           }
@@ -629,9 +654,10 @@ export const getDisponibilidadeOnline = async (req, res) => {
         const slotDate = normalizeAgendaDateTime(dataHoraISO);
         if (slotDate <= now) continue;
 
-        // Verificar conflitos (agendamentos, solicitações pendentes e indisponibilidades)
-        const conflito = await slotConflicts(dataHoraISO, duracaoTotal, profissional_id);
-        if (!conflito) {
+        const resolvidos = await resolverServicosComProfissionais(
+          servicoIds, profissional_id, dataHoraISO, duracaoTotal, diaSemana, regraSalao
+        );
+        if (resolvidos) {
           slots.push(horaSlot);
         }
       }
@@ -640,25 +666,6 @@ export const getDisponibilidadeOnline = async (req, res) => {
     }
 
     // === CASO 2: "Qualquer Profissional" (profissional_id nulo) ===
-    // Identificar todos os colaboradores habilitados para os serviços selecionados e ativos no online
-    const todosColabs = await Colaborador.findAll({
-      where: { ativo: true, deletado: 'N', agendamento_online_ativo: true },
-      attributes: ['id']
-    });
-
-    // Filtrar por serviços: o colaborador não pode ter nenhum dos serviços requisitados desativados no agendamento online
-    const colabsHabilitados = [];
-    for (const colab of todosColabs) {
-      const habilitado = await isColaboradorHabilitadoParaServicos(ColabServico, colab.id, servicoIds);
-      if (habilitado) {
-        colabsHabilitados.push(colab.id);
-      }
-    }
-
-    if (colabsHabilitados.length === 0) {
-      return res.json({ horarios: [] }); // Nenhum profissional habilitado para esses serviços
-    }
-
     // Usar os limites do salão para gerar os slots
     const inicioSalaoMin = timeToMinutes(regraSalao.hora_inicio);
     const fimSalaoMin = timeToMinutes(regraSalao.hora_fim);
@@ -672,38 +679,10 @@ export const getDisponibilidadeOnline = async (req, res) => {
       const slotDate = normalizeAgendaDateTime(dataHoraISO);
       if (slotDate <= now) continue;
 
-      // Verificar se há pelo menos UM colaborador habilitado e livre nesse slot
-      let slotDisponivel = false;
-      for (const colabId of colabsHabilitados) {
-        // Verificar se o horário do slot está dentro da grade individual do colaborador
-        const dispColab = await ColabDisp.findOne({
-          where: { colaborador_id: colabId, dia_semana: diaSemana, ativo: true }
-        });
-        const totalDispColab = await ColabDisp.count({ where: { colaborador_id: colabId } });
-
-        let colabInicioMin, colabFimMin;
-        if (totalDispColab > 0) {
-          if (!dispColab) continue; // Colaborador fechado nesse dia
-          colabInicioMin = timeToMinutes(dispColab.hora_inicio);
-          colabFimMin = timeToMinutes(dispColab.hora_fim);
-        } else {
-          // Fallback: grade geral do salão
-          colabInicioMin = inicioSalaoMin;
-          colabFimMin = fimSalaoMin;
-        }
-
-        // Verificar se o slot cabe na grade desse colaborador
-        if (t < colabInicioMin || t + duracaoTotal > colabFimMin) continue;
-
-        // Verificar conflitos de agenda e indisponibilidade para esse colaborador
-        const conflito = await slotConflicts(dataHoraISO, duracaoTotal, colabId);
-        if (!conflito) {
-          slotDisponivel = true;
-          break; // Pelo menos um profissional disponível é suficiente
-        }
-      }
-
-      if (slotDisponivel) {
+      const resolvidos = await resolverServicosComProfissionais(
+        servicoIds, null, dataHoraISO, duracaoTotal, diaSemana, regraSalao
+      );
+      if (resolvidos) {
         slots.push(horaSlot);
       }
     }
@@ -760,7 +739,22 @@ export const solicitarAgendamento = async (req, res) => {
       }
     }
 
-    const parsedServicos = typeof servicos === 'string' ? JSON.parse(servicos) : servicos;
+    // A reserva temporária é a fonte de verdade da alocação por serviço. O
+    // frontend envia novamente apenas os IDs ao concluir o fluxo e não deve
+    // apagar os colaborador_id resolvidos no momento da reserva.
+    let parsedServicos = typeof servicos === 'string' ? JSON.parse(servicos) : servicos;
+    if (solicitacao?.servicos) {
+      try {
+        const servicosReservados = typeof solicitacao.servicos === 'string'
+          ? JSON.parse(solicitacao.servicos)
+          : solicitacao.servicos;
+        if (Array.isArray(servicosReservados) && servicosReservados.length > 0) {
+          parsedServicos = servicosReservados;
+        }
+      } catch (e) {
+        // Mantém os serviços recebidos apenas para reservas legadas inválidas.
+      }
+    }
     const servicoIds = Array.isArray(parsedServicos)
       ? parsedServicos.map(s => s.servico_id || s.id).filter(Boolean)
       : [];
@@ -1099,22 +1093,16 @@ export const reservarHorario = async (req, res) => {
     }
     if (duracaoTotal === 0) return res.status(400).json({ detail: 'Serviços não encontrados.' });
 
-    // Verificar se o profissional escolhido ou qualquer profissional está disponível
-    let targetProfissionalId = profissional_id || null;
-
-    if (targetProfissionalId) {
-      const disponivel = await isColaboradorDisponivelNoSlot(targetProfissionalId, data_hora, duracaoTotal, servicoIds);
-      if (!disponivel) {
-        return res.status(400).json({ detail: 'Este horário já não está mais disponível.' });
-      }
-    } else {
-      // Caso "Qualquer Profissional": atribui o primeiro profissional habilitado e livre no horário escolhido
-      const colabLivre = await findPrimeiroProfissionalDisponivel(data_hora, duracaoTotal, servicoIds);
-      if (!colabLivre) {
-        return res.status(400).json({ detail: 'Este horário já não está mais disponível.' });
-      }
-      targetProfissionalId = colabLivre.id;
+    const servicosResolvidos = await resolverServicosComProfissionais(
+      servicoIds, profissional_id || null, data_hora, duracaoTotal
+    );
+    if (!servicosResolvidos) {
+      return res.status(400).json({ detail: 'Este horário já não está mais disponível.' });
     }
+
+    const profissionaisResolvidos = [...new Set(servicosResolvidos.map(s => String(s.colaborador_id)))];
+    const targetProfissionalId = profissional_id
+      || (profissionaisResolvidos.length === 1 ? servicosResolvidos[0].colaborador_id : null);
 
     // Criar a reserva temporária por 5 minutos
     const Solicitacao = getAgendamentoOnlineSolicitacaoModel();
@@ -1127,7 +1115,7 @@ export const reservarHorario = async (req, res) => {
       nome_cliente: 'Reserva Temporária',
       telefone: '00000000000',
       data_hora_desejada: normalizeAgendaDateTime(data_hora),
-      servicos: servicoIds.map(id => ({ servico_id: id, colaborador_id: targetProfissionalId })),
+      servicos: servicosResolvidos,
       profissional_id: targetProfissionalId,
       observacoes: '',
       status: 'reservado',
