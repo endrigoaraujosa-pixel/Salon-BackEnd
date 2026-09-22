@@ -1,4 +1,5 @@
 import { randomInt } from 'node:crypto';
+import { normalizarNomeCliente, nomeClienteCompleto } from '../utils/nomeClienteOnline.js';
 import { issueOnlineProof, phoneProof, readOnlineProof, normalizePhone, otpDigest, matchesOtp } from '../security/onlineProof.js';
 import { Op } from 'sequelize';
 import { getServicoModel } from '../models/Servico.js';
@@ -700,7 +701,11 @@ export const solicitarAgendamento = async (req, res) => {
   try {
     await checkOnlineAtivo();
 
-    const { cliente_nome, telefone, data_hora, servicos, profissional_id, observacoes, solicitacaoId } = req.body;
+    const { cliente_nome: nomeRecebido, telefone, data_hora, servicos, profissional_id, observacoes, solicitacaoId } = req.body;
+    const cliente_nome = normalizarNomeCliente(nomeRecebido);
+    if (!nomeClienteCompleto(cliente_nome)) {
+      return res.status(400).json({ detail: 'Informe seu nome e sobrenome.' });
+    }
 
     if (!cliente_nome || !telefone || !data_hora || !servicos || servicos.length === 0) {
       return res.status(400).json({ detail: 'Campos obrigatórios: cliente_nome, telefone, data_hora, servicos.' });
@@ -953,7 +958,7 @@ export const requestCode = async (req, res) => {
       try {
         const sendResult = await whatsappProvider.sendMessage(
           phoneDigits,
-          `Seu código de verificação para o agendamento online é: ${codigo_otp}. Ele expira em 10 minutos.`,
+          `Seu código de verificação para o agendamento online é: *${codigo_otp}*. Ele expira em 10 minutos.`,
           waConfig
         );
 
@@ -1019,7 +1024,11 @@ export const validateCode = async (req, res) => {
 export const registrarCliente = async (req, res) => {
   try {
     await checkOnlineAtivo();
-    const { nome, telefone, email, cpf, data_nascimento } = req.body;
+    const { nome: nomeRecebido, telefone, email, cpf, data_nascimento } = req.body;
+    const nome = normalizarNomeCliente(nomeRecebido);
+    if (!nomeClienteCompleto(nome)) {
+      return res.status(400).json({ detail: 'Informe seu nome e sobrenome.' });
+    }
 
     if (!nome || !telefone) {
       return res.status(400).json({ detail: 'Nome e telefone são obrigatórios.' });
