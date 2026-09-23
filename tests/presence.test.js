@@ -71,8 +71,10 @@ test('protect requires a valid session and supplies its ID; body cannot imperson
 test('presence visibility follows users permission and never exposes credentials', async () => tenant('company_presence_a', async () => {
   const all = await status(admin);
   assert.equal(all.headers['Cache-Control'], 'no-store');
-  assert.deepEqual(all.body, [{ id: 'a', online: true }, { id: 'b', online: false }]);
-  assert.deepEqual((await status({ id: 'b', role: 'funcionario' })).body, [{ id: 'b', online: false }]);
+  assert.deepEqual(all.body.map(({ id, online }) => ({ id, online })), [{ id: 'a', online: true }, { id: 'b', online: false }]);
+  assert.ok(all.body.every(item => item.last_access_at));
+  assert.deepEqual(Object.keys(all.body[0]).sort(), ['id', 'last_access_at', 'online']);
+  assert.deepEqual((await status({ id: 'b', role: 'funcionario' })).body.map(({ id, online }) => ({ id, online })), [{ id: 'b', online: false }]);
   assert.equal((await status({ id: 'b', perfil: { permissoes: { 'usuarios.visualizar': true } } })).body.length, 2);
 }));
 
@@ -116,4 +118,15 @@ test('password changes, deactivation and deletion cannot leave a green indicator
   assert.equal((await status(admin)).body.find(u => u.id === 'b').online, false);
   await getUserModel().update({ deletado: 'S' }, { where: { id: 'b' } });
   assert.equal((await status(admin)).body.some(u => u.id === 'b'), false);
+}));
+
+test('last access survives logout and session deletion; never accessed users remain null', async () => tenant('company_presence_a', async () => {
+  const before = (await getUserModel().findByPk('a')).last_access_at;
+  assert.ok(before);
+  await getAuthSessionModel().destroy({ where: { user_id: 'a' } });
+  const record = (await status(admin)).body.find(u => u.id === 'a');
+  assert.equal(record.online, false);
+  assert.equal(new Date(record.last_access_at).getTime(), before.getTime());
+  await getUserModel().create({ id: 'never', email: 'never@example.invalid', password_hash: 'unused', ativo: true, deletado: 'N' });
+  assert.equal((await status(admin)).body.find(u => u.id === 'never').last_access_at, null);
 }));

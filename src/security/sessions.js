@@ -2,6 +2,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { Op } from 'sequelize';
 import { getAuthSessionModel } from '../models/AuthSession.js';
+import { getUserModel } from '../models/User.js';
 import { getTenantSchema } from '../config/tenantContext.js';
 import { sequelize } from '../config/db.js';
 
@@ -21,6 +22,10 @@ export async function createSession(user) {
     rotated_at: new Date(), expires_at: new Date(Date.now() + 86400000), previous_hash: null, revoked_at: null };
   const token = signRefresh(session);
   await model.create({ ...session, refresh_hash: hash(token) });
+  await getUserModel().update({ last_access_at: session.rotated_at }, { where: {
+    id: user.id,
+    [Op.or]: [{ last_access_at: null }, { last_access_at: { [Op.lt]: session.rotated_at } }]
+  } });
   return { sid: session.id, token };
 }
 export async function validateAccessSession(decoded, user) {

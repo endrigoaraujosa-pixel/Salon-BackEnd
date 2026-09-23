@@ -21,6 +21,10 @@ const User = sequelize.define('User', {
   name: {
     type: DataTypes.STRING(255)
   },
+  last_access_at: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
   role: {
     type: DataTypes.STRING(50),
     defaultValue: 'funcionario'
