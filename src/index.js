@@ -47,6 +47,7 @@ import {
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
 import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor } from './controllers/fornecedorController.js';
 import { createUser, deleteUser, listUsers, updateUser } from './controllers/userController.js';
+import { heartbeat, listPresence } from './controllers/presenceController.js';
 import { listarPerfis, obterPerfil, criarPerfil, atualizarPerfil, deletarPerfil } from './controllers/perfilAcessoController.js';
 import { listEntradas, getEntradaDetail, registrarEntrada, registrarAjusteInventario, listMovimentacoes, registrarMovimentacao, registrarInventarioAssistido, listProtocolos, autorizarZeragemEstoque } from './controllers/estoqueController.js';
 import { listMotivos, createMotivo, updateMotivo } from './controllers/motivoEstoqueController.js';
@@ -110,6 +111,7 @@ const authRoutes = express.Router();
 authRoutes.post('/login', requestLimiter({ limit: 100, windowMs: 600000 }), requestLimiter({ limit: 10, windowMs: 600000, identity: req => [req.ip, String(req.body?.email || '').trim().toLowerCase()] }), login);
 authRoutes.post('/logout', logout);
 authRoutes.get('/me', protect, me);
+authRoutes.post('/presence', protect, heartbeat);
 authRoutes.post('/refresh', refreshToken);
 app.use('/api/auth', authRoutes);
 
@@ -252,6 +254,7 @@ app.get('/api/relatorios/agendamentos-cancelados', protect, requirePermission('r
 // Users Routes
 const userRoutes = express.Router();
 userRoutes.get('/', protect, listUsers);
+userRoutes.get('/presence', protect, listPresence);
 userRoutes.post('/', protect, requirePermission('usuarios.criar'), createUser);
 userRoutes.put('/:id', protect, updateUser);
 userRoutes.delete('/:id', protect, requirePermission('usuarios.excluir'), deleteUser);
