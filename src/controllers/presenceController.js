@@ -11,10 +11,14 @@ export async function heartbeat(req, res) {
     const now = new Date();
     // Never accept user/session IDs or timestamps from the client. Conditional
     // UPDATE also limits writes from multiple tabs to once every 20 seconds.
-    await getAuthSessionModel().update({ last_seen_at: now }, { where: {
+    const [updated] = await getAuthSessionModel().update({ last_seen_at: now }, { where: {
       id: req.authSessionId, user_id: req.user.id,
       revoked_at: null, expires_at: { [Op.gt]: now },
       [Op.or]: [{ last_seen_at: null }, { last_seen_at: { [Op.lt]: new Date(now.getTime() - 20000) } }]
+    } });
+    if (updated) await getUserModel().update({ last_access_at: now }, { where: {
+      id: req.user.id,
+      [Op.or]: [{ last_access_at: null }, { last_access_at: { [Op.lt]: now } }]
     } });
     res.set('Cache-Control', 'no-store');
     return res.status(204).end();
@@ -30,7 +34,7 @@ export async function listPresence(req, res) {
     const viewAll = req.user.role === 'admin' || req.user.perfil?.permissoes?.['usuarios.visualizar'] === true;
     const users = await getUserModel().findAll({
       where: { deletado: 'N', ...(viewAll ? {} : { id: req.user.id }) },
-      attributes: ['id', 'ativo', 'password_hash']
+      attributes: ['id', 'ativo', 'password_hash', 'last_access_at']
     });
     const now = new Date();
     const sessions = users.length ? await getAuthSessionModel().findAll({ where: {
@@ -44,7 +48,7 @@ export async function listPresence(req, res) {
       return user?.ativo !== false && sessionValid(session, user);
     }).map(session => session.user_id));
     res.set('Cache-Control', 'no-store');
-    return res.json(users.map(user => ({ id: user.id, online: online.has(user.id) })));
+    return res.json(users.map(user => ({ id: user.id, online: online.has(user.id), last_access_at: user.last_access_at || null })));
   } catch {
     return res.status(503).json({ detail: 'Presença temporariamente indisponível.' });
   }

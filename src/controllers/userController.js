@@ -16,7 +16,7 @@ const listUsers = async (req, res) => {
 
     const users = await getUserModel().findAll({
       where: whereClause,
-      attributes: ['id', 'name', 'email', 'role', 'perfil_acesso_id', 'colaborador_id', 'ativo', 'pode_alterar_concluido', 'pode_excluir_agendamento', 'pode_excluir_pagamento', 'created_at'],
+      attributes: ['id', 'name', 'email', 'role', 'perfil_acesso_id', 'colaborador_id', 'ativo', 'pode_alterar_concluido', 'pode_excluir_agendamento', 'pode_excluir_pagamento', 'created_at', 'last_access_at'],
       order: [['name', 'ASC']]
     });
     res.json(users);
