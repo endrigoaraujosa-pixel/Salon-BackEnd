@@ -113,13 +113,13 @@ test('provas de telefone e reserva são vinculadas à finalidade e à empresa', 
 
 test('cadastro público bloqueia alteração sem prova e não expõe dados sem verificação', async () => tenant(async () => {
   const client = await getClienteModel().create({ id: 'client', nome: 'Original', telefone: '85999999999', email: 'private@example.invalid', deletado: 'N' });
-  const body = { nome: 'Attacker', telefone: client.telefone, email: 'attacker@example.invalid' };
+  const body = { nome: 'Attacker Test', telefone: client.telefone, email: 'attacker@example.invalid' };
   assert.equal((await call(online.registrarCliente, { body })).statusCode, 403);
   const result = await call(online.registrarCliente, { body: { ...body, online_token: issueOnlineProof('phone', { phone: client.telefone, verified: false }) } });
   assert.equal(result.statusCode, 200);
   assert.equal(JSON.stringify(result.body).includes('private@example.invalid'), false);
   assert.equal((await client.reload()).nome, 'Original');
-  assert.equal((await call(online.solicitarAgendamento, { body: { cliente_nome: 'X', telefone: client.telefone, data_hora: '2027-01-01T10:00:00', servicos: ['x'] } })).statusCode, 403);
+  assert.equal((await call(online.solicitarAgendamento, { body: { cliente_nome: 'Cliente Teste', telefone: client.telefone, data_hora: '2027-01-01T10:00:00', servicos: ['x'] } })).statusCode, 403);
 }));
 
 test('OTP permite cinco tentativas, consome código e emite prova sem enviar mensagens reais', async () => tenant(async () => {

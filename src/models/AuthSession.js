@@ -9,6 +9,7 @@ const AuthSession = sequelize.define('AuthSession', {
   previous_hash: DataTypes.STRING(64),
   rotated_at: DataTypes.DATE,
   expires_at: DataTypes.DATE,
-  revoked_at: DataTypes.DATE
+  revoked_at: DataTypes.DATE,
+  last_seen_at: DataTypes.DATE
 }, { tableName: 'auth_sessions', timestamps: false });
 export const getAuthSessionModel = () => AuthSession.schema(getTenantSchema());

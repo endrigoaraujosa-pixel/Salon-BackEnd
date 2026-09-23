@@ -32,6 +32,7 @@ const protect = async (req, res, next) => {
 
     if (!await validateAccessSession(decoded, user)) return res.status(401).json({ detail: 'Sessão expirada. Faça login novamente.' });
 
+    req.authSessionId = decoded.sid;
     const perfil = user.perfil_acesso_id ? await PerfilAcesso.schema(getTenantSchema()).findByPk(user.perfil_acesso_id) : null;
 
     req.user = {
