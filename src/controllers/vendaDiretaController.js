@@ -1,3 +1,4 @@
+import { calculateCardFee } from '../services/reportCardFees.js';
 import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
@@ -479,7 +480,7 @@ const addPagamentos = async (req, res) => {
         }
 
         if (cartao_taxa_percentual !== null) {
-          cartao_taxa_valor = Number(((p.valor * cartao_taxa_percentual) / 100).toFixed(2));
+          cartao_taxa_valor = calculateCardFee(p.valor, cartao_taxa_percentual);
           valor_liquido = Number((p.valor - cartao_taxa_valor).toFixed(2));
         }
 
@@ -492,14 +493,14 @@ const addPagamentos = async (req, res) => {
           cartao_tipo = 'credito';
           cartao_parcelas = Math.min(12, Math.max(1, parseInt(p.parcelas) || 1));
           cartao_taxa_percentual = 2.5;
-          cartao_taxa_valor = Number(((p.valor * 2.5) / 100).toFixed(2));
+          cartao_taxa_valor = calculateCardFee(p.valor, 2.5);
           valor_liquido = Number((p.valor - cartao_taxa_valor).toFixed(2));
           const prevDate = new Date();
           data_recebimento_prevista = prevDate;
         } else if (p.forma_pagamento === 'cartao_debito') {
           cartao_tipo = 'debito';
           cartao_taxa_percentual = 1.5;
-          cartao_taxa_valor = Number(((p.valor * 1.5) / 100).toFixed(2));
+          cartao_taxa_valor = calculateCardFee(p.valor, 1.5);
           valor_liquido = Number((p.valor - cartao_taxa_valor).toFixed(2));
           const prevDate = new Date();
           data_recebimento_prevista = prevDate;
@@ -725,7 +726,7 @@ const updatePagamento = async (req, res) => {
       }
 
       if (cartao_taxa_percentual !== null) {
-        cartao_taxa_valor = Number(((novoValorNet * cartao_taxa_percentual) / 100).toFixed(2));
+        cartao_taxa_valor = calculateCardFee(novoValorNet, cartao_taxa_percentual);
         valor_liquido = Number((novoValorNet - cartao_taxa_valor).toFixed(2));
       }
 
@@ -738,14 +739,14 @@ const updatePagamento = async (req, res) => {
         cartao_tipo = 'credito';
         cartao_parcelas = Math.min(12, Math.max(1, parseInt(req.body.parcelas) || 1));
         cartao_taxa_percentual = 2.5;
-        cartao_taxa_valor = Number(((novoValorNet * 2.5) / 100).toFixed(2));
+        cartao_taxa_valor = calculateCardFee(novoValorNet, 2.5);
         valor_liquido = Number((novoValorNet - cartao_taxa_valor).toFixed(2));
         const prevDate = new Date();
         data_recebimento_prevista = prevDate;
       } else if (forma_pagamento === 'cartao_debito') {
         cartao_tipo = 'debito';
         cartao_taxa_percentual = 1.5;
-        cartao_taxa_valor = Number(((novoValorNet * 1.5) / 100).toFixed(2));
+        cartao_taxa_valor = calculateCardFee(novoValorNet, 1.5);
         valor_liquido = Number((novoValorNet - cartao_taxa_valor).toFixed(2));
         const prevDate = new Date();
         data_recebimento_prevista = prevDate;
