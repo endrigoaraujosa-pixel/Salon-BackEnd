@@ -1,3 +1,5 @@
+import { allocateCardFees, calculateCardFee } from '../services/reportCardFees.js';
+import { buildDre, validDrePeriod } from '../services/dre.js';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/db.js';
 import { getColaboradorModel } from '../models/Colaborador.js';
@@ -54,7 +56,7 @@ const calculatePaymentFee = (p, rates) => {
     } else {
       percentual = Number(rate.percentual || 0);
     }
-    const taxa_valor = Number(((p.valor * percentual) / 100).toFixed(2));
+    const taxa_valor = calculateCardFee(p.valor, percentual);
     return {
       taxa_valor,
       taxa_percentual: percentual
@@ -64,7 +66,7 @@ const calculatePaymentFee = (p, rates) => {
   // If no rate is configured, fall back to defaults
   const tipo = p.cartao_tipo || (p.forma_pagamento === 'cartao_credito' ? 'credito' : p.forma_pagamento === 'cartao_debito' ? 'debito' : null);
   const percentual = tipo === 'credito' ? 2.5 : 1.5;
-  const taxa_valor = Number(((p.valor * percentual) / 100).toFixed(2));
+  const taxa_valor = calculateCardFee(p.valor, percentual);
   return {
     taxa_valor,
     taxa_percentual: percentual
@@ -663,383 +665,46 @@ const dashboardDetail = async (req, res) => {
 
 
 const relatorioDre = async (req, res) => {
-  const { data_inicio, data_fim, categoria, status } = req.query;
-  const todayStr = new Date().toLocaleDateString('en-CA');
-  const now = new Date();
-
+  const { data_inicio, data_fim, categoria, status = 'todos' } = req.query;
+  if (!validDrePeriod(data_inicio, data_fim)) {
+    return res.status(400).json({ detail: 'Informe um período válido (AAAA-MM-DD), com início anterior ou igual ao fim.' });
+  }
+  if (!['todos', 'pago', 'pendente', 'vencido'].includes(status)) {
+    return res.status(400).json({ detail: 'Situação financeira inválida para o DRE.' });
+  }
   try {
-    // Resolve dynamic categories mapping
-    const categories = await getCategoriaModel().findAll({ where: { deletado: 'N' } });
-    const categoryMap = {}; // id -> name
-    const categoryMapByName = {}; // name -> id
-    categories.forEach(c => {
-      categoryMap[c.id] = c.nome;
-      categoryMapByName[c.nome.toLowerCase()] = c.id;
-    });
-
-    let targetCatId = null;
-    let targetCatName = null;
-    if (categoria && categoria !== 'todos') {
-      if (categoryMap[categoria]) {
-        targetCatId = categoria;
-        targetCatName = categoryMap[categoria];
-      } else if (categoryMapByName[categoria.toLowerCase()]) {
-        targetCatId = categoryMapByName[categoria.toLowerCase()];
-        targetCatName = categoria;
-      } else {
-        targetCatName = categoria;
-      }
-    }
-
-    // ---------------------------------------------
-    // 1. REVENUE: SERVICES (AGENDAMENTOS)
-    // ---------------------------------------------
-    const agsWhere = {
-      data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
-      deletado: 'N'
-    };
-
-    if (status && status !== 'todos') {
-      if (status === 'pago') {
-        agsWhere.status = 'concluido';
-      } else if (status === 'pendente') {
-        agsWhere.status = { [Op.in]: ['agendado', 'confirmado'] };
-        agsWhere.data_hora = { [Op.gte]: now };
-      } else if (status === 'vencido') {
-        agsWhere.status = { [Op.in]: ['agendado', 'confirmado'] };
-        agsWhere.data_hora = { [Op.lt]: now };
-      } else if (status === 'cancelado') {
-        agsWhere.status = 'cancelado';
-      }
-    } else {
-      // Default to completed services for actual standard DRE faturamento
-      agsWhere.status = 'concluido';
-    }
-
-    let ags = await getAgendamentoModel().findAll({ where: agsWhere });
-
-    // Category filter for Agendamento services
-    if (targetCatId || targetCatName) {
-      ags = ags.filter(a => {
-        let items = [];
-        try {
-          items = typeof a.itens === 'string' ? JSON.parse(a.itens) : a.itens;
-        } catch (e) {
-          items = a.itens || [];
-        }
-        return Array.isArray(items) && items.some(item => {
-          const itemCatId = item.categoria_id;
-          const itemCatName = categoryMap[itemCatId];
-          if (targetCatId && String(itemCatId) === String(targetCatId)) return true;
-          if (targetCatName && itemCatName && itemCatName.toLowerCase() === targetCatName.toLowerCase()) return true;
-          return false;
-        });
-      });
-    }
-
-    const receitaServicos = ags.reduce((acc, a) => acc + (a.valor_pago || a.valor_total || 0), 0);
-
-    // ---------------------------------------------
-    // 2. REVENUE: DIRECT SALES (VENDAS DIRETAS)
-    // ---------------------------------------------
-    const vendasWhere = {
-      data_venda: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
-      deletado: 'N'
-    };
-
-    if (status && status !== 'todos') {
-      if (status === 'pago') {
-        vendasWhere.status = 'pago';
-      } else if (status === 'pendente') {
-        vendasWhere.status = { [Op.in]: ['aberto', 'pendente'] };
-        vendasWhere.data_venda = { [Op.gte]: todayStr };
-      } else if (status === 'vencido') {
-        vendasWhere.status = { [Op.in]: ['aberto', 'pendente'] };
-        vendasWhere.data_venda = { [Op.lt]: todayStr };
-      } else if (status === 'cancelado') {
-        vendasWhere.status = 'cancelado';
-      }
-    } else {
-      vendasWhere.status = 'pago';
-    }
-
-    let vendas = await getVendaDiretaModel().findAll({ where: vendasWhere });
-
-    // Fetch and filter by product category in memory if requested
-    const productIds = [...new Set(vendas.map(v => v.produto_id))];
-    const products = productIds.length > 0 ? await getProdutoModel().findAll({ where: { id: { [Op.in]: productIds } } }) : [];
-    const productsMap = new Map(products.map(p => [p.id, p]));
-
-    if (targetCatId || targetCatName) {
-      vendas = vendas.filter(v => {
-        const prod = productsMap.get(v.produto_id);
-        if (!prod) return false;
-        const prodCatId = prod.categoria_id;
-        const prodCatName = prod.categoria || categoryMap[prodCatId];
-        if (targetCatId && String(prodCatId) === String(targetCatId)) return true;
-        if (targetCatName && prodCatName && prodCatName.toLowerCase() === targetCatName.toLowerCase()) return true;
-        return false;
-      });
-    }
-
-    const receitaVendas = vendas.reduce((acc, v) => acc + (v.valor_pago || v.valor_total || 0), 0);
-
-    let custoProdutos = 0;
-    for (const v of vendas) {
-      let saleCost = 0;
-      const itens = Array.isArray(v.itens) && v.itens.length > 0 ? v.itens : [];
-      if (itens.length > 0) {
-        for (const item of itens) {
-          if (item.custo_unitario !== undefined && item.custo_unitario !== null) {
-            saleCost += Number(item.quantidade) * Number(item.custo_unitario);
-          } else {
-            const prod = productsMap.get(item.produto_id);
-            saleCost += Number(item.quantidade) * (prod ? Number(prod.custo_unitario || 0) : 0);
-          }
-        }
-      } else {
-        const prod = productsMap.get(v.produto_id);
-        saleCost += Number(v.quantidade || 0) * (prod ? Number(prod.custo_unitario || 0) : 0);
-      }
-      custoProdutos += saleCost;
-    }
-
-    // ---------------------------------------------
-    // 3. REVENUE: OTHER REVENUES (OUTRAS RECEITAS)
-    // ---------------------------------------------
-    const oReceitasWhere = {
-      deletado: 'N'
-    };
-
-    // If filter status is 'pago' / 'recebido', we look at data_recebimento. Otherwise data_vencimento
-    if (status === 'pago') {
-      oReceitasWhere.recebido = true;
-      oReceitasWhere.data_recebimento = { [Op.between]: [data_inicio, data_fim] };
-    } else if (status === 'pendente') {
-      oReceitasWhere.recebido = false;
-      oReceitasWhere.status = 'Aberto';
-      oReceitasWhere[Op.and] = [
-        { data_vencimento: { [Op.between]: [data_inicio, data_fim] } },
-        { data_vencimento: { [Op.gte]: todayStr } }
-      ];
-    } else if (status === 'vencido') {
-      oReceitasWhere.recebido = false;
-      oReceitasWhere.status = 'Aberto';
-      oReceitasWhere[Op.and] = [
-        { data_vencimento: { [Op.between]: [data_inicio, data_fim] } },
-        { data_vencimento: { [Op.lt]: todayStr } }
-      ];
-    } else if (status === 'cancelado') {
-      oReceitasWhere.status = 'Cancelado';
-      oReceitasWhere.data_vencimento = { [Op.between]: [data_inicio, data_fim] };
-    } else {
-      // All statuses — match by vencimento OR recebimento in period
-      oReceitasWhere[Op.or] = [
-        { data_vencimento: { [Op.between]: [data_inicio, data_fim] } },
-        { data_recebimento: { [Op.between]: [data_inicio, data_fim] } }
-      ];
-    }
-
-    if (targetCatName) {
-      oReceitasWhere.categoria = targetCatName;
-    }
-
-    const oReceitas = await getOutrasReceitasModel().findAll({ where: oReceitasWhere });
-    const outrasReceitas = oReceitas.reduce((acc, r) => acc + (r.valor || 0), 0);
-
-    const receitaBruta = receitaServicos + receitaVendas + outrasReceitas;
-
-    // ---------------------------------------------
-    // 4. EXPENSES: PAYABLES (DESPESAS)
-    // ---------------------------------------------
-    const despesasWhere = {
-      deletado: 'N'
-    };
-
-    if (status === 'pago') {
-      despesasWhere.pago = true;
-      despesasWhere.data_pagamento = { [Op.between]: [data_inicio, data_fim] };
-    } else if (status === 'pendente') {
-      despesasWhere.pago = false;
-      despesasWhere.status = 'Aberto';
-      despesasWhere[Op.and] = [
-        { data_vencimento: { [Op.between]: [data_inicio, data_fim] } },
-        { data_vencimento: { [Op.gte]: todayStr } }
-      ];
-    } else if (status === 'vencido') {
-      despesasWhere.pago = false;
-      despesasWhere.status = 'Aberto';
-      despesasWhere[Op.and] = [
-        { data_vencimento: { [Op.between]: [data_inicio, data_fim] } },
-        { data_vencimento: { [Op.lt]: todayStr } }
-      ];
-    } else if (status === 'cancelado') {
-      despesasWhere.status = 'Cancelado';
-      despesasWhere.data_vencimento = { [Op.between]: [data_inicio, data_fim] };
-    } else {
-      // All — match by vencimento OR pagamento in period
-      despesasWhere[Op.or] = [
-        { data_vencimento: { [Op.between]: [data_inicio, data_fim] } },
-        { data_pagamento: { [Op.between]: [data_inicio, data_fim] } }
-      ];
-    }
-
-    if (targetCatName) {
-      despesasWhere.categoria = targetCatName;
-    }
-
-    const despesas = await getDespesaModel().findAll({ where: despesasWhere });
-    const despesasFixas = despesas.filter(d => d.tipo === 'fixo').reduce((acc, d) => acc + (d.valor || 0), 0);
-    const despesasVariaveis = despesas.filter(d => d.tipo === 'variavel').reduce((acc, d) => acc + (d.valor || 0), 0);
-
-    // Grouping category breakdown list for Despesas & Outras Receitas
-    const despesasPorCategoria = {};
-    const receitasPorCategoria = {};
-
-    despesas.forEach(d => {
-      const cat = d.categoria || 'Geral';
-      despesasPorCategoria[cat] = (despesasPorCategoria[cat] || 0) + (d.valor || 0);
-    });
-
-    oReceitas.forEach(r => {
-      const cat = r.categoria || 'Geral';
-      receitasPorCategoria[cat] = (receitasPorCategoria[cat] || 0) + (r.valor || 0);
-    });
-
-    // ---------------------------------------------
-    // 5. TRANSACTION FEES (TAXAS DE CARTÃO)
-    // ---------------------------------------------
-    let rates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' } });
-    if (rates.length === 0) {
-      await getTaxaCartaoModel().bulkCreate([
-        { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true },
-        { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true }
-      ]);
-      rates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' } });
-    }
-    const defaultCreditoRate = rates.find(r => r.forma_pagamento === 'cartao_credito');
-    const defaultDebitoRate = rates.find(r => r.forma_pagamento === 'cartao_debito');
-    const creditoDias = defaultCreditoRate ? (defaultCreditoRate.dias_recebimento || 0) : 30;
-    const debitoDias = defaultDebitoRate ? (defaultDebitoRate.dias_recebimento || 0) : 1;
-
-    const payments = await getPagamentoModel().findAll({
-      where: {
-        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
-        deletado: 'N'
-      }
-    });
-
-    const cardPayments = payments.filter(p => isCardPayment(p, rates));
-
-    const taxasCredito = cardPayments
-      .filter(p => {
-        const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
-        const tipo = rate?.tipo_cartao || p.cartao_tipo || (p.forma_pagamento === 'cartao_credito' ? 'credito' : 'debito');
-        return tipo === 'credito';
-      })
-      .reduce((acc, p) => acc + calculatePaymentFee(p, rates).taxa_valor, 0);
-
-    const taxasDebito = cardPayments
-      .filter(p => {
-        const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
-        const tipo = rate?.tipo_cartao || p.cartao_tipo || (p.forma_pagamento === 'cartao_debito' ? 'debito' : null);
-        return tipo === 'debito';
-      })
-      .reduce((acc, p) => acc + calculatePaymentFee(p, rates).taxa_valor, 0);
-
-    const taxasTotal = taxasCredito + taxasDebito;
-
-    // Calcular Prazo Médio de Recebimento (PMR) ponderado
-    let totalWeightedDays = 0;
-    let totalPaymentVolume = 0;
-    payments.forEach(p => {
-      let dias = 0;
-      if (isCardPayment(p, rates)) {
-        const rate = rates.find(r => r.forma_pagamento === p.forma_pagamento);
-        const tipo = rate?.tipo_cartao || p.cartao_tipo || (p.forma_pagamento === 'cartao_credito' ? 'credito' : 'debito');
-        if (tipo === 'credito') {
-          dias = rate ? (rate.dias_recebimento !== null && rate.dias_recebimento !== undefined ? rate.dias_recebimento : 30) : creditoDias;
-        } else {
-          dias = rate ? (rate.dias_recebimento !== null && rate.dias_recebimento !== undefined ? rate.dias_recebimento : 1) : debitoDias;
-        }
-      }
-      totalWeightedDays += p.valor * dias;
-      totalPaymentVolume += p.valor;
-    });
-    const pmr = totalPaymentVolume > 0 ? Math.round(totalWeightedDays / totalPaymentVolume) : 0;
-
-    const despesasOperacionais = despesasFixas + despesasVariaveis + taxasTotal;
-    const lucroBruto = receitaBruta - custoProdutos;
-    const lucroLiquido = lucroBruto - despesasOperacionais;
-
-    // Standardized DRE output structure
-    res.json({
-      data_inicio,
-      data_fim,
-      receita_servicos: receitaServicos,
-      receita_vendas_diretas: receitaVendas,
-      outras_receitas: outrasReceitas,
-      receita_bruta: receitaBruta,
-      custo_produtos: custoProdutos,
-      lucro_bruto: lucroBruto,
-      despesas: {
-        bold: false,
-        fixas: despesasFixas,
-        variaveis: despesasVariaveis
-      },
-      taxas_cartao: {
-        credito: taxasCredito,
-        debito: taxasDebito,
-        total: taxasTotal,
-        credito_dias: creditoDias,
-        debito_dias: debitoDias,
-        pmr: pmr
-      },
-      despesas_operacionais: despesasOperacionais,
-      lucro_liquido: lucroLiquido,
-      total_atendimentos: ags.length,
-      total_vendas_diretas: vendas.length,
-      detalhes: {
-        agendamentos: ags.map(a => ({
-          id: a.id,
-          descricao: `Serviço: ${a.cliente_nome || 'Consumidor'} (#${a.numero || 'N/A'})`,
-          valor: a.valor_pago || a.valor_total || 0,
-          data: a.data_hora ? (a.data_hora instanceof Date ? a.data_hora.toISOString() : String(a.data_hora)).split('T')[0] : '',
-          categoria: 'Serviço',
-          status: a.status
-        })),
-        vendas: vendas.map(v => ({
-          id: v.id,
-          descricao: `Venda Direta: ${v.produto_nome} (#${v.numero_venda || 'N/A'})`,
-          valor: v.valor_pago || v.valor_total || 0,
-          data: v.data_venda ? (v.data_venda instanceof Date ? v.data_venda.toISOString() : String(v.data_venda)).split('T')[0] : '',
-          categoria: 'Venda de Produto',
-          status: v.status
-        })),
-        outras_receitas: oReceitas.map(r => ({
-          id: r.id,
-          descricao: r.descricao,
-          valor: r.valor,
-          data: r.data_recebimento || r.data_vencimento || r.data_documento || '',
-          categoria: r.categoria || 'Outros',
-          status: r.status
-        })),
-        despesas: despesas.map(d => ({
-          id: d.id,
-          descricao: d.descricao,
-          valor: d.valor,
-          data: d.data_pagamento || d.data_vencimento || d.data_documento || '',
-          categoria: d.categoria || 'Geral',
-          tipo: d.tipo,
-          status: d.status
-        }))
-      },
-      despesas_por_categoria: despesasPorCategoria,
-      receitas_por_categoria: receitasPorCategoria
-    });
+    const endExclusive = new Date(`${data_fim}T00:00:00Z`);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    const period = { [Op.gte]: `${data_inicio}T00:00:00`, [Op.lt]: `${endExclusive.toISOString().slice(0, 10)}T00:00:00` };
+    const active = { deletado: 'N' };
+    // Document date is the available competence proxy; payment date must not
+    // recognize the same expense again in a later month.
+    const financialPeriod = { ...active, [Op.or]: [
+      { data_documento: { [Op.between]: [data_inicio, `${data_fim}T23:59:59.999`] } },
+      { [Op.and]: [
+        { [Op.or]: [{ data_documento: '' }, { data_documento: null }] },
+        { data_vencimento: { [Op.between]: [data_inicio, `${data_fim}T23:59:59.999`] } }
+      ] }
+    ] };
+    const [agendamentos, vendas, despesas, receitas, produtos, servicos, colaboradores, categorias, taxas, comissoes, config] = await Promise.all([
+      getAgendamentoModel().findAll({ where: { ...active, status: 'concluido', data_hora: period } }),
+      getVendaDiretaModel().findAll({ where: { ...active, status: 'pago', data_venda: period } }),
+      getDespesaModel().findAll({ where: financialPeriod }),
+      getOutrasReceitasModel().findAll({ where: financialPeriod }),
+      // Deleted catalog entries can still be referenced by historical sales.
+      getProdutoModel().findAll(), getServicoModel().findAll(), getColaboradorModel().findAll(),
+      getCategoriaModel().findAll(), getTaxaCartaoModel().findAll(),
+      getColaboradorComissaoServicoModel().findAll(), getConfiguracaoSistemaModel().findOne()
+    ]);
+    const agIds = agendamentos.map(row => row.id), saleIds = vendas.map(row => row.id);
+    const pagamentos = agIds.length || saleIds.length ? await getPagamentoModel().findAll({ where: {
+      ...active, [Op.or]: [{ agendamento_id: { [Op.in]: agIds } }, { venda_direta_id: { [Op.in]: saleIds } }]
+    } }) : [];
+    return res.json(buildDre({ agendamentos, vendas, despesas, receitas, produtos, servicos, colaboradores,
+      categorias, taxas, comissoes, config, pagamentos, data_inicio, data_fim, categoria, status }));
   } catch (error) {
     console.error('DRE ERROR:', error.message, error.stack);
-    res.status(500).json({ detail: error.message });
+    return res.status(500).json({ detail: 'Não foi possível gerar o DRE.' });
   }
 };
 
@@ -1635,7 +1300,7 @@ const relatorioServicos = async (req, res) => {
 const relatorioResultadoOperacional = async (req, res) => {
   const { data_inicio, data_fim, colaborador_id, categoria_servico, categoria_produto } = req.query;
 
-  if (!data_inicio || !data_fim) {
+  if (!validDrePeriod(data_inicio, data_fim)) {
     return res.status(400).json({ detail: 'Defina o período de datas (data_inicio e data_fim)' });
   }
 
@@ -1665,23 +1330,17 @@ const relatorioResultadoOperacional = async (req, res) => {
     const categoryMap = new Map(categories.map(c => [c.id, c.nome]));
 
     // 2. Fetch rates
-    let rates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' } });
-    if (rates.length === 0) {
-      await getTaxaCartaoModel().bulkCreate([
-        { forma_pagamento: 'cartao_credito', percentual: 2.5, ativo: true },
-        { forma_pagamento: 'cartao_debito', percentual: 1.5, ativo: true }
-      ]);
-      rates = await getTaxaCartaoModel().findAll({ where: { deletado: 'N' } });
-    }
+    const rates = await getTaxaCartaoModel().findAll();
+    const endExclusive = new Date(`${data_fim}T00:00:00Z`);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    const period = { [Op.gte]: `${data_inicio}T00:00:00`, [Op.lt]: `${endExclusive.toISOString().slice(0, 10)}T00:00:00` };
 
     // 3. Fetch completed agendamentos in period
     const ags = await getAgendamentoModel().findAll({
       where: {
         status: 'concluido',
         deletado: 'N',
-        data_hora: {
-          [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
-        }
+        data_hora: period
       }
     });
 
@@ -1690,9 +1349,7 @@ const relatorioResultadoOperacional = async (req, res) => {
       where: {
         status: 'pago',
         deletado: 'N',
-        data_venda: {
-          [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`]
-        }
+        data_venda: period
       }
     });
 
@@ -1723,15 +1380,6 @@ const relatorioResultadoOperacional = async (req, res) => {
         paymentsByVendaId[p.venda_direta_id].push(p);
       }
     });
-
-    // Helper: calculate total transaction fee for a list of payments
-    const getTxFee = (pags) => {
-      if (!pags) return 0;
-      return pags.reduce((acc, p) => {
-        if (!isCardPayment(p, rates)) return acc;
-        return acc + calculatePaymentFee(p, rates).taxa_valor;
-      }, 0);
-    };
 
     // Helper: get proportional cost of an insumo item
     const getCustoProp = (pu) => {
@@ -1764,12 +1412,14 @@ const relatorioResultadoOperacional = async (req, res) => {
       } catch (e) {
         items = ag.itens || [];
       }
-      if (!Array.isArray(items)) return;
+      if (!Array.isArray(items) || items.length === 0) {
+        items = [{ nome: 'Atendimento sem itens detalhados', valor: Number(ag.valor_total || 0), produtos_utilizados: [] }];
+      }
 
       const agPayments = paymentsByAgId[ag.id] || [];
-      const totalTxFee = getTxFee(agPayments);
+      const itemFees = allocateCardFees(agPayments, rates, items.map(item => Number(item.valor || 0)));
 
-      items.forEach(item => {
+      items.forEach((item, itemIndex) => {
         // Filter by collaborator if requested
         if (colaborador_id && colaborador_id !== 'todos') {
           if (item.colaborador_id !== colaborador_id && item.auxiliar_id !== colaborador_id) {
@@ -1879,8 +1529,7 @@ const relatorioResultadoOperacional = async (req, res) => {
         }
 
         // Calculate proportional fee
-        const proportion = ag.valor_total > 0 ? (Number(item.valor || 0) / Number(ag.valor_total)) : (1 / items.length);
-        const txFee = totalTxFee * proportion;
+        const txFee = itemFees[itemIndex];
 
         listServicesFiltered.push({
           agendamento_id: ag.id,
@@ -1904,14 +1553,16 @@ const relatorioResultadoOperacional = async (req, res) => {
     const listProductsFiltered = [];
     vendas.forEach(v => {
       // Carrinho support
-      const itensVenda = Array.isArray(v.itens) && v.itens.length > 0
-        ? v.itens
+      let parsedItems = v.itens;
+      if (typeof parsedItems === 'string') { try { parsedItems = JSON.parse(parsedItems); } catch { parsedItems = []; } }
+      const itensVenda = Array.isArray(parsedItems) && parsedItems.length > 0
+        ? parsedItems
         : [{ produto_id: v.produto_id, produto_nome: v.produto_nome, quantidade: v.quantidade, subtotal: v.valor_total, comissao_pct: null }];
 
       const vPayments = paymentsByVendaId[v.id] || [];
-      const totalTxFee = getTxFee(vPayments);
+      const itemFees = allocateCardFees(vPayments, rates, itensVenda.map(item => Number(item.subtotal ?? Number(item.preco_unitario || 0) * Number(item.quantidade || 0))));
 
-      itensVenda.forEach(item => {
+      itensVenda.forEach((item, itemIndex) => {
         // Filter by collaborator
         if (colaborador_id && colaborador_id !== 'todos') {
           if (v.colaborador_id !== colaborador_id) return;
@@ -1956,8 +1607,7 @@ const relatorioResultadoOperacional = async (req, res) => {
         const comVal = val_item_comissao * (pct / 100);
 
         // Calculate proportional fee
-        const proportion = v.valor_total > 0 ? (Number(item.subtotal || 0) / Number(v.valor_total)) : (1 / itensVenda.length);
-        const txFee = totalTxFee * proportion;
+        const txFee = itemFees[itemIndex];
 
         listProductsFiltered.push({
           venda_id: v.id,
