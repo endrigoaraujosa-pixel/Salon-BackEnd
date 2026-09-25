@@ -144,6 +144,6 @@ test('detalhes de crédito e débito separados conciliam valor e preservam metad
   assert.equal(credits[0].base_calculo, 120);
   assert.equal(credits[0].valor_liquido, 116.4);
   assert.equal(credits[0].data_recebimento_prevista, '2026-10-11');
-  assert.match(credits[0].descricao, /Venda #42/);
+  assert.match(credits[0].descricao, /000042\s*\|\s*V/);
   assert.equal(debits[0].valor_liquido, 79.2);
 });

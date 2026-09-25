@@ -122,7 +122,7 @@ export function buildDre({ agendamentos = [], vendas = [], pagamentos = [], desp
       commission(item, ag, base, false, common);
       commission(item, ag, base, true, common);
     });
-    shares.set(`a:${ag.id}`, { weights: items.length ? items.map(item => num(item.valor)) : [num(ag.valor_total)], selectedIndexes, fraction: total > 0 ? selected / total : count / (items.length || 1), data: date(ag.data_hora), numero: ag.numero || ag.id });
+    shares.set(`a:${ag.id}`, { weights: items.length ? items.map(item => num(item.valor)) : [num(ag.valor_total)], selectedIndexes, fraction: total > 0 ? selected / total : count / (items.length || 1), data: date(ag.data_hora), numero: ag.numero || ag.id, cliente_nome: ag.cliente_nome || '', tipo_origem: 'S' });
   }
 
   for (const sale of vendas.filter(live)) {
@@ -155,7 +155,7 @@ export function buildDre({ agendamentos = [], vendas = [], pagamentos = [], desp
           percentual: pct, base_calculo: money(base), status: sale.comissao_paga ? 'Pago' : 'Provisionado', origem: 'Comissão da venda' });
       }
     });
-    shares.set(`v:${sale.id}`, { weights: items.map(item => num(item.subtotal ?? num(item.preco_unitario) * num(item.quantidade))), selectedIndexes, fraction: total > 0 ? selected / total : count / items.length, data: date(sale.data_venda), numero: sale.numero_venda || sale.id });
+    shares.set(`v:${sale.id}`, { weights: items.map(item => num(item.subtotal ?? num(item.preco_unitario) * num(item.quantidade))), selectedIndexes, fraction: total > 0 ? selected / total : count / items.length, data: date(sale.data_venda), numero: sale.numero_venda || sale.id, cliente_nome: sale.cliente_nome || '', tipo_origem: 'V' });
   }
 
   for (const payment of pagamentos.filter(live)) {
@@ -171,16 +171,41 @@ export function buildDre({ agendamentos = [], vendas = [], pagamentos = [], desp
     const baseShares = allocateMoney(payment.valor, share.weights);
     const allocatedBase = money(share.selectedIndexes.reduce((total, index) => total + baseShares[index], 0));
     const allocatedFee = money(share.selectedIndexes.reduce((total, index) => total + feeShares[index], 0));
+
+    const rate = taxas.find(row => row.forma_pagamento === payment.forma_pagamento);
+    let formaDescricao = rate?.descricao;
+    if (!formaDescricao) {
+      if (type === 'credito' || payment.forma_pagamento === 'cartao_credito' || payment.forma_pagamento?.startsWith('credito_')) {
+        const bandeira = payment.cartao_bandeira || rate?.bandeira;
+        formaDescricao = bandeira ? `Cartão de Crédito (${bandeira})` : 'Cartão de Crédito';
+      } else if (type === 'debito' || payment.forma_pagamento === 'cartao_debito' || payment.forma_pagamento?.startsWith('debito_')) {
+        const bandeira = payment.cartao_bandeira || rate?.bandeira;
+        formaDescricao = bandeira ? `Cartão de Débito (${bandeira})` : 'Cartão de Débito';
+      } else if (payment.forma_pagamento && !payment.forma_pagamento.includes('_')) {
+        formaDescricao = payment.forma_pagamento;
+      } else {
+        formaDescricao = 'Cartão';
+      }
+    }
+
+    const numFormatted = String(share.numero || '').padStart(6, '0');
+    const layoutId = `${numFormatted} | ${share.tipo_origem || (payment.agendamento_id ? 'S' : 'V')}`;
+
     detalhes.taxas_cartao.push({ id: payment.id, pagamento_id: payment.id,
       agendamento_id: payment.agendamento_id || null, venda_direta_id: payment.venda_direta_id || null,
+      agendamento_numero: payment.agendamento_id ? share.numero : null,
+      venda_numero: payment.venda_direta_id ? share.numero : null,
+      layout_id: layoutId,
+      cliente_nome: share.cliente_nome || '',
       data: share.data, data_pagamento: date(payment.data_hora),
-      descricao: `${payment.agendamento_id ? 'Atendimento' : 'Venda'} #${share.numero} — ${payment.forma_pagamento || type || 'Cartão'}`,
-      bandeira: payment.cartao_bandeira || '', parcelas: payment.cartao_parcelas ?? null,
+      descricao: `${layoutId} — ${formaDescricao}`,
+      forma_pagamento_nome: formaDescricao,
+      bandeira: payment.cartao_bandeira || rate?.bandeira || '', parcelas: payment.cartao_parcelas ?? null,
       valor_liquido: money(allocatedBase - allocatedFee), data_recebimento_prevista: date(payment.data_recebimento_prevista),
       rateado: share.fraction !== 1,
       categoria: type === 'credito' ? 'Cartão de crédito' : type === 'debito' ? 'Cartão de débito' : 'Outras taxas de cartão',
       tipo: type || 'outros', valor: allocatedFee, base_calculo: allocatedBase,
-      percentual: present(pct) ? num(pct) : null, origem: fee.origem, status: 'Reconhecido' });
+      percentual: present(pct) ? num(pct) : null, origem: fee.origem, status: 'Retido' });
   }
 
   function financialRows(rows, expense) {
