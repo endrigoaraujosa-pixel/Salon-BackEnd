@@ -3219,6 +3219,67 @@ const relatorioAgendamentosCancelados = async (req, res) => {
   }
 };
 
+const relatorioFaturamentoDiario = async (req, res) => {
+  const { data_inicio, data_fim } = req.query;
+  if (!data_inicio || !data_fim || !/^\d{4}-\d{2}-\d{2}$/.test(data_inicio) || !/^\d{4}-\d{2}-\d{2}$/.test(data_fim) || data_inicio > data_fim) {
+    return res.status(400).json({ detail: 'Informe um período válido.' });
+  }
+
+  try {
+    const start = `${data_inicio}T00:00:00`;
+    const end = `${data_fim}T23:59:59.999`;
+    const [agendamentos, vendas] = await Promise.all([
+      getAgendamentoModel().findAll({
+        attributes: ['data_hora', 'cliente_id', 'valor_pago', 'valor_total'],
+        where: { data_hora: { [Op.between]: [start, end] }, status: 'concluido', deletado: 'N' }
+      }),
+      getVendaDiretaModel().findAll({
+        attributes: ['data_venda', 'valor_pago', 'valor_total'],
+        where: { data_venda: { [Op.between]: [start, end] }, status: { [Op.ne]: 'cancelado' }, deletado: 'N' }
+      })
+    ]);
+
+    const byDate = new Map();
+    const ensureDay = (date) => {
+      if (!byDate.has(date)) byDate.set(date, { data: date, clientes: new Set(), valor_servicos: 0, valor_produtos: 0 });
+      return byDate.get(date);
+    };
+    const dateInBrazil = (value) => new Date(value).toLocaleDateString('en-CA', { timeZone: 'America/Recife' });
+
+    agendamentos.forEach((ag) => {
+      const day = ensureDay(dateInBrazil(ag.data_hora));
+      if (ag.cliente_id) day.clientes.add(ag.cliente_id);
+      day.valor_servicos += Number(ag.valor_pago || ag.valor_total || 0);
+    });
+    vendas.forEach((venda) => {
+      const day = ensureDay(dateInBrazil(venda.data_venda));
+      day.valor_produtos += Number(venda.valor_pago || venda.valor_total || 0);
+    });
+
+    const dias = [];
+    for (let date = new Date(`${data_inicio}T12:00:00Z`), last = new Date(`${data_fim}T12:00:00Z`); date <= last; date.setUTCDate(date.getUTCDate() + 1)) {
+      const key = date.toISOString().slice(0, 10);
+      const day = ensureDay(key);
+      const frequencia = day.clientes.size;
+      const valor_servicos = Number(day.valor_servicos.toFixed(2));
+      const valor_produtos = Number(day.valor_produtos.toFixed(2));
+      const total = Number((valor_servicos + valor_produtos).toFixed(2));
+      dias.push({ data: key, frequencia, valor_servicos, valor_produtos, total, media: frequencia ? Number((total / frequencia).toFixed(2)) : 0 });
+    }
+
+    const totais = dias.reduce((acc, day) => ({
+      frequencia: acc.frequencia + day.frequencia,
+      valor_servicos: Number((acc.valor_servicos + day.valor_servicos).toFixed(2)),
+      valor_produtos: Number((acc.valor_produtos + day.valor_produtos).toFixed(2)),
+      total: Number((acc.total + day.total).toFixed(2))
+    }), { frequencia: 0, valor_servicos: 0, valor_produtos: 0, total: 0 });
+    totais.media = totais.frequencia ? Number((totais.total / totais.frequencia).toFixed(2)) : 0;
+    return res.json({ dias, totais });
+  } catch (error) {
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
 export {
   dashboard,
   dashboardDetail,
@@ -3241,6 +3302,7 @@ export {
   relatorioEstoqueEntradas,
   relatorioVariacaoPreco,
   relatorioCartoes,
-  relatorioAgendamentosCancelados
+  relatorioAgendamentosCancelados,
+  relatorioFaturamentoDiario
 };
 

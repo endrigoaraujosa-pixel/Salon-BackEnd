@@ -42,7 +42,8 @@ import {
   relatorioEstoqueEntradas,
   relatorioVariacaoPreco,
   relatorioCartoes,
-  relatorioAgendamentosCancelados
+  relatorioAgendamentosCancelados,
+  relatorioFaturamentoDiario
 } from './controllers/reportController.js';
 import { createServ, deleteServ, listServ, updateServ } from './controllers/servicoController.js';
 import { createFornecedor, deleteFornecedor, listFornecedores, updateFornecedor } from './controllers/fornecedorController.js';
@@ -250,6 +251,7 @@ app.get('/api/relatorios/estoque/perdas-quebras', protect, requirePermission('re
 app.get('/api/relatorios/estoque/entradas', protect, requirePermission('relatorios.estoque'), relatorioEstoqueEntradas);
 app.get('/api/relatorios/estoque/variacao-preco', protect, requirePermission('relatorios.estoque'), relatorioVariacaoPreco);
 app.get('/api/relatorios/agendamentos-cancelados', protect, requirePermission('relatorios.cancelados'), relatorioAgendamentosCancelados);
+app.get('/api/relatorios/faturamento-diario', protect, requirePermission('relatorios.vendas'), relatorioFaturamentoDiario);
 
 // Users Routes
 const userRoutes = express.Router();
