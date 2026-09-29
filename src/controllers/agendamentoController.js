@@ -936,6 +936,8 @@ const addPagamentos = async (req, res) => {
         credito_gerado: p.credito_gerado || 0,
         forma_pagamento: p.forma_pagamento,
         observacao: p.observacao || '',
+        recebido_por_id: req.user?.id || null,
+        recebido_por_nome: req.user?.name || null,
         data_hora: new Date(),
         cartao_tipo,
         adquirente_id,
