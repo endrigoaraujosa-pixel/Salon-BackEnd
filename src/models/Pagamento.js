@@ -76,6 +76,14 @@ const Pagamento = sequelize.define('Pagamento', {
     type: DataTypes.TEXT,
     defaultValue: ''
   },
+  recebido_por_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true
+  },
+  recebido_por_nome: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
   data_hora: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

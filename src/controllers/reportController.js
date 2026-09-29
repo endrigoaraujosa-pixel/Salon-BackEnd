@@ -709,45 +709,23 @@ const relatorioDre = async (req, res) => {
 };
 
 const relatorioCaixa = async (req, res) => {
-  const { data_inicio, data_fim, colaborador_id } = req.query;
+  const { data_inicio, data_fim, colaborador_id, recebido_por_id, forma_pagamento, origem, cliente_id, status } = req.query;
   try {
-    // Buscar agendamentos cujas datas/horas estão no período selecionado
-    const agendamentosNoPeriodo = await getAgendamentoModel().findAll({
-      where: {
-        data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
-        deletado: 'N'
-      }
-    });
+    if (!data_inicio || !data_fim || data_inicio > data_fim) return res.status(400).json({ detail: 'Informe um período válido.' });
+    const period = { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59.999`] };
+    const [agendamentosNoPeriodo, vendasNoPeriodo] = await Promise.all([
+      getAgendamentoModel().findAll({ attributes: ['id'], where: { data_hora: period, deletado: 'N' } }),
+      getVendaDiretaModel().findAll({ attributes: ['id'], where: { data_venda: period, deletado: 'N' } })
+    ]);
     const agendamentoIds = agendamentosNoPeriodo.map(a => a.id);
-
-    // Buscar vendas diretas cujas datas estão no período selecionado
-    const vendasNoPeriodo = await getVendaDiretaModel().findAll({
-      where: {
-        data_venda: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] },
-        deletado: 'N'
-      }
-    });
     const vendaDiretaIds = vendasNoPeriodo.map(v => v.id);
-
-    // Buscar pagamentos correspondentes a esses agendamentos ou vendas diretas, ou sem vínculo mas no período
-    const orConditions = [];
-    if (agendamentoIds.length > 0) {
-      orConditions.push({ agendamento_id: { [Op.in]: agendamentoIds } });
-    }
-    if (vendaDiretaIds.length > 0) {
-      orConditions.push({ venda_direta_id: { [Op.in]: vendaDiretaIds } });
-    }
-    orConditions.push({
-      agendamento_id: null,
-      venda_direta_id: null,
-      data_hora: { [Op.between]: [`${data_inicio}T00:00:00`, `${data_fim}T23:59:59`] }
-    });
-
+    const paymentConditions = [];
+    if (agendamentoIds.length) paymentConditions.push({ agendamento_id: { [Op.in]: agendamentoIds } });
+    if (vendaDiretaIds.length) paymentConditions.push({ venda_direta_id: { [Op.in]: vendaDiretaIds } });
+    paymentConditions.push({ agendamento_id: null, venda_direta_id: null, data_hora: period });
     const pagsAg = await getPagamentoModel().findAll({
-      where: {
-        deletado: 'N',
-        [Op.or]: orConditions
-      }
+      where: { deletado: 'N', [Op.or]: paymentConditions },
+      order: [['data_hora', 'ASC']]
     });
 
     const allAgendamentoIds = [...new Set(pagsAg.map(p => p.agendamento_id).filter(Boolean))];
@@ -768,32 +746,50 @@ const relatorioCaixa = async (req, res) => {
     const colaboradores = await getColaboradorModel().findAll({ where: { deletado: 'N' } });
     const colabMap = new Map(colaboradores.map(c => [c.id, c.nome]));
     
-    let filteredPags = pagsAg;
+    const usuariosRecebimentoMap = new Map();
+    pagsAg.forEach(p => {
+      if (p.recebido_por_id) usuariosRecebimentoMap.set(p.recebido_por_id, { id: p.recebido_por_id, nome: p.recebido_por_nome || 'Usuário sem nome' });
+    });
+    const usuarios_recebimento = [...usuariosRecebimentoMap.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    if (pagsAg.some(p => !p.recebido_por_id)) usuarios_recebimento.unshift({ id: 'nao_identificado', nome: 'Não identificado (histórico)' });
 
-    if (colaborador_id && colaborador_id !== 'todos') {
-      filteredPags = pagsAg.filter(p => {
-        if (p.agendamento_id) {
-          const ag = agMap.get(p.agendamento_id);
-          if (ag) {
-            let itens = [];
-            try {
-              itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens;
-            } catch (e) {
-              itens = ag.itens || [];
-            }
-            if (Array.isArray(itens)) {
-              return itens.some(item => item.colaborador_id === colaborador_id || item.auxiliar_id === colaborador_id);
-            }
-          }
-        } else if (p.venda_direta_id) {
-          const v = vMap.get(p.venda_direta_id);
-          if (v) {
-            return v.colaborador_id === colaborador_id;
-          }
-        }
-        return false;
-      });
-    }
+    const getOperationStatus = p => {
+      if (p.agendamento_id) return agMap.get(p.agendamento_id)?.status;
+      if (p.venda_direta_id) {
+        const saleStatus = vMap.get(p.venda_direta_id)?.status;
+        return saleStatus === 'pago' ? 'concluido' : saleStatus;
+      }
+      return null;
+    };
+    const getOperationOrigin = p => p.agendamento_id ? 'servico' : p.venda_direta_id ? 'venda' : 'outro';
+    const matchesProfessional = p => {
+      if (!colaborador_id || colaborador_id === 'todos') return true;
+      if (p.agendamento_id) {
+        const ag = agMap.get(p.agendamento_id);
+        if (!ag) return false;
+        let itens = [];
+        try { itens = typeof ag.itens === 'string' ? JSON.parse(ag.itens) : ag.itens; } catch (e) { itens = ag.itens || []; }
+        return Array.isArray(itens) && itens.some(item => item.colaborador_id === colaborador_id || item.auxiliar_id === colaborador_id);
+      }
+      if (p.venda_direta_id) return vMap.get(p.venda_direta_id)?.colaborador_id === colaborador_id;
+      return false;
+    };
+    let filteredPags = pagsAg.filter(p => {
+      if (recebido_por_id === 'nao_identificado' && p.recebido_por_id) return false;
+      if (recebido_por_id && recebido_por_id !== 'todos' && recebido_por_id !== 'nao_identificado' && p.recebido_por_id !== recebido_por_id) return false;
+      if (forma_pagamento && forma_pagamento !== 'todos') {
+        if (forma_pagamento === 'cartao_credito' && p.forma_pagamento !== 'cartao_credito' && p.cartao_tipo !== 'credito') return false;
+        else if (forma_pagamento === 'cartao_debito' && p.forma_pagamento !== 'cartao_debito' && p.cartao_tipo !== 'debito') return false;
+        else if (!['cartao_credito', 'cartao_debito'].includes(forma_pagamento) && p.forma_pagamento !== forma_pagamento) return false;
+      }
+      if (origem && origem !== 'todos' && getOperationOrigin(p) !== origem) return false;
+      if (cliente_id && cliente_id !== 'todos') {
+        const operation = p.agendamento_id ? agMap.get(p.agendamento_id) : p.venda_direta_id ? vMap.get(p.venda_direta_id) : null;
+        if (operation?.cliente_id !== cliente_id) return false;
+      }
+      if (status && status !== 'todos' && getOperationStatus(p) !== status) return false;
+      return matchesProfessional(p);
+    });
 
     const totais = { dinheiro: 0, pix: 0, cartao_credito: 0, cartao_debito: 0, vale: 0, credito_cliente: 0, geral: 0, troco: 0, bruto: 0 };
     filteredPags.forEach(p => {
@@ -831,7 +827,7 @@ const relatorioCaixa = async (req, res) => {
       let itens = '-';
       let tipo = 'outro';
       let profissional = '-';
-      let usuario_recebimento = 'Sistema';
+      let usuario_recebimento = p.recebido_por_nome || 'Não identificado';
       let valor_total_operacao = 0;
       let status_operacao = '-';
       let data_hora = p.data_hora;
@@ -844,7 +840,6 @@ const relatorioCaixa = async (req, res) => {
           tipo = 'servico';
           valor_total_operacao = ag.valor_total || 0;
           status_operacao = ag.status || '-';
-          usuario_recebimento = ag.criado_por_nome || 'Sistema';
           data_hora = ag.data_hora;
           
           let parsedItens = [];
@@ -885,21 +880,23 @@ const relatorioCaixa = async (req, res) => {
           tipo = 'venda';
           valor_total_operacao = v.valor_total || 0;
           status_operacao = v.status || '-';
-          usuario_recebimento = v.criado_por_nome || 'Sistema';
-          profissional = v.colaborador_nome || (v.colaborador_id && colabMap.get(v.colaborador_id)) || '-';
           data_hora = v.data_venda;
+          profissional = v.colaborador_nome || (v.colaborador_id && colabMap.get(v.colaborador_id)) || '-';
         }
       }
 
       return {
         id: p.id,
+        usuario_recebimento_id: p.recebido_por_id || 'nao_identificado',
         numero,
         cliente,
+        cliente_id: p.agendamento_id ? agMap.get(p.agendamento_id)?.cliente_id : p.venda_direta_id ? vMap.get(p.venda_direta_id)?.cliente_id : null,
         itens,
         valor: p.valor,
         valor_recebido: p.valor_recebido,
         troco: p.troco,
         data_hora,
+        data_pagamento: p.data_hora,
         forma_pagamento: p.forma_pagamento,
         cartao_tipo: p.cartao_tipo || (p.forma_pagamento === 'cartao_credito' ? 'credito' : p.forma_pagamento === 'cartao_debito' ? 'debito' : null),
         tipo,
@@ -910,7 +907,7 @@ const relatorioCaixa = async (req, res) => {
       };
     });
 
-    // Ordenar pagamentos cronologicamente pela data do agendamento/venda correspondente
+    // O período e a data principal seguem a operação; a data de lançamento do pagamento é retornada à parte.
     pagamentosDetalhes.sort((a, b) => new Date(a.data_hora) - new Date(b.data_hora));
 
     res.json({
@@ -918,6 +915,7 @@ const relatorioCaixa = async (req, res) => {
       data_fim,
       totais,
       total_pagamentos: filteredPags.length,
+      usuarios_recebimento,
       pagamentos: pagamentosDetalhes
     });
   } catch (error) {
