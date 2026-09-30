@@ -1,5 +1,5 @@
 import { getAuthSessionModel } from '../models/AuthSession.js';
-import { validateUserGrant, canManageUser } from '../security/accessPolicy.js';
+import { validateUserGrant, canManageUser, isAdminProfile } from '../security/accessPolicy.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { getUserModel } from '../models/User.js';
@@ -19,7 +19,15 @@ const listUsers = async (req, res) => {
       attributes: ['id', 'name', 'email', 'role', 'perfil_acesso_id', 'colaborador_id', 'ativo', 'pode_alterar_concluido', 'pode_excluir_agendamento', 'pode_excluir_pagamento', 'created_at', 'last_access_at'],
       order: [['name', 'ASC']]
     });
-    res.json(users);
+    const profiles = await getPerfilAcessoModel().findAll({ attributes: ['id', 'nome'] });
+    const adminProfileIds = new Set(profiles.filter(isAdminProfile).map(profile => profile.id));
+    res.json(users.map(user => {
+      const data = user.toJSON();
+      if (data.role === 'admin' || adminProfileIds.has(data.perfil_acesso_id)) {
+        data.last_access_at = null;
+      }
+      return data;
+    }));
   } catch (error) {
     res.status(500).json({ detail: error.message });
   }
