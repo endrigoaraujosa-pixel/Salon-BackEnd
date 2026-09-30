@@ -16,7 +16,7 @@ const listUsers = async (req, res) => {
 
     const users = await getUserModel().findAll({
       where: whereClause,
-      attributes: ['id', 'name', 'email', 'role', 'perfil_acesso_id', 'colaborador_id', 'ativo', 'pode_alterar_concluido', 'pode_excluir_agendamento', 'pode_excluir_pagamento', 'created_at', 'last_access_at'],
+      attributes: ['id', 'name', 'email', 'role', 'sexo', 'perfil_acesso_id', 'colaborador_id', 'ativo', 'pode_alterar_concluido', 'pode_excluir_agendamento', 'pode_excluir_pagamento', 'created_at', 'last_access_at'],
       order: [['name', 'ASC']]
     });
     const profiles = await getPerfilAcessoModel().findAll({ attributes: ['id', 'nome'] });
@@ -39,9 +39,12 @@ const createUser = async (req, res) => {
     if (!canCreate) {
       return res.status(403).json({ detail: 'Você não tem permissão para cadastrar usuários.' });
     }
-    const { name, email, role, perfil_acesso_id, colaborador_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
+    const { name, email, role, sexo, perfil_acesso_id, colaborador_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
     if (!email || !senha) {
       return res.status(400).json({ detail: 'Email e senha são obrigatórios' });
+    }
+    if (!['masculino', 'feminino'].includes(sexo)) {
+      return res.status(400).json({ detail: 'Selecione o sexo do usuário (Masculino ou Feminino).' });
     }
     
     const existing = await getUserModel().findOne({ where: { email: email.toLowerCase().trim(), deletado: 'N' } });
@@ -71,6 +74,7 @@ const createUser = async (req, res) => {
     const user = await getUserModel().create({
       id: uuidv4(),
       name,
+      sexo,
       email: email.toLowerCase().trim(),
       role: calculatedRole,
       perfil_acesso_id: perfil_acesso_id || null,
@@ -85,6 +89,7 @@ const createUser = async (req, res) => {
     res.status(201).json({
       id: user.id,
       name: user.name,
+      sexo: user.sexo,
       email: user.email,
       role: user.role,
       perfil_acesso_id: user.perfil_acesso_id,
@@ -113,7 +118,10 @@ const updateUser = async (req, res) => {
       return res.status(404).json({ detail: 'Usuário não encontrado' });
     }
 
-    const { name, email, role, perfil_acesso_id, colaborador_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
+    const { name, email, role, sexo, perfil_acesso_id, colaborador_id, ativo, senha, pode_alterar_concluido, pode_excluir_agendamento, pode_excluir_pagamento } = req.body;
+    if (sexo !== undefined && !['masculino', 'feminino'].includes(sexo)) {
+      return res.status(400).json({ detail: 'Selecione o sexo do usuário (Masculino ou Feminino).' });
+    }
 
     if (isAdmin) {
       const currentProfile = user.perfil_acesso_id ? await getPerfilAcessoModel().findByPk(user.perfil_acesso_id) : null;
@@ -131,6 +139,7 @@ const updateUser = async (req, res) => {
         return res.json({
           id: user.id,
           name: user.name,
+          sexo: user.sexo,
           email: user.email,
           role: user.role,
           perfil_acesso_id: user.perfil_acesso_id,
@@ -153,6 +162,7 @@ const updateUser = async (req, res) => {
     }
 
     if (name !== undefined) user.name = name;
+    if (sexo !== undefined) user.sexo = sexo;
     
     if (perfil_acesso_id !== undefined) {
       user.perfil_acesso_id = perfil_acesso_id;
@@ -189,6 +199,7 @@ const updateUser = async (req, res) => {
     res.json({
       id: user.id,
       name: user.name,
+      sexo: user.sexo,
       email: user.email,
       role: user.role,
       perfil_acesso_id: user.perfil_acesso_id,
