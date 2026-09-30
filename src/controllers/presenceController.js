@@ -1,7 +1,9 @@
 import { Op } from 'sequelize';
 import { getAuthSessionModel } from '../models/AuthSession.js';
 import { getUserModel } from '../models/User.js';
+import { getPerfilAcessoModel } from '../models/PerfilAcesso.js';
 import { sessionValid } from '../security/sessions.js';
+import { isAdminProfile } from '../security/accessPolicy.js';
 
 export const PRESENCE_TTL_MS = 120000;
 
@@ -34,8 +36,10 @@ export async function listPresence(req, res) {
     const viewAll = req.user.role === 'admin' || req.user.perfil?.permissoes?.['usuarios.visualizar'] === true;
     const users = await getUserModel().findAll({
       where: { deletado: 'N', ...(viewAll ? {} : { id: req.user.id }) },
-      attributes: ['id', 'ativo', 'password_hash', 'last_access_at']
+      attributes: ['id', 'ativo', 'password_hash', 'role', 'perfil_acesso_id', 'last_access_at']
     });
+    const profiles = await getPerfilAcessoModel().findAll({ attributes: ['id', 'nome'] });
+    const adminProfileIds = new Set(profiles.filter(isAdminProfile).map(profile => profile.id));
     const now = new Date();
     const sessions = users.length ? await getAuthSessionModel().findAll({ where: {
       user_id: { [Op.in]: users.map(user => user.id) },
@@ -48,7 +52,13 @@ export async function listPresence(req, res) {
       return user?.ativo !== false && sessionValid(session, user);
     }).map(session => session.user_id));
     res.set('Cache-Control', 'no-store');
-    return res.json(users.map(user => ({ id: user.id, online: online.has(user.id), last_access_at: user.last_access_at || null })));
+    return res.json(users.map(user => ({
+      id: user.id,
+      online: online.has(user.id),
+      last_access_at: user.role === 'admin' || adminProfileIds.has(user.perfil_acesso_id)
+        ? null
+        : user.last_access_at || null
+    })));
   } catch {
     return res.status(503).json({ detail: 'Presença temporariamente indisponível.' });
   }
