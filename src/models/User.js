@@ -21,6 +21,10 @@ const User = sequelize.define('User', {
   name: {
     type: DataTypes.STRING(255)
   },
+  sexo: {
+    type: DataTypes.STRING(10),
+    allowNull: true
+  },
   last_access_at: {
     type: DataTypes.DATE,
     allowNull: true
