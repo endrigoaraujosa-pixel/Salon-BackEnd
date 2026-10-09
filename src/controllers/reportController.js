@@ -26,6 +26,38 @@ const normalizeName = (name) => {
     .replace(/\s+/g, ' ');
 };
 
+const getFriendlyPaymentLabel = (method, ratesByMethod) => {
+  if (!method) return 'N/A';
+
+  const rate = ratesByMethod.get(method);
+  if (rate) {
+    if (rate.descricao?.trim()) return rate.descricao.trim();
+    const cardType = rate.tipo_cartao || (method === 'cartao_credito' ? 'credito' : method === 'cartao_debito' ? 'debito' : null);
+    const type = cardType === 'credito' ? 'Crédito' : 'Débito';
+    return `${type} ${rate.bandeira?.trim() || ''}`.trim();
+  }
+
+  const normalized = method.toLowerCase();
+  const standardLabels = {
+    dinheiro: 'Dinheiro',
+    pix: 'PIX',
+    cartao_credito: 'Cartão de Crédito',
+    cartao_debito: 'Cartão de Débito',
+    credito: 'Cartão de Crédito',
+    debito: 'Cartão de Débito',
+    credito_cliente: 'Crédito de Cliente',
+    saldo: 'Saldo de Crédito',
+    vale: 'Vale',
+    transferencia: 'Transferência Bancária',
+    outros: 'Outros'
+  };
+
+  if (standardLabels[normalized]) return standardLabels[normalized];
+  if (normalized.startsWith('credito_')) return 'Cartão de Crédito';
+  if (normalized.startsWith('debito_')) return 'Cartão de Débito';
+  return method.charAt(0).toUpperCase() + method.slice(1).replace(/_/g, ' ');
+};
+
 const getQuantidadeCustoEstoque = (produto, quantidade = produto?.quantidade_estoque) => {
   const qtd = Number(quantidade || 0);
   const qtdPorUnidade = Number(produto?.quantidade_por_unidade || 0);
@@ -321,6 +353,16 @@ const dashboardDetail = async (req, res) => {
         return res.status(403).json({ detail: 'Acesso negado' });
       }
 
+      // Resolve payment keys such as "credito_a7a8b201" to their configured description.
+      const paymentRates = await getTaxaCartaoModel().findAll();
+      const ratesByMethod = new Map(paymentRates.map(rate => [rate.forma_pagamento, rate]));
+      const formatPaymentMethods = (methods, fallback) => {
+        const forms = [...new Set(methods.filter(Boolean))];
+        return forms.length > 0
+          ? forms.map(method => getFriendlyPaymentLabel(method, ratesByMethod)).join(' / ')
+          : getFriendlyPaymentLabel(fallback, ratesByMethod);
+      };
+
       // Load completed appointments
       const ags = await getAgendamentoModel().findAll({
         where: {
@@ -406,8 +448,7 @@ const dashboardDetail = async (req, res) => {
         }
 
         const agPayments = agPaymentsMap[ag.id] || [];
-        const forms = [...new Set(agPayments.map(p => p.forma_pagamento).filter(Boolean))];
-        const formaPagamento = forms.length > 0 ? forms.join(' / ') : (ag.forma_pagamento || 'N/A');
+        const formaPagamento = formatPaymentMethods(agPayments.map(p => p.forma_pagamento), ag.forma_pagamento);
 
         details.push({
           id: ag.id,
@@ -424,8 +465,7 @@ const dashboardDetail = async (req, res) => {
       // Map product sales
       vendas.forEach(v => {
         const vdPayments = vdPaymentsMap[v.id] || [];
-        const forms = [...new Set(vdPayments.map(p => p.forma_pagamento).filter(Boolean))];
-        const formaPagamento = forms.length > 0 ? forms.join(' / ') : (v.forma_pagamento || 'N/A');
+        const formaPagamento = formatPaymentMethods(vdPayments.map(p => p.forma_pagamento), v.forma_pagamento);
 
         details.push({
           id: v.id,
@@ -448,7 +488,7 @@ const dashboardDetail = async (req, res) => {
           itens: r.descricao || 'Outra Receita',
           valor: r.valor || 0,
           data_hora: r.data_recebimento || r.data_vencimento || r.data_documento || '',
-          forma_pagamento: r.forma_pagamento || 'N/A',
+          forma_pagamento: getFriendlyPaymentLabel(r.forma_pagamento, ratesByMethod),
           tipo: 'outro'
         });
       });
