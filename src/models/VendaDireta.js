@@ -45,6 +45,10 @@ const VendaDireta = sequelize.define('VendaDireta', {
     type: DataTypes.STRING(255),
     allowNull: true
   },
+  agendamento_id: {
+    type: DataTypes.STRING(36),
+    allowNull: true
+  },
   valor_total: {
     type: DataTypes.FLOAT,
     defaultValue: 0

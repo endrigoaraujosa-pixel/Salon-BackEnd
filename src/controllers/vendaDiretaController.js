@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
 import { getVendaDiretaModel } from '../models/VendaDireta.js';
+import { getAgendamentoModel } from '../models/Agendamento.js';
 import { getPagamentoModel } from '../models/Pagamento.js';
 import { getClienteModel } from '../models/Cliente.js';
 import { getColaboradorModel } from '../models/Colaborador.js';
@@ -132,7 +133,7 @@ const getVenda = async (req, res) => {
 };
 
 const createVenda = async (req, res) => {
-  const { itens, colaborador_id, cliente_id, data_venda } = req.body;
+  const { itens, colaborador_id, cliente_id, data_venda, agendamento_id } = req.body;
 
   if (!colaborador_id) {
     return res.status(400).json({ detail: 'Informe o profissional responsável pela venda.' });
@@ -153,6 +154,19 @@ const createVenda = async (req, res) => {
 
   const transaction = await sequelize.transaction();
   try {
+    let agendamentoVinculado = null;
+    if (agendamento_id) {
+      agendamentoVinculado = await getAgendamentoModel().findByPk(agendamento_id, { transaction });
+      if (!agendamentoVinculado || agendamentoVinculado.deletado === 'S') {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'O atendimento associado à venda não foi encontrado.' });
+      }
+      if (cliente_id && String(agendamentoVinculado.cliente_id) !== String(cliente_id)) {
+        await transaction.rollback();
+        return res.status(400).json({ detail: 'A venda e o atendimento precisam pertencer ao mesmo cliente.' });
+      }
+    }
+
     // Buscar e validar todos os produtos do carrinho
     const itensProcessados = [];
     let valor_total = 0;
@@ -262,6 +276,7 @@ const createVenda = async (req, res) => {
       colaborador_nome,
       cliente_id,
       cliente_nome,
+      agendamento_id: agendamentoVinculado?.id || null,
       valor_total,
       valor_pago: 0,
       status: 'pendente'
