@@ -10,7 +10,7 @@ import { getWhatsappLembreteModel } from '../models/WhatsappLembrete.js';
 import whatsappProvider from '../modules/whatsapp/provider/whatsapp.provider.js';
 import { formatMessage } from '../modules/whatsapp/templates/reminder.template.js';
 import { formatThankYouMessage } from '../modules/whatsapp/templates/thankyou.template.js';
-import { getContextualDayOfWeek } from '../utils/agendaDateTime.js';
+import { getContextualDayOfWeek, normalizeAgendaDateTime } from '../utils/agendaDateTime.js';
 import { formatProfissionalNames, formatPhoneNumber, maskPhoneNumber } from '../utils/index.js';
 
 let heartbeatCounter = 0;
@@ -99,7 +99,7 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
     const candidateIds = candidates.map(c => c.id);
 
     // Etapa B: Travar atômicos apenas os que continuam em 'Pendente'
-    const [updatedCount, lockedReminders] = await getWhatsappLembreteModel().update(
+    const [, lockedReminders] = await getWhatsappLembreteModel().update(
       { status: 'Processando', atualizado_em: new Date() },
       {
         where: {
@@ -110,12 +110,18 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
       }
     );
 
-    if (updatedCount === 0) {
-      return;
+    // PostgreSQL retorna os registros quando `returning` está habilitado. Outros
+    // dialetos podem retornar apenas a quantidade atualizada; nesses casos, reler
+    // somente os candidatos que acabamos de reservar.
+    let pendentes = Array.isArray(lockedReminders) ? lockedReminders : [];
+    if (pendentes.length === 0 && typeof lockedReminders === 'number' && lockedReminders > 0) {
+      pendentes = await getWhatsappLembreteModel().findAll({
+        where: {
+          id: { [Op.in]: candidateIds },
+          status: 'Processando'
+        }
+      });
     }
-
-    // Buscar as instâncias de Model reais com status 'Processando' reservadas
-    const pendentes = lockedReminders || [];
 
     if (!pendentes || pendentes.length === 0) {
       return;
@@ -176,6 +182,18 @@ export async function runSingleTenantProcessReminders(schema = 'default') {
             reminder.erro = 'Agendamento cancelado';
             await reminder.save();
             return;
+          }
+
+          if (reminder.tipo_lembrete !== 'agradecimento') {
+            const appointmentDate = normalizeAgendaDateTime(ag.data_hora);
+            if (appointmentDate && Number.isFinite(appointmentDate.getTime()) && appointmentDate.getTime() <= Date.now()) {
+              console.log(`[WhatsAppReminderJob] Lembrete padrão ID ${reminder.id} cancelado: a data do atendimento já passou.`);
+              reminder.status = 'Cancelado';
+              reminder.tipo_lembrete = `${reminder.tipo_lembrete}_cancelado_${reminder.id}`;
+              reminder.erro = 'Atendimento já realizado ou em data passada; lembrete cancelado.';
+              await reminder.save();
+              return;
+            }
           }
 
           // Validar elegibilidade por tipo de lembrete
