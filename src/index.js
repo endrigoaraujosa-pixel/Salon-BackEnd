@@ -27,6 +27,7 @@ import {
   relatorioDre,
   relatorioProdutos,
   relatorioServicos,
+  relatorioComparativoDesempenho,
   relatorioResultadoOperacional,
   relatorioEstoque,
   relatorioMovimentacaoEstoque,
@@ -236,6 +237,7 @@ app.get('/api/relatorios/cartoes', protect, requirePermission('relatorios.cartoe
 app.get('/api/relatorios/caixa', protect, requirePermission('relatorios.caixa'), relatorioCaixa);
 app.get('/api/relatorios/produtos', protect, requirePermission('relatorios.vendas'), relatorioProdutos);
 app.get('/api/relatorios/servicos', protect, requirePermission('relatorios.vendas'), relatorioServicos);
+app.get('/api/relatorios/comparativo-desempenho', protect, requirePermission('relatorios.vendas'), relatorioComparativoDesempenho);
 app.get('/api/relatorios/resultado-operacional', protect, requirePermission('relatorios.operacional'), relatorioResultadoOperacional);
 app.get('/api/relatorios/estoque', protect, requirePermission('relatorios.estoque'), relatorioEstoque);
 app.get('/api/relatorios/estoque/movimentacao', protect, requirePermission('relatorios.estoque'), relatorioMovimentacaoEstoque);

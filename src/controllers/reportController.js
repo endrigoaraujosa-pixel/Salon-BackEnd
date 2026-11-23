@@ -1335,6 +1335,392 @@ const relatorioServicos = async (req, res) => {
   }
 };
 
+const relatorioComparativoDesempenho = async (req, res) => {
+  const {
+    atual_inicio,
+    atual_fim,
+    anterior_inicio,
+    anterior_fim,
+    tipo = 'todos',
+    colaborador_id = 'todos',
+    drilldown_tipo = '',
+    drilldown_id = ''
+  } = req.query;
+
+  const validPeriod = (start, end) => validDrePeriod(start, end);
+  if (!validPeriod(atual_inicio, atual_fim) || !validPeriod(anterior_inicio, anterior_fim)) {
+    return res.status(400).json({ detail: 'Informe datas válidas para os períodos atual e anterior.' });
+  }
+  if (!['todos', 'servicos', 'produtos'].includes(tipo)) {
+    return res.status(400).json({ detail: 'Tipo de operação inválido.' });
+  }
+
+  const makeRange = (start, end) => {
+    const endExclusive = new Date(`${end}T00:00:00Z`);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    return {
+      start,
+      end,
+      where: { [Op.gte]: `${start}T00:00:00`, [Op.lt]: `${endExclusive.toISOString().slice(0, 10)}T00:00:00` }
+    };
+  };
+  const ranges = {
+    anterior: makeRange(anterior_inicio, anterior_fim),
+    atual: makeRange(atual_inicio, atual_fim)
+  };
+  const wherePeriods = (column) => ({
+    [Op.or]: Object.values(ranges).map(range => ({ [column]: range.where }))
+  });
+  const toAgendaDate = (value) => {
+    if (!value) return '';
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Recife', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(date).map(part => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+  const parseItems = (value) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    }
+    return [];
+  };
+  const isInside = (date, range) => date >= range.start && date <= range.end;
+  const periodNamesFor = (date) => Object.entries(ranges)
+    .filter(([, range]) => isInside(date, range))
+    .map(([name]) => name);
+  const normalizeFilter = (value) => String(value || '').trim().toLowerCase();
+  const filteredType = (expected) => tipo === 'todos' || tipo === expected;
+
+  try {
+    const [agendamentos, vendas, servicos, produtos, colaboradores, categorias] = await Promise.all([
+      getAgendamentoModel().findAll({ where: { deletado: 'N', ...wherePeriods('data_hora') } }),
+      getVendaDiretaModel().findAll({ where: { deletado: 'N', ...wherePeriods('data_venda') } }),
+      getServicoModel().findAll(),
+      getProdutoModel().findAll(),
+      getColaboradorModel().findAll({ where: { deletado: 'N' } }),
+      getCategoriaModel().findAll()
+    ]);
+
+    const servicoMap = new Map(servicos.map(row => [String(row.id), row]));
+    const produtoMap = new Map(produtos.map(row => [String(row.id), row]));
+    const categoriaMap = new Map(categorias.map(row => [String(row.id), row.nome]));
+    const colaboradorMap = new Map(colaboradores.map(row => [String(row.id), row.nome]));
+    const periodData = Object.fromEntries(Object.keys(ranges).map(name => [name, {
+      receita_servicos: 0,
+      receita_produtos: 0,
+      quantidade_total: 0,
+      ticket_medio: 0,
+      conversao: 0,
+      conversao_numerador: new Set(),
+      conversao_denominador: new Set(),
+      transacoes: new Set(),
+      itens: new Map(),
+      categorias: new Map(),
+      equipe: new Map(),
+      series: new Map()
+    }]));
+    const periodLength = (range) => Math.max(1, Math.round((Date.parse(`${range.end}T00:00:00Z`) - Date.parse(`${range.start}T00:00:00Z`)) / 86400000) + 1);
+    const seriesGranularity = Math.max(periodLength(ranges.atual), periodLength(ranges.anterior)) <= 62 ? 'dia' : 'mês';
+
+    const drillMatches = (entityType, entityId, categoryId, personId) => {
+      if (!drilldown_tipo || !drilldown_id) return true;
+      if (drilldown_tipo === 'profissional') return true;
+      if (drilldown_tipo === 'tipo_receita') {
+        return (drilldown_id === 'servicos' && entityType === 'servico') ||
+          (drilldown_id === 'produtos' && entityType === 'produto');
+      }
+      if (drilldown_tipo === entityType) return String(entityId || '') === String(drilldown_id);
+      if (drilldown_tipo === `categoria_${entityType}`) return String(categoryId || 'sem_categoria') === String(drilldown_id);
+      return true;
+    };
+    const addLine = (period, { type, id, name, categoryId, categoryName, quantity, value, personId, date, transactionId }) => {
+      const revenueKey = type === 'servico' ? 'receita_servicos' : 'receita_produtos';
+      const amount = Number.isFinite(Number(value)) ? Number(value) : 0;
+      const qty = Number.isFinite(Number(quantity)) ? Number(quantity) : 0;
+      period[revenueKey] += amount;
+      period.transacoes.add(transactionId);
+
+      const entityKey = `${type}:${id || normalizeFilter(name)}`;
+      if (!period.itens.has(entityKey)) {
+        period.itens.set(entityKey, {
+          chave: entityKey,
+          tipo: type === 'servico' ? 'Serviço' : 'Produto',
+          entidade_tipo: type,
+          entidade_id: id || null,
+          nome: name || (type === 'servico' ? 'Serviço sem identificação' : 'Produto sem identificação'),
+          categoria_id: categoryId || 'sem_categoria',
+          categoria: categoryName || 'Sem categoria',
+          quantidade: 0,
+          faturamento: 0
+        });
+      }
+      const item = period.itens.get(entityKey);
+      item.quantidade += qty;
+      item.faturamento += amount;
+
+      const categoryKey = `${type}:${categoryId || 'sem_categoria'}`;
+      if (!period.categorias.has(categoryKey)) {
+        period.categorias.set(categoryKey, {
+          chave: categoryKey,
+          tipo: type === 'servico' ? 'Serviços' : 'Produtos',
+          entidade_tipo: type,
+          categoria_id: categoryId || 'sem_categoria',
+          categoria: categoryName || 'Sem categoria',
+          faturamento: 0,
+          quantidade: 0
+        });
+      }
+      const category = period.categorias.get(categoryKey);
+      category.faturamento += amount;
+      category.quantidade += qty;
+
+      const staffId = personId ? String(personId) : 'sem_profissional';
+      if (!period.equipe.has(staffId)) {
+        period.equipe.set(staffId, {
+          colaborador_id: staffId,
+          nome: colaboradorMap.get(staffId) || 'Sem profissional',
+          faturamento: 0,
+          receita_servicos: 0,
+          receita_produtos: 0
+        });
+      }
+      const staff = period.equipe.get(staffId);
+      staff.faturamento += amount;
+      if (type === 'servico') staff.receita_servicos += amount;
+      else staff.receita_produtos += amount;
+
+      const range = ranges[period === periodData.atual ? 'atual' : 'anterior'];
+      const pointDate = date;
+      const bucketIndex = seriesGranularity === 'dia'
+        ? Math.max(0, Math.floor((Date.parse(`${pointDate}T00:00:00Z`) - Date.parse(`${range.start}T00:00:00Z`)) / 86400000))
+        : Math.max(0, (Number(pointDate.slice(0, 4)) - Number(range.start.slice(0, 4))) * 12 + Number(pointDate.slice(5, 7)) - Number(range.start.slice(5, 7)));
+      const seriesKey = String(bucketIndex + 1);
+      if (!period.series.has(seriesKey)) period.series.set(seriesKey, { indice: bucketIndex + 1, faturamento: 0 });
+      period.series.get(seriesKey).faturamento += amount;
+      period._granularity = seriesGranularity;
+    };
+
+    for (const ag of agendamentos) {
+      const date = toAgendaDate(ag.data_hora);
+      const periodNames = periodNamesFor(date);
+      if (!periodNames.length) continue;
+      let items = parseItems(ag.itens);
+      if (!items.length && Number(ag.valor_total || 0) > 0) {
+        items = [{ servico_id: null, nome: 'Atendimento sem itens detalhados', valor: Number(ag.valor_total || 0), colaborador_id: null }];
+      }
+      const lines = items.map(item => {
+        const service = servicoMap.get(String(item.servico_id || ''));
+        return {
+          item,
+          service,
+          categoryId: service?.categoria_id || item.categoria_id || 'sem_categoria',
+          categoryName: service?.categoria_nome || service?.categoria || categoriaMap.get(String(service?.categoria_id || '')) || 'Sem categoria',
+          personId: item.colaborador_id || (Array.isArray(ag.profissionais) ? ag.profissionais[0] : null)
+        };
+      }).filter(({ item, service, categoryId, personId }) =>
+        filteredType('servicos') &&
+        drillMatches('servico', item.servico_id, categoryId, personId) &&
+        (!drilldown_tipo || !drilldown_tipo.startsWith('categoria_') || drilldown_tipo !== 'categoria_produto') &&
+        (!drilldown_tipo || drilldown_tipo !== 'produto') &&
+        (colaborador_id === 'todos' || String(item.colaborador_id || '') === String(colaborador_id) || String(item.auxiliar_id || '') === String(colaborador_id)) &&
+        (drilldown_tipo !== 'profissional' || String(item.colaborador_id || '') === String(drilldown_id) || String(item.auxiliar_id || '') === String(drilldown_id))
+      );
+      for (const periodName of periodNames) {
+        const period = periodData[periodName];
+        const isConcluded = ag.status === 'concluido';
+        const transactionId = `A:${ag.id}`;
+        if (ag.status !== 'cancelado' && lines.length) period.conversao_denominador.add(transactionId);
+        if (isConcluded && lines.length) period.conversao_numerador.add(transactionId);
+        if (!isConcluded || !lines.length) continue;
+        lines.forEach(({ item, service, categoryId, categoryName, personId }) => {
+          const cat = categoryName !== 'Sem categoria' ? categoryName : 'Sem categoria';
+          addLine(period, {
+            type: 'servico',
+            id: item.servico_id || null,
+            name: item.nome || service?.nome,
+            categoryId,
+            categoryName: cat,
+            quantity: 1,
+            value: item.valor,
+            personId,
+            date,
+            transactionId
+          });
+        });
+      }
+    }
+
+    for (const venda of vendas) {
+      const date = toAgendaDate(venda.data_venda);
+      const periodNames = periodNamesFor(date);
+      if (!periodNames.length) continue;
+      let items = parseItems(venda.itens);
+      if (!items.length) {
+        items = [{ produto_id: venda.produto_id, produto_nome: venda.produto_nome, quantidade: venda.quantidade, subtotal: venda.valor_total }];
+      }
+      const lines = items.map(item => {
+        const product = produtoMap.get(String(item.produto_id || ''));
+        const categoryId = product?.categoria_id || item.categoria_id || 'sem_categoria';
+        return {
+          item,
+          product,
+          categoryId,
+          categoryName: product?.categoria || product?.categoria_nome || categoriaMap.get(String(product?.categoria_id || '')) || 'Sem categoria',
+          personId: venda.colaborador_id
+        };
+      }).filter(({ item, categoryId, personId }) =>
+        filteredType('produtos') &&
+        drillMatches('produto', item.produto_id, categoryId, personId) &&
+        (!drilldown_tipo || !drilldown_tipo.startsWith('categoria_') || drilldown_tipo !== 'categoria_servico') &&
+        (!drilldown_tipo || drilldown_tipo !== 'servico') &&
+        (colaborador_id === 'todos' || String(personId || '') === String(colaborador_id)) &&
+        (drilldown_tipo !== 'profissional' || String(personId || '') === String(drilldown_id))
+      );
+      for (const periodName of periodNames) {
+        const period = periodData[periodName];
+        const isPaid = venda.status === 'pago';
+        const transactionId = venda.agendamento_id ? `A:${venda.agendamento_id}` : `V:${venda.id}`;
+        if (venda.status !== 'cancelado' && lines.length) period.conversao_denominador.add(transactionId);
+        if (isPaid && lines.length) period.conversao_numerador.add(transactionId);
+        if (!isPaid || !lines.length) continue;
+        lines.forEach(({ item, product, categoryId, categoryName, personId }) => {
+          const quantity = Number(item.quantidade || 0);
+          const value = item.subtotal !== undefined && item.subtotal !== null
+            ? Number(item.subtotal)
+            : Number(item.preco_unitario || 0) * quantity || Number(venda.valor_total || 0);
+          addLine(period, {
+            type: 'produto',
+            id: item.produto_id || null,
+            name: item.produto_nome || product?.nome,
+            categoryId,
+            categoryName,
+            quantity,
+            value,
+            personId,
+            date,
+            transactionId
+          });
+        });
+      }
+    }
+
+    const summarize = (period) => {
+      period.quantidade_total = period.transacoes.size;
+      period.receita_servicos = Number(period.receita_servicos.toFixed(2));
+      period.receita_produtos = Number(period.receita_produtos.toFixed(2));
+      period.faturamento_total = Number((period.receita_servicos + period.receita_produtos).toFixed(2));
+      period.ticket_medio = period.quantidade_total ? Number((period.faturamento_total / period.quantidade_total).toFixed(2)) : 0;
+      period.taxa_conversao = period.conversao_denominador.size
+        ? Number((period.conversao_numerador.size / period.conversao_denominador.size * 100).toFixed(2))
+        : 0;
+      const finalizeMap = (map) => [...map.values()].map(row => Object.fromEntries(
+        Object.entries(row).map(([key, value]) => [key, typeof value === 'number' ? Number(value.toFixed(2)) : value])
+      ));
+      return {
+        faturamento_total: period.faturamento_total,
+        receita_servicos: period.receita_servicos,
+        receita_produtos: period.receita_produtos,
+        quantidade_total: period.quantidade_total,
+        ticket_medio: period.ticket_medio,
+        taxa_conversao: period.taxa_conversao,
+        itens: finalizeMap(period.itens),
+        categorias: finalizeMap(period.categorias),
+        equipe: finalizeMap(period.equipe),
+        series: finalizeMap(period.series).sort((a, b) => a.indice - b.indice),
+        granularidade: seriesGranularity
+      };
+    };
+
+    const anterior = summarize(periodData.anterior);
+    const atual = summarize(periodData.atual);
+    const aggregateRows = (key, fields) => {
+      const prev = new Map(anterior[key].map(row => [row.chave || row.colaborador_id, row]));
+      const current = new Map(atual[key].map(row => [row.chave || row.colaborador_id, row]));
+      const allKeys = new Set([...prev.keys(), ...current.keys()]);
+      return [...allKeys].map(id => {
+        const a = prev.get(id) || {};
+        const b = current.get(id) || {};
+        const combined = { ...(a.chave ? a : {}), ...(b.chave ? b : {}) };
+        fields.forEach(field => {
+          combined[`${field}_anterior`] = Number(a[field] || 0);
+          combined[`${field}_atual`] = Number(b[field] || 0);
+        });
+        return combined;
+      });
+    };
+
+    const variation = (current, previous) => previous === 0 ? (current > 0 ? 100 : 0) : Number((((current - previous) / previous) * 100).toFixed(2));
+    const rows = aggregateRows('itens', ['quantidade', 'faturamento']).map(row => ({
+      ...row,
+      diferenca: Number((row.faturamento_atual - row.faturamento_anterior).toFixed(2)),
+      variacao_quantidade: variation(row.quantidade_atual, row.quantidade_anterior),
+      variacao_faturamento: variation(row.faturamento_atual, row.faturamento_anterior),
+      participacao_anterior: anterior.faturamento_total ? Number((row.faturamento_anterior / anterior.faturamento_total * 100).toFixed(2)) : 0,
+      participacao_atual: atual.faturamento_total ? Number((row.faturamento_atual / atual.faturamento_total * 100).toFixed(2)) : 0
+    })).sort((a, b) => b.faturamento_atual - a.faturamento_atual || b.faturamento_anterior - a.faturamento_anterior);
+
+    const mergeChartRows = (collection, idKey, valueKeys) => {
+      const prev = new Map(anterior[collection].map(row => [row[idKey], row]));
+      const current = new Map(atual[collection].map(row => [row[idKey], row]));
+      const ids = new Set([...prev.keys(), ...current.keys()]);
+      return [...ids].map(id => {
+        const a = prev.get(id) || {};
+        const b = current.get(id) || {};
+        const output = { ...a, ...b };
+        valueKeys.forEach(key => {
+          output[`${key}_anterior`] = Number(a[key] || 0);
+          output[`${key}_atual`] = Number(b[key] || 0);
+        });
+        return output;
+      });
+    };
+    const categoryRows = mergeChartRows('categorias', 'chave', ['faturamento', 'quantidade']);
+    const teamRows = mergeChartRows('equipe', 'colaborador_id', ['faturamento', 'receita_servicos', 'receita_produtos']);
+    const maxBucket = Math.max(
+      ...anterior.series.map(row => row.indice),
+      ...atual.series.map(row => row.indice),
+      0
+    );
+    const previousSeries = new Map(anterior.series.map(row => [row.indice, row.faturamento]));
+    const currentSeries = new Map(atual.series.map(row => [row.indice, row.faturamento]));
+    const serie = Array.from({ length: maxBucket }, (_, index) => ({
+      indice: index + 1,
+      rotulo: `${anterior.granularidade === 'dia' && atual.granularidade === 'dia' ? 'Dia' : 'Mês'} ${index + 1}`,
+      anterior: Number(previousSeries.get(index + 1) || 0),
+      atual: Number(currentSeries.get(index + 1) || 0)
+    }));
+
+    const metrics = ['faturamento_total', 'receita_servicos', 'receita_produtos', 'quantidade_total', 'ticket_medio', 'taxa_conversao'];
+    const resumo = Object.fromEntries(metrics.map(key => [key, {
+      anterior: anterior[key],
+      atual: atual[key],
+      diferenca: Number((atual[key] - anterior[key]).toFixed(2)),
+      variacao: variation(atual[key], anterior[key])
+    }]));
+
+    return res.json({
+      periodos: { anterior: { inicio: anterior_inicio, fim: anterior_fim }, atual: { inicio: atual_inicio, fim: atual_fim } },
+      filtros: { tipo, colaborador_id, drilldown_tipo, drilldown_id },
+      resumo,
+      anterior,
+      atual,
+      itens: rows,
+      categorias: categoryRows,
+      equipe: teamRows.sort((a, b) => b.faturamento_atual - a.faturamento_atual),
+      serie,
+      observacao_conversao: 'Taxa operacional: atendimentos concluídos e vendas pagas sobre operações não canceladas registradas no sistema; não representa conversão de leads ou visitantes.'
+    });
+  } catch (error) {
+    return res.status(500).json({ detail: error.message });
+  }
+};
+
 const relatorioResultadoOperacional = async (req, res) => {
   const { data_inicio, data_fim, colaborador_id, categoria_servico, categoria_produto } = req.query;
 
@@ -3325,6 +3711,7 @@ export {
   relatorioDre,
   relatorioProdutos,
   relatorioServicos,
+  relatorioComparativoDesempenho,
   relatorioResultadoOperacional,
   relatorioEstoque,
   relatorioMovimentacaoEstoque,
