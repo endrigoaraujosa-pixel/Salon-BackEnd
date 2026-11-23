@@ -716,9 +716,15 @@ const setStatus = async (req, res) => {
     if (status === 'cancelado') {
       await cancelReminders(ag.id);
     } else if (status === 'agendado' || status === 'confirmado') {
+      if (oldStatus === 'concluido') {
+        await cancelReminders(ag.id);
+      }
       await generateReminders(ag);
     } else if (status === 'concluido') {
+      await cancelReminders(ag.id);
       await generateThankYouReminder(ag);
+    } else if (oldStatus === 'concluido') {
+      await cancelReminders(ag.id);
     }
 
     res.json({ ok: true });
@@ -991,8 +997,11 @@ const addPagamentos = async (req, res) => {
 
     await transaction.commit();
 
-    if (oldStatus !== 'concluido' && ag.status === 'concluido') {
-      await generateThankYouReminder(ag);
+    if (ag.status === 'concluido') {
+      await cancelReminders(ag.id);
+      if (oldStatus !== 'concluido') {
+        await generateThankYouReminder(ag);
+      }
     }
 
     res.json({ ok: true, total_pago: novoTotal, saldo: ag.valor_total - novoTotal });
@@ -1014,7 +1023,6 @@ const updatePagamento = async (req, res) => {
       await transaction.rollback();
       return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
-
     if (ag.status === 'concluido') {
       if (!password) {
         await transaction.rollback();
@@ -1276,8 +1284,14 @@ const updatePagamento = async (req, res) => {
 
     await transaction.commit();
 
-    if (oldStatus !== 'concluido' && ag.status === 'concluido') {
-      await generateThankYouReminder(ag);
+    if (ag.status === 'concluido') {
+      await cancelReminders(ag.id);
+      if (oldStatus !== 'concluido') {
+        await generateThankYouReminder(ag);
+      }
+    } else if (oldStatus === 'concluido' && ag.status === 'agendado') {
+      await cancelReminders(ag.id);
+      await generateReminders(ag);
     }
 
     res.json({ ok: true });
@@ -1298,6 +1312,7 @@ const deletePagamento = async (req, res) => {
       await transaction.rollback();
       return res.status(404).json({ detail: 'Agendamento não encontrado' });
     }
+    const oldStatus = ag.status;
 
     if (ag.status === 'concluido') {
       if (!email || !password) {
@@ -1376,7 +1391,6 @@ const deletePagamento = async (req, res) => {
     }, { transaction });
 
     if (ag) {
-      const oldStatus = ag.status;
       const allPags = await getPagamentoModel().findAll({ where: { agendamento_id: req.params.aid, deletado: 'N' }, transaction });
       const totalPago = allPags.reduce((acc, p) => acc + p.valor, 0);
       ag.valor_pago = totalPago;
@@ -1401,6 +1415,17 @@ const deletePagamento = async (req, res) => {
     }
 
     await transaction.commit();
+
+    if (ag.status === 'concluido') {
+      await cancelReminders(ag.id);
+      if (oldStatus !== 'concluido') {
+        await generateThankYouReminder(ag);
+      }
+    } else if (oldStatus === 'concluido' && ag.status === 'agendado') {
+      await cancelReminders(ag.id);
+      await generateReminders(ag);
+    }
+
     res.json({ ok: true });
   } catch (error) {
     await transaction.rollback();

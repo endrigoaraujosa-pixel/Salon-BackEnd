@@ -116,6 +116,17 @@ export async function generateReminders(agendamento) {
           console.error(`[WhatsAppReminderService] Erro ao criar/atualizar lembrete ${item.type} para agendamento ${agendamento.id}:`, err);
         }
       } else {
+        if (existing && ['Pendente', 'Falhou'].includes(existing.status)) {
+          const previousStatus = existing.status;
+          await getWhatsappLembreteModel().update({
+            status: 'Cancelado',
+            tipo_lembrete: `${item.type}_cancelado_${existing.id}`,
+            erro: 'Atendimento remarcado para uma data passada; lembrete cancelado.'
+          }, {
+            where: { id: existing.id, status: previousStatus }
+          });
+          console.log(`[WhatsAppReminderService] Lembrete ${item.type} cancelado para agendamento ${agendamento.id}: a data do atendimento já passou.`);
+        }
         console.log(`[WhatsAppReminderService] Lembrete ${item.type} para agendamento ${agendamento.id} não processado pois a data programada (${scheduledTime.toISOString()}) seria no passado.`);
       }
     }
@@ -138,7 +149,7 @@ export async function cancelReminders(agendamentoId) {
       {
         where: {
           agendamento_id: agendamentoId,
-          status: 'Pendente'
+          status: { [Op.in]: ['Pendente', 'Falhou'] }
         }
       }
     );
